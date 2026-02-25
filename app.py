@@ -46,6 +46,7 @@ HTML = f"""<!doctype html>
         display: grid;
         grid-template-columns: minmax(620px, 1fr) minmax(620px, 1fr);
         gap: 16px;
+        align-items: start;
       }}
       .card {{
         background: var(--panel);
@@ -56,6 +57,9 @@ HTML = f"""<!doctype html>
       }}
       .card + .card {{
         margin-top: 16px;
+      }}
+      .code-path-card {{
+        margin-top: 26px;
       }}
       h1 {{ margin: 0 0 8px; font-size: 1.5rem; }}
       .sub {{ margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }}
@@ -88,6 +92,57 @@ HTML = f"""<!doctype html>
       button:hover {{ background: var(--accent-2); }}
       button:disabled {{ opacity: 0.6; cursor: wait; }}
       .status {{ color: var(--muted); font-size: 0.9rem; }}
+      .toggle-wrap {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        user-select: none;
+      }}
+      .toggle-wrap input {{
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+        pointer-events: none;
+      }}
+      .toggle-track {{
+        width: 42px;
+        height: 24px;
+        border-radius: 999px;
+        background: #d6d3d1;
+        border: 1px solid #cbd5e1;
+        position: relative;
+        transition: background-color 160ms ease, border-color 160ms ease;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.08);
+      }}
+      .toggle-track::after {{
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+        transition: transform 160ms ease;
+      }}
+      .toggle-wrap input:checked + .toggle-track {{
+        background: #0f766e;
+        border-color: #115e59;
+      }}
+      .toggle-wrap input:checked + .toggle-track::after {{
+        transform: translateX(18px);
+      }}
+      .toggle-wrap input:focus-visible + .toggle-track {{
+        outline: 2px solid #99f6e4;
+        outline-offset: 2px;
+      }}
+      .toggle-label {{
+        font-weight: 500;
+      }}
       .response {{
         margin-top: 16px;
         border: 1px solid var(--border);
@@ -277,9 +332,10 @@ HTML = f"""<!doctype html>
           <div class="actions">
             <button id="sendBtn" type="button">Send</button>
             <button id="clearBtn" type="button">Clear</button>
-            <label class="status" style="display:flex;align-items:center;gap:6px;">
-              <input id="guardrailsToggle" type="checkbox" />
-              Guardrails
+            <label class="toggle-wrap" for="guardrailsToggle">
+              <input id="guardrailsToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler AI Guard" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Zscaler AI Guard</span>
             </label>
             <span id="status" class="status">Idle</span>
           </div>
@@ -299,7 +355,7 @@ HTML = f"""<!doctype html>
         </aside>
       </div>
 
-      <section class="card">
+      <section class="card code-path-card">
         <h1>Code Path Viewer</h1>
         <p class="sub">Visual snippets for the Python code paths used by this demo (before/after guardrails).</p>
         <div class="code-toolbar">
