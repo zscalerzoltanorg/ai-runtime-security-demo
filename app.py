@@ -1,13 +1,15 @@
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib import error, request
+
+import providers
 
 
 HOST = "127.0.0.1"
 PORT = 5000
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
 
 
 HTML = f"""<!doctype html>
@@ -324,7 +326,7 @@ HTML = f"""<!doctype html>
       <div class="layout">
         <section class="card">
           <h1>Local LLM Chat Demo</h1>
-          <p class="sub">Model: <strong>{OLLAMA_MODEL}</strong> (via local Ollama)</p>
+          <p class="sub">Local default: <strong>{OLLAMA_MODEL}</strong> (Ollama). Anthropic env model: <strong>{ANTHROPIC_MODEL}</strong></p>
 
           <label for="prompt" class="sub">Prompt</label>
           <textarea id="prompt" placeholder="Type a prompt, then click Send..."></textarea>
@@ -332,6 +334,11 @@ HTML = f"""<!doctype html>
           <div class="actions">
             <button id="sendBtn" type="button">Send</button>
             <button id="clearBtn" type="button">Clear</button>
+            <label class="status" for="providerSelect">LLM</label>
+            <select id="providerSelect" style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;font:inherit;">
+              <option value="ollama">Ollama (Local)</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
             <label class="toggle-wrap" for="guardrailsToggle">
               <input id="guardrailsToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler AI Guard" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -378,6 +385,7 @@ HTML = f"""<!doctype html>
       const clearBtn = document.getElementById("clearBtn");
       const logListEl = document.getElementById("logList");
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
+      const providerSelectEl = document.getElementById("providerSelect");
       const codeAutoBtn = document.getElementById("codeAutoBtn");
       const codeBeforeBtn = document.getElementById("codeBeforeBtn");
       const codeAfterBtn = document.getElementById("codeAfterBtn");
@@ -387,6 +395,7 @@ HTML = f"""<!doctype html>
       let traceCount = 0;
       let codeViewMode = "auto";
       let lastSentGuardrailsEnabled = false;
+      let lastSelectedProvider = "ollama";
 
       function pretty(obj) {{
         try {{
@@ -423,10 +432,13 @@ HTML = f"""<!doctype html>
       }}
 
       function effectiveCodeMode() {{
+        const provider = providerSelectEl.value || lastSelectedProvider || "ollama";
         if (codeViewMode === "before" || codeViewMode === "after") {{
-          return codeViewMode;
+          return `${{codeViewMode}}_${{provider}}`;
         }}
-        return (guardrailsToggleEl.checked || lastSentGuardrailsEnabled) ? "after" : "before";
+        return `${{
+          (guardrailsToggleEl.checked || lastSentGuardrailsEnabled) ? "after" : "before"
+        }}_${{provider}}`;
       }}
 
       function renderCodeViewer() {{
@@ -439,9 +451,13 @@ HTML = f"""<!doctype html>
 
         codeStatusEl.textContent = codeViewMode === "auto"
           ? `Auto mode: showing ${{
-              mode === "after" ? "AI Guard path" : "direct Ollama path"
-            }} (Guardrails toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
-          : `Manual mode: showing ${{mode === "after" ? "AI Guard path" : "direct Ollama path"}}`;
+              mode.startsWith("after_") ? "AI Guard path" : "direct path"
+            }} for ${{
+              (providerSelectEl.value || "ollama") === "ollama" ? "Ollama (Local)" : "Anthropic"
+            }} (Zscaler AI Guard toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
+          : `Manual mode: showing ${{
+              mode.startsWith("after_") ? "AI Guard path" : "direct path"
+            }} for ${{mode.endsWith("_anthropic") ? "Anthropic" : "Ollama (Local)"}}`;
 
         codeAutoBtn.classList.toggle("secondary", codeViewMode !== "auto");
         codeBeforeBtn.classList.toggle("secondary", codeViewMode !== "before");
@@ -464,7 +480,11 @@ HTML = f"""<!doctype html>
           method: "POST",
           url: `${{window.location.origin}}/chat`,
           headers: {{ "Content-Type": "application/json" }},
-          payload: {{ prompt: entry.prompt, guardrails_enabled: !!entry.guardrailsEnabled }}
+          payload: {{
+            prompt: entry.prompt,
+            provider: entry.provider || "ollama",
+            guardrails_enabled: !!entry.guardrailsEnabled
+          }}
         }};
         const responseBodyForDisplay = entry.body && typeof entry.body === "object"
           ? JSON.parse(JSON.stringify(entry.body))
@@ -493,11 +513,11 @@ HTML = f"""<!doctype html>
             <span>Step ${{idx + 1}}</span>
             <span class="badge-row">
               <span class="badge ${{
-                (step.name || "").includes("Ollama") ? "badge-ollama" : "badge-ai"
+                (step.name || "").startsWith("Zscaler") ? "badge-ai" : "badge-ollama"
               }}">${{
-                (step.name || "").includes("Ollama")
-                  ? "Ollama"
-                  : (step.name || "AI Guard").replace("Zscaler ", "")
+                (step.name || "").startsWith("Zscaler")
+                  ? (step.name || "AI Guard").replace("Zscaler ", "")
+                  : (step.name || "Provider")
               }}</span>
             </span>
           </div>
@@ -512,11 +532,11 @@ HTML = f"""<!doctype html>
             <span>#${{traceCount}} ${{now}}</span>
             <span class="badge-row">
               ${{traceSteps.map((step) => {{
-                const isOllama = (step.name || "").includes("Ollama");
-                const label = isOllama
-                  ? "Ollama"
-                  : (step.name || "AI Guard").replace("Zscaler ", "");
-                return `<span class="badge ${{isOllama ? "badge-ollama" : "badge-ai"}}">${{label}}</span>`;
+                const isAIGuard = (step.name || "").startsWith("Zscaler");
+                const label = isAIGuard
+                  ? (step.name || "AI Guard").replace("Zscaler ", "")
+                  : (step.name || "Provider");
+                return `<span class="badge ${{isAIGuard ? "badge-ai" : "badge-ollama"}}">${{label}}</span>`;
               }}).join("")}}
             </span>
           </div>
@@ -548,6 +568,7 @@ HTML = f"""<!doctype html>
         responseEl.classList.remove("error");
         statusEl.textContent = "Idle";
         lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
+        lastSelectedProvider = providerSelectEl.value || "ollama";
         resetTrace();
         renderCodeViewer();
       }}
@@ -567,18 +588,21 @@ HTML = f"""<!doctype html>
 
         try {{
           lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
+          lastSelectedProvider = providerSelectEl.value || "ollama";
           renderCodeViewer();
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{
               prompt,
+              provider: providerSelectEl.value,
               guardrails_enabled: guardrailsToggleEl.checked
             }})
           }});
           const data = await res.json();
           addTrace({{
             prompt,
+            provider: providerSelectEl.value,
             guardrailsEnabled: guardrailsToggleEl.checked,
             status: res.status,
             body: data
@@ -606,6 +630,10 @@ HTML = f"""<!doctype html>
           renderCodeViewer();
         }}
       }});
+      providerSelectEl.addEventListener("change", () => {{
+        lastSelectedProvider = providerSelectEl.value || "ollama";
+        renderCodeViewer();
+      }});
       codeAutoBtn.addEventListener("click", () => {{
         codeViewMode = "auto";
         renderCodeViewer();
@@ -630,103 +658,157 @@ HTML = f"""<!doctype html>
 
 
 CODE_SNIPPETS = {
-    "before": {
+    "before_ollama": {
         "sections": [
             {
-                "title": "app.py: Direct Ollama Path (Guardrails OFF)",
+                "title": "app.py: Provider Selection + Direct Path (Guardrails OFF)",
                 "file": "app.py",
-                "code": """prompt = (data.get(\"prompt\") or \"\").strip()
+                "code": """provider_id = (data.get(\"provider\") or \"ollama\").strip().lower()
 guardrails_enabled = bool(data.get(\"guardrails_enabled\"))
-if not prompt:
-    self._send_json({\"error\": \"Prompt is required.\"}, status=400)
-    return
 
 if guardrails_enabled:
-    import guardrails
-    payload, status = guardrails.guarded_ollama_chat(
-        prompt=prompt,
-        ollama_url=OLLAMA_URL,
-        ollama_model=OLLAMA_MODEL,
-    )
+    payload, status = guardrails.guarded_chat(prompt=prompt, llm_call=_provider_call)
     self._send_json(payload, status=status)
     return
 
-ollama_request_json = {\"model\": OLLAMA_MODEL, \"prompt\": prompt, \"stream\": False}
-req = request.Request(
-    f\"{OLLAMA_URL}/api/generate\",
-    data=json.dumps(ollama_request_json).encode(\"utf-8\"),
-    headers={\"Content-Type\": \"application/json\"},
-    method=\"POST\",
+text, meta = providers.call_provider(
+    provider_id,
+    prompt,
+    ollama_url=OLLAMA_URL,
+    ollama_model=OLLAMA_MODEL,
+    anthropic_model=ANTHROPIC_MODEL,
 )
-with request.urlopen(req, timeout=120) as resp:
-    response_data = json.loads(resp.read().decode(\"utf-8\"))""",
-            }
+self._send_json({\"response\": text, \"trace\": {\"steps\": [meta[\"trace_step\"]}}})""",
+            },
+            {
+                "title": "providers.py: Ollama (Local) Provider",
+                "file": "providers.py",
+                "code": """def _ollama_generate(prompt, ollama_url, ollama_model):
+    payload = {\"model\": ollama_model, \"prompt\": prompt, \"stream\": False}
+    url = f\"{ollama_url}/api/generate\"
+    status, body = _post_json(url, payload=payload, headers={\"Content-Type\": \"application/json\"}, timeout=120)
+    text = (body.get(\"response\") or \"\").strip()
+    return text, {
+        \"trace_step\": {
+            \"name\": \"Ollama (Local)\",
+            \"request\": {\"method\": \"POST\", \"url\": url, \"payload\": payload},
+            \"response\": {\"status\": status, \"body\": body},
+        }
+    }""",
+            },
         ]
     },
-    "after": {
+    "before_anthropic": {
         "sections": [
             {
-                "title": "app.py: Toggle Branch Into guardrails.py",
+                "title": "app.py: Provider Selection + Direct Path (Guardrails OFF)",
                 "file": "app.py",
-                "code": """guardrails_enabled = bool(data.get(\"guardrails_enabled\"))
-
-if guardrails_enabled:
-    import guardrails
-
-    payload, status = guardrails.guarded_ollama_chat(
-        prompt=prompt,
+                "code": """provider_id = (data.get(\"provider\") or \"ollama\").strip().lower()
+text, meta = providers.call_provider(
+    provider_id,
+    prompt,
+    ollama_url=OLLAMA_URL,
+    ollama_model=OLLAMA_MODEL,
+    anthropic_model=ANTHROPIC_MODEL,
+)""",
+            },
+            {
+                "title": "providers.py: Anthropic SDK Provider",
+                "file": "providers.py",
+                "code": """def _anthropic_generate(prompt, anthropic_model):
+    from anthropic import Anthropic
+    api_key = os.getenv(\"ANTHROPIC_API_KEY\", \"\")
+    client = Anthropic(api_key=api_key)
+    resp = client.messages.create(
+        model=anthropic_model,
+        max_tokens=400,
+        temperature=0.2,
+        messages=[{\"role\": \"user\", \"content\": prompt}],
+    )
+    text = \"\".join(block.text for block in resp.content if getattr(block, \"type\", None) == \"text\").strip()
+    return text, {\"trace_step\": {\"name\": \"Anthropic\", \"request\": {\"method\": \"SDK\", \"url\": \"Anthropic SDK (messages.create)\"}}}""",
+            },
+        ]
+    },
+    "after_ollama": {
+        "sections": [
+            {
+                "title": "app.py: Guarded Provider Call (Ollama selected)",
+                "file": "app.py",
+                "code": """payload, status = guardrails.guarded_chat(
+    prompt=prompt,
+    llm_call=lambda p: providers.call_provider(
+        provider_id,
+        p,
         ollama_url=OLLAMA_URL,
         ollama_model=OLLAMA_MODEL,
-    )
-    self._send_json(payload, status=status)
-    return""",
+        anthropic_model=ANTHROPIC_MODEL,
+    ),
+)""",
             },
             {
-                "title": "guardrails.py: IN -> Ollama -> OUT Flow",
+                "title": "guardrails.py: Zscaler IN -> Provider -> Zscaler OUT",
                 "file": "guardrails.py",
-                "code": """def guarded_ollama_chat(prompt, ollama_url, ollama_model):
-    trace_steps = []
-
+                "code": """def guarded_chat(prompt, llm_call):
     in_blocked, in_meta = _zag_check(\"IN\", prompt)
-    trace_steps.append(in_meta[\"trace_step\"])
-    if in_meta.get(\"error\"):
-        return {\"error\": in_meta[\"error\"], \"trace\": {\"steps\": trace_steps}}, 502
     if in_blocked:
-        return {\"response\": \"Blocked by AI Guard (prompt).\", \"trace\": {\"steps\": trace_steps}}, 200
+        return {\"response\": _block_message(\"Prompt\", in_meta[\"trace_step\"][\"response\"][\"body\"])}, 200
 
-    ollama_data, ollama_meta = _ollama_generate(prompt, ollama_url, ollama_model)
-    trace_steps.append(ollama_meta[\"trace_step\"])
+    llm_text, llm_meta = llm_call(prompt)
+    trace_steps.append(llm_meta[\"trace_step\"])
 
-    text = (ollama_data.get(\"response\") or \"\").strip()
-    out_blocked, out_meta = _zag_check(\"OUT\", text)
-    trace_steps.append(out_meta[\"trace_step\"])
+    out_blocked, out_meta = _zag_check(\"OUT\", llm_text)
     if out_blocked:
-        return {\"response\": \"Blocked by AI Guard (response).\", \"trace\": {\"steps\": trace_steps}}, 200
-
-    return {\"response\": text, \"guardrails\": {\"enabled\": True, \"blocked\": False}, \"trace\": {\"steps\": trace_steps}}, 200""",
+        return {\"response\": _block_message(\"Response\", out_meta[\"trace_step\"][\"response\"][\"body\"])}, 200""",
             },
             {
-                "title": "guardrails.py: Zscaler Resolve Policy Endpoint Call",
-                "file": "guardrails.py",
-                "code": """def _zag_check(direction, content):
-    zag_url, zag_key, zag_timeout = _guardrails_config()
-    payload = {\"direction\": direction, \"content\": content or \"\"}
-    headers = {
-        \"Authorization\": f\"Bearer {zag_key}\",
-        \"Content-Type\": \"application/json\",
+                "title": "providers.py: Ollama (Local) Upstream Step",
+                "file": "providers.py",
+                "code": """return text, {
+    \"trace_step\": {
+        \"name\": \"Ollama (Local)\",
+        \"request\": {\"method\": \"POST\", \"url\": f\"{ollama_url}/api/generate\", \"payload\": payload},
+        \"response\": {\"status\": status, \"body\": body},
     }
-
-    status, body = _post_json(
-        zag_url,
-        payload=payload,
-        headers=headers,
-        timeout=zag_timeout,
-    )
-
-    blocked = (
-        isinstance(body, dict)
-        and (body.get(\"blocked\") is True or str(body.get(\"action\", \"\")).upper() == \"BLOCK\")
-    )""",
+}""",
+            },
+        ]
+    },
+    "after_anthropic": {
+        "sections": [
+            {
+                "title": "app.py: Guarded Provider Call (Anthropic selected)",
+                "file": "app.py",
+                "code": """payload, status = guardrails.guarded_chat(
+    prompt=prompt,
+    llm_call=lambda p: providers.call_provider(
+        provider_id,  # \"anthropic\"
+        p,
+        ollama_url=OLLAMA_URL,
+        ollama_model=OLLAMA_MODEL,
+        anthropic_model=ANTHROPIC_MODEL,
+    ),
+)""",
+            },
+            {
+                "title": "guardrails.py: Shared Zscaler Wrapper (Provider-Agnostic)",
+                "file": "guardrails.py",
+                "code": """# Same wrapper flow regardless of LLM provider:
+# 1) _zag_check(\"IN\", prompt)
+# 2) llm_call(prompt)   <- Ollama or Anthropic
+# 3) _zag_check(\"OUT\", llm_text)
+# 4) return response + trace.steps""",
+            },
+            {
+                "title": "providers.py: Anthropic SDK Upstream Step",
+                "file": "providers.py",
+                "code": """trace_request = {
+    \"method\": \"SDK\",
+    \"url\": \"Anthropic SDK (messages.create)\",
+    \"headers\": {\"x-api-key\": \"***redacted***\"},
+    \"payload\": request_payload,
+}
+# Response trace stores normalized metadata + generated text""",
             },
         ]
     },
@@ -777,6 +859,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         prompt = (data.get("prompt") or "").strip()
+        provider_id = (data.get("provider") or "ollama").strip().lower()
         guardrails_enabled = bool(data.get("guardrails_enabled"))
         if not prompt:
             self._send_json({"error": "Prompt is required."}, status=400)
@@ -785,11 +868,15 @@ class Handler(BaseHTTPRequestHandler):
         if guardrails_enabled:
             try:
                 import guardrails
-
-                payload, status = guardrails.guarded_ollama_chat(
+                payload, status = guardrails.guarded_chat(
                     prompt=prompt,
-                    ollama_url=OLLAMA_URL,
-                    ollama_model=OLLAMA_MODEL,
+                    llm_call=lambda p: providers.call_provider(
+                        provider_id,
+                        p,
+                        ollama_url=OLLAMA_URL,
+                        ollama_model=OLLAMA_MODEL,
+                        anthropic_model=ANTHROPIC_MODEL,
+                    ),
                 )
             except Exception as exc:
                 self._send_json(
@@ -804,77 +891,25 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(payload, status=status)
             return
 
-        ollama_request_json = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
-        ollama_payload = json.dumps(ollama_request_json).encode("utf-8")
-        req = request.Request(
-            f"{OLLAMA_URL}/api/generate",
-            data=ollama_payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        text, meta = providers.call_provider(
+            provider_id,
+            prompt,
+            ollama_url=OLLAMA_URL,
+            ollama_model=OLLAMA_MODEL,
+            anthropic_model=ANTHROPIC_MODEL,
         )
-
-        try:
-            with request.urlopen(req, timeout=120) as resp:
-                response_data = json.loads(resp.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
+        if text is None:
             self._send_json(
                 {
-                    "error": "Ollama request failed.",
-                    "status_code": exc.code,
-                    "details": detail,
-                    "trace": {
-                        "upstream_request": {
-                            "method": "POST",
-                            "url": f"{OLLAMA_URL}/api/generate",
-                            "headers": {"Content-Type": "application/json"},
-                            "payload": ollama_request_json,
-                        },
-                        "upstream_response": {
-                            "status": exc.code,
-                            "body": detail,
-                        },
-                    },
+                    "error": meta.get("error", "Provider request failed."),
+                    "details": meta.get("details"),
+                    "trace": {"steps": [meta.get("trace_step", {})]},
                 },
-                status=502,
-            )
-            return
-        except Exception as exc:
-            self._send_json(
-                {
-                    "error": "Could not reach local Ollama server.",
-                    "details": str(exc),
-                    "ollama_url": OLLAMA_URL,
-                    "trace": {
-                        "upstream_request": {
-                            "method": "POST",
-                            "url": f"{OLLAMA_URL}/api/generate",
-                            "headers": {"Content-Type": "application/json"},
-                            "payload": ollama_request_json,
-                        }
-                    },
-                },
-                status=502,
+                status=int(meta.get("status_code", 502)),
             )
             return
 
-        self._send_json(
-            {
-                "response": (response_data.get("response") or "").strip(),
-                "trace": {
-                    "upstream_request": {
-                        "method": "POST",
-                        "url": f"{OLLAMA_URL}/api/generate",
-                        "headers": {"Content-Type": "application/json"},
-                        "payload": ollama_request_json,
-                    },
-                    "upstream_response": {
-                        "status": 200,
-                        "body": response_data,
-                    },
-                },
-            }
-        )
+        self._send_json({"response": text, "trace": {"steps": [meta["trace_step"]]}})
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return
@@ -885,6 +920,7 @@ def main() -> None:
     print(f"Serving demo app at http://{HOST}:{PORT}")
     print(f"Using Ollama model: {OLLAMA_MODEL}")
     print(f"Ollama base URL: {OLLAMA_URL}")
+    print(f"Anthropic model (env default): {ANTHROPIC_MODEL}")
     print("Guardrails toggle default: OFF (per-request in UI)")
     server.serve_forever()
 

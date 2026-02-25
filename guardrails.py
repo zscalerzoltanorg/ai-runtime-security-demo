@@ -173,79 +173,7 @@ def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
     }
 
 
-def _ollama_generate(prompt: str, ollama_url: str, ollama_model: str) -> tuple[dict | None, dict | None]:
-    payload = {"model": ollama_model, "prompt": prompt, "stream": False}
-    url = f"{ollama_url}/api/generate"
-    headers = {"Content-Type": "application/json"}
-
-    try:
-        status, body = _post_json(url, payload=payload, headers=headers, timeout=120)
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        return None, {
-            "error": "Ollama request failed.",
-            "status_code": 502,
-            "details": detail,
-            "trace_step": {
-                "name": "Ollama",
-                "request": {
-                    "method": "POST",
-                    "url": url,
-                    "headers": headers,
-                    "payload": payload,
-                },
-                "response": {"status": exc.code, "body": detail},
-            },
-        }
-    except Exception as exc:
-        return None, {
-            "error": "Could not reach local Ollama server.",
-            "status_code": 502,
-            "details": str(exc),
-            "trace_step": {
-                "name": "Ollama",
-                "request": {
-                    "method": "POST",
-                    "url": url,
-                    "headers": headers,
-                    "payload": payload,
-                },
-                "response": {"status": 502, "body": {"error": str(exc)}},
-            },
-        }
-
-    if not isinstance(body, dict):
-        return None, {
-            "error": "Unexpected Ollama response format.",
-            "status_code": 502,
-            "details": str(body),
-            "trace_step": {
-                "name": "Ollama",
-                "request": {
-                    "method": "POST",
-                    "url": url,
-                    "headers": headers,
-                    "payload": payload,
-                },
-                "response": {"status": status, "body": body},
-            },
-        }
-
-    return body, {
-        "trace_step": {
-            "name": "Ollama",
-            "request": {
-                "method": "POST",
-                "url": url,
-                "headers": headers,
-                "payload": payload,
-            },
-            "response": {"status": status, "body": body},
-        }
-    }
-
-
-def guarded_ollama_chat(prompt: str, ollama_url: str, ollama_model: str) -> tuple[dict, int]:
+def guarded_chat(prompt: str, llm_call) -> tuple[dict, int]:
     trace_steps: list[dict] = []
 
     in_blocked, in_meta = _zag_check("IN", prompt)
@@ -270,19 +198,19 @@ def guarded_ollama_chat(prompt: str, ollama_url: str, ollama_model: str) -> tupl
             200,
         )
 
-    ollama_data, ollama_meta = _ollama_generate(prompt, ollama_url=ollama_url, ollama_model=ollama_model)
-    trace_steps.append(ollama_meta["trace_step"])
-    if ollama_data is None:
+    llm_text, llm_meta = llm_call(prompt)
+    trace_steps.append(llm_meta["trace_step"])
+    if llm_text is None:
         return (
             {
-                "error": ollama_meta["error"],
-                "details": ollama_meta.get("details"),
+                "error": llm_meta["error"],
+                "details": llm_meta.get("details"),
                 "trace": {"steps": trace_steps},
             },
-            int(ollama_meta.get("status_code", 502)),
+            int(llm_meta.get("status_code", 502)),
         )
 
-    text = (ollama_data.get("response") or "").strip()
+    text = (llm_text or "").strip()
 
     out_blocked, out_meta = _zag_check("OUT", text)
     trace_steps.append(out_meta["trace_step"])

@@ -1,13 +1,14 @@
-# Local LLM Demo (Python stdlib + Ollama + Optional Zscaler AI Guard)
+# Local LLM Demo (Ollama Local / Anthropic + Optional Zscaler AI Guard)
 
 Very small demo app for local testing and live demos.
 
 ## What this demo shows
 
 - Local web chat UI (`python app.py`)
-- Local LLM inference via Ollama (`llama3.2:1b` by default)
+- Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic`)
 - Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
 - HTTP trace sidebar showing request/response payloads (including upstream calls)
+- Code Path Viewer (before/after guardrails, auto follows toggle/provider)
 
 ## Quick start
 
@@ -20,22 +21,46 @@ Very small demo app for local testing and live demos.
 4. Open:
    - `http://127.0.0.1:5000`
 
+## Optional Anthropic Provider (SDK)
+
+The app supports `Anthropic` as a selectable LLM provider in the UI.
+
+Requirements:
+
+- Install the SDK in your environment:
+  - `pip install anthropic`
+- Set your API key:
+  - `export ANTHROPIC_API_KEY='your_key_here'`
+
+Optional:
+
+- `export ANTHROPIC_MODEL='claude-3-5-haiku-latest'`
+
+Notes:
+
+- `Ollama (Local)` remains the default provider
+- If Anthropic SDK or API key is missing and you select `Anthropic`, the app returns a clear error and shows the provider trace in `HTTP Trace`
+
 ## UI Features
 
 - `Send`: submits prompt to `/chat`
-- `Clear`: clears prompt, response, status, and HTTP trace sidebar
-- `Guardrails` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
+- `Clear`: clears prompt, response, status, HTTP trace, and code path viewer state (but keeps the selected LLM provider)
+- `LLM` dropdown: choose `Ollama (Local)` or `Anthropic`
+- `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
 - `HTTP Trace` panel:
   - Client request to `/chat`
   - Client response from the app
-  - Upstream calls (Ollama and, when enabled, Zscaler AI Guard IN/OUT checks)
+  - Upstream calls (selected provider and, when enabled, Zscaler AI Guard IN/OUT checks)
+- `Code Path Viewer`:
+  - Shows provider-aware before/after code paths
+  - Auto mode follows selected provider and Zscaler AI Guard toggle state
 
 ## Optional Zscaler AI Guardrails (toggleable in UI)
 
-The app includes a `Guardrails` checkbox (default: OFF). When enabled, each chat request uses this flow:
+The app includes a `Zscaler AI Guard` toggle (default: OFF). When enabled, each chat request uses this flow:
 
 1. Zscaler AI Guard `IN` check (prompt)
-2. Ollama local generation
+2. Selected LLM provider generation (`Ollama (Local)` or `Anthropic`)
 3. Zscaler AI Guard `OUT` check (response)
 
 If Zscaler blocks the prompt or response, the app returns a blocked message.
@@ -71,3 +96,5 @@ In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode
 
 - `OLLAMA_MODEL` (default: `llama3.2:1b`)
 - `OLLAMA_URL` (default: `http://127.0.0.1:11434`)
+- `ANTHROPIC_API_KEY` (required only when `Anthropic` provider is selected)
+- `ANTHROPIC_MODEL` (default: `claude-3-5-haiku-latest`)
