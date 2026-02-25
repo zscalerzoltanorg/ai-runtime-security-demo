@@ -28,6 +28,57 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[
             return resp.status, text
 
 
+def _triggered_detectors(block_body: dict) -> list[str]:
+    detectors = []
+    detector_responses = block_body.get("detectorResponses") or {}
+    if not isinstance(detector_responses, dict):
+        return detectors
+
+    for name, details in detector_responses.items():
+        if not isinstance(details, dict):
+            continue
+        triggered = details.get("triggered") is True
+        action = str(details.get("action", "")).upper()
+        if triggered or action == "BLOCK":
+            label = name
+            secret_types = (
+                (details.get("details") or {}).get("detectedSecretTypes")
+                if isinstance(details.get("details"), dict)
+                else None
+            )
+            if isinstance(secret_types, dict) and secret_types:
+                label = f"{name} ({', '.join(secret_types.keys())})"
+            detectors.append(label)
+    return detectors
+
+
+def _block_message(stage: str, block_body: object) -> str:
+    if not isinstance(block_body, dict):
+        return f"Blocked by AI Guard ({stage.lower()})."
+
+    transaction_id = block_body.get("transactionId") or "n/a"
+    policy_name = block_body.get("policyName") or "n/a"
+    policy_id = block_body.get("policyId")
+    severity = block_body.get("severity") or "n/a"
+    masked_content = block_body.get("maskedContent") or "(not provided)"
+    detectors = _triggered_detectors(block_body)
+    detectors_text = ", ".join(detectors) if detectors else "n/a"
+    policy_id_text = str(policy_id) if policy_id is not None else "n/a"
+
+    return (
+        f"This {stage} was blocked by AI Guard per Company Policy. "
+        "If you believe this is incorrect or have an exception to make please contact "
+        "helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555.\n\n"
+        "Block details:\n"
+        f"- transactionId: {transaction_id}\n"
+        f"- policyName: {policy_name}\n"
+        f"- policyId: {policy_id_text}\n"
+        f"- severity: {severity}\n"
+        f"- maskedContent: {masked_content}\n"
+        f"- triggeredDetectors: {detectors_text}"
+    )
+
+
 def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
     zag_url, zag_key, zag_timeout = _guardrails_config()
 
@@ -65,11 +116,7 @@ def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
 
     try:
         status, body = _post_json(
-            ZS_GUARDRAILS_URL,
-            # Resolve env-config per call so users can update env without restarting.
-            # (toggle is already per-request)
-            # noqa: E265
-            # Using a local var keeps trace output accurate for custom endpoints.
+            zag_url,
             payload=payload,
             headers=headers,
             timeout=zag_timeout,
@@ -213,9 +260,10 @@ def guarded_ollama_chat(prompt: str, ollama_url: str, ollama_model: str) -> tupl
             int(in_meta.get("status_code", 502)),
         )
     if in_blocked:
+        in_block_body = (in_meta.get("trace_step") or {}).get("response", {}).get("body")
         return (
             {
-                "response": "Blocked by AI Guard (prompt).",
+                "response": _block_message("Prompt", in_block_body),
                 "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
                 "trace": {"steps": trace_steps},
             },
@@ -248,9 +296,10 @@ def guarded_ollama_chat(prompt: str, ollama_url: str, ollama_model: str) -> tupl
             int(out_meta.get("status_code", 502)),
         )
     if out_blocked:
+        out_block_body = (out_meta.get("trace_step") or {}).get("response", {}).get("body")
         return (
             {
-                "response": "Blocked by AI Guard (response).",
+                "response": _block_message("Response", out_block_body),
                 "guardrails": {"enabled": True, "blocked": True, "stage": "OUT"},
                 "trace": {"steps": trace_steps},
             },

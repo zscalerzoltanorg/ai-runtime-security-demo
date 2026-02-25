@@ -38,13 +38,13 @@ HTML = f"""<!doctype html>
         color: var(--ink);
       }}
       .wrap {{
-        max-width: 1180px;
-        margin: 48px auto;
-        padding: 0 16px;
+        width: min(96vw, 1680px);
+        margin: 32px auto;
+        padding: 0 12px;
       }}
       .layout {{
         display: grid;
-        grid-template-columns: 1.2fr 0.8fr;
+        grid-template-columns: minmax(620px, 1fr) minmax(620px, 1fr);
         gap: 16px;
       }}
       .card {{
@@ -53,6 +53,9 @@ HTML = f"""<!doctype html>
         border-radius: 16px;
         padding: 20px;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+      }}
+      .card + .card {{
+        margin-top: 16px;
       }}
       h1 {{ margin: 0 0 8px; font-size: 1.5rem; }}
       .sub {{ margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }}
@@ -115,6 +118,34 @@ HTML = f"""<!doctype html>
         font-weight: 700;
         font-size: 0.9rem;
         margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }}
+      .badge-row {{
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }}
+      .badge {{
+        display: inline-block;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        border: 1px solid transparent;
+      }}
+      .badge-ai {{
+        background: #ecfeff;
+        color: #155e75;
+        border-color: #a5f3fc;
+      }}
+      .badge-ollama {{
+        background: #ecfdf5;
+        color: #166534;
+        border-color: #a7f3d0;
       }}
       .log-label {{
         font-size: 0.75rem;
@@ -122,6 +153,94 @@ HTML = f"""<!doctype html>
         margin: 6px 0 4px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
+      }}
+      .code-toolbar {{
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 10px;
+      }}
+      .code-toolbar button {{
+        padding: 8px 12px;
+      }}
+      .code-toolbar button.secondary {{
+        background: #e7e5e4;
+        color: #1f2937;
+      }}
+      .code-toolbar button.secondary:hover {{
+        background: #d6d3d1;
+      }}
+      .code-status {{
+        color: var(--muted);
+        font-size: 0.9rem;
+      }}
+      .code-panels {{
+        display: grid;
+        gap: 12px;
+      }}
+      .code-panel {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #fff;
+        overflow: hidden;
+      }}
+      .code-panel-head {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        background: #fafaf9;
+      }}
+      .code-panel-title {{
+        font-weight: 700;
+        font-size: 0.9rem;
+      }}
+      .code-panel-file {{
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }}
+      .code-panel-body {{
+        overflow: auto;
+        max-height: 340px;
+        background: #0b1220;
+      }}
+      .code-pre {{
+        margin: 0;
+        padding: 10px 0;
+        background: #0b1220;
+        color: #e5e7eb;
+        font-size: 0.82rem;
+        line-height: 1.45;
+      }}
+      .code-line {{
+        display: grid;
+        grid-template-columns: 48px 1fr;
+        gap: 10px;
+        padding: 0 12px;
+        white-space: pre;
+      }}
+      .code-line:hover {{
+        background: rgba(255, 255, 255, 0.04);
+      }}
+      .code-ln {{
+        color: #64748b;
+        text-align: right;
+        user-select: none;
+      }}
+      .code-txt {{
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }}
+      .code-empty {{
+        color: #64748b;
+      }}
+      .code-note {{
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 0.85rem;
       }}
       pre {{
         margin: 0;
@@ -137,6 +256,10 @@ HTML = f"""<!doctype html>
       @media (max-width: 900px) {{
         .layout {{
           grid-template-columns: 1fr;
+        }}
+        .wrap {{
+          width: min(96vw, 900px);
+          margin: 20px auto;
         }}
       }}
     </style>
@@ -175,9 +298,23 @@ HTML = f"""<!doctype html>
           </div>
         </aside>
       </div>
+
+      <section class="card">
+        <h1>Code Path Viewer</h1>
+        <p class="sub">Visual snippets for the Python code paths used by this demo (before/after guardrails).</p>
+        <div class="code-toolbar">
+          <button id="codeAutoBtn" type="button">Auto (Follow Toggle)</button>
+          <button id="codeBeforeBtn" class="secondary" type="button">Before: No Guardrails</button>
+          <button id="codeAfterBtn" class="secondary" type="button">After: AI Guard</button>
+          <span id="codeStatus" class="code-status">Auto mode: waiting...</span>
+        </div>
+        <div id="codePanels" class="code-panels"></div>
+        <div class="code-note">Tip: In Auto mode, the viewer switches based on the Guardrails checkbox and the last sent request path.</div>
+      </section>
     </main>
 
     <script>
+      const codeSnippets = __CODE_SNIPPETS_JSON__;
       const sendBtn = document.getElementById("sendBtn");
       const promptEl = document.getElementById("prompt");
       const responseEl = document.getElementById("response");
@@ -185,8 +322,15 @@ HTML = f"""<!doctype html>
       const clearBtn = document.getElementById("clearBtn");
       const logListEl = document.getElementById("logList");
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
+      const codeAutoBtn = document.getElementById("codeAutoBtn");
+      const codeBeforeBtn = document.getElementById("codeBeforeBtn");
+      const codeAfterBtn = document.getElementById("codeAfterBtn");
+      const codeStatusEl = document.getElementById("codeStatus");
+      const codePanelsEl = document.getElementById("codePanels");
 
       let traceCount = 0;
+      let codeViewMode = "auto";
+      let lastSentGuardrailsEnabled = false;
 
       function pretty(obj) {{
         try {{
@@ -194,6 +338,60 @@ HTML = f"""<!doctype html>
         }} catch {{
           return String(obj);
         }}
+      }}
+
+      function escapeHtml(value) {{
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }}
+
+      function renderCodeBlock(section) {{
+        const lines = String(section.code || "").replace(/\\n$/, "").split("\\n");
+        const lineRows = lines.map((line, idx) => {{
+          const safeLine = line.length ? escapeHtml(line) : '<span class="code-empty"> </span>';
+          return `<div class="code-line"><span class="code-ln">${{idx + 1}}</span><span class="code-txt">${{safeLine}}</span></div>`;
+        }}).join("");
+        return `
+          <div class="code-panel">
+            <div class="code-panel-head">
+              <div class="code-panel-title">${{escapeHtml(section.title || "Code Section")}}</div>
+              <div class="code-panel-file">${{escapeHtml(section.file || "")}}</div>
+            </div>
+            <div class="code-panel-body">
+              <pre class="code-pre">${{lineRows}}</pre>
+            </div>
+          </div>
+        `;
+      }}
+
+      function effectiveCodeMode() {{
+        if (codeViewMode === "before" || codeViewMode === "after") {{
+          return codeViewMode;
+        }}
+        return (guardrailsToggleEl.checked || lastSentGuardrailsEnabled) ? "after" : "before";
+      }}
+
+      function renderCodeViewer() {{
+        const mode = effectiveCodeMode();
+        const spec = codeSnippets[mode];
+        if (!spec) {{
+          codePanelsEl.innerHTML = "<div class='code-panel'><div class='code-panel-head'><div class='code-panel-title'>No code snippets available</div></div></div>";
+          return;
+        }}
+
+        codeStatusEl.textContent = codeViewMode === "auto"
+          ? `Auto mode: showing ${{
+              mode === "after" ? "AI Guard path" : "direct Ollama path"
+            }} (Guardrails toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
+          : `Manual mode: showing ${{mode === "after" ? "AI Guard path" : "direct Ollama path"}}`;
+
+        codeAutoBtn.classList.toggle("secondary", codeViewMode !== "auto");
+        codeBeforeBtn.classList.toggle("secondary", codeViewMode !== "before");
+        codeAfterBtn.classList.toggle("secondary", codeViewMode !== "after");
+
+        codePanelsEl.innerHTML = (spec.sections || []).map(renderCodeBlock).join("");
       }}
 
       function addTrace(entry) {{
@@ -212,9 +410,21 @@ HTML = f"""<!doctype html>
           headers: {{ "Content-Type": "application/json" }},
           payload: {{ prompt: entry.prompt, guardrails_enabled: !!entry.guardrailsEnabled }}
         }};
+        const responseBodyForDisplay = entry.body && typeof entry.body === "object"
+          ? JSON.parse(JSON.stringify(entry.body))
+          : entry.body;
+        if (responseBodyForDisplay && responseBodyForDisplay.trace && responseBodyForDisplay.trace.steps) {{
+          responseBodyForDisplay.trace = {{
+            ...responseBodyForDisplay.trace,
+            steps: `See step-by-step trace sections below (${{
+              responseBodyForDisplay.trace.steps.length
+            }} step(s))`
+          }};
+        }}
+
         const clientRes = {{
           status: entry.status,
-          body: entry.body
+          body: responseBodyForDisplay
         }};
         const upstreamReq = entry.body && entry.body.trace ? entry.body.trace.upstream_request : null;
         const upstreamRes = entry.body && entry.body.trace ? entry.body.trace.upstream_response : null;
@@ -223,6 +433,18 @@ HTML = f"""<!doctype html>
           : [];
 
         const traceStepsHtml = traceSteps.map((step, idx) => `
+          <div class="log-title">
+            <span>Step ${{idx + 1}}</span>
+            <span class="badge-row">
+              <span class="badge ${{
+                (step.name || "").includes("Ollama") ? "badge-ollama" : "badge-ai"
+              }}">${{
+                (step.name || "").includes("Ollama")
+                  ? "Ollama"
+                  : (step.name || "AI Guard").replace("Zscaler ", "")
+              }}</span>
+            </span>
+          </div>
           <div class="log-label">Step ${{idx + 1}}: ${{step.name || "Upstream"}}</div>
           <pre>${{pretty(step.request || {{}})}}</pre>
           <div class="log-label">Step ${{idx + 1}} Response</div>
@@ -230,7 +452,18 @@ HTML = f"""<!doctype html>
         `).join("");
 
         item.innerHTML = `
-          <div class="log-title">#${{traceCount}} ${{now}}</div>
+          <div class="log-title">
+            <span>#${{traceCount}} ${{now}}</span>
+            <span class="badge-row">
+              ${{traceSteps.map((step) => {{
+                const isOllama = (step.name || "").includes("Ollama");
+                const label = isOllama
+                  ? "Ollama"
+                  : (step.name || "AI Guard").replace("Zscaler ", "");
+                return `<span class="badge ${{isOllama ? "badge-ollama" : "badge-ai"}}">${{label}}</span>`;
+              }}).join("")}}
+            </span>
+          </div>
           <div class="log-label">Request</div>
           <pre>${{pretty(clientReq)}}</pre>
           <div class="log-label">Response</div>
@@ -258,7 +491,9 @@ HTML = f"""<!doctype html>
         responseEl.textContent = "Response will appear here.";
         responseEl.classList.remove("error");
         statusEl.textContent = "Idle";
+        lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
         resetTrace();
+        renderCodeViewer();
       }}
 
       async function sendPrompt() {{
@@ -275,6 +510,8 @@ HTML = f"""<!doctype html>
         responseEl.textContent = "Waiting for local model response...";
 
         try {{
+          lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
+          renderCodeViewer();
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
@@ -295,10 +532,12 @@ HTML = f"""<!doctype html>
           }}
           responseEl.textContent = data.response || "(Empty response)";
           statusEl.textContent = "Done";
+          renderCodeViewer();
         }} catch (err) {{
           responseEl.textContent = err.message || String(err);
           responseEl.classList.add("error");
           statusEl.textContent = "Error";
+          renderCodeViewer();
         }} finally {{
           sendBtn.disabled = false;
         }}
@@ -306,14 +545,140 @@ HTML = f"""<!doctype html>
 
       sendBtn.addEventListener("click", sendPrompt);
       clearBtn.addEventListener("click", clearViews);
+      guardrailsToggleEl.addEventListener("change", () => {{
+        if (codeViewMode === "auto") {{
+          renderCodeViewer();
+        }}
+      }});
+      codeAutoBtn.addEventListener("click", () => {{
+        codeViewMode = "auto";
+        renderCodeViewer();
+      }});
+      codeBeforeBtn.addEventListener("click", () => {{
+        codeViewMode = "before";
+        renderCodeViewer();
+      }});
+      codeAfterBtn.addEventListener("click", () => {{
+        codeViewMode = "after";
+        renderCodeViewer();
+      }});
       promptEl.addEventListener("keydown", (e) => {{
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {{
           sendPrompt();
         }}
       }});
+      renderCodeViewer();
     </script>
   </body>
 </html>"""
+
+
+CODE_SNIPPETS = {
+    "before": {
+        "sections": [
+            {
+                "title": "app.py: Direct Ollama Path (Guardrails OFF)",
+                "file": "app.py",
+                "code": """prompt = (data.get(\"prompt\") or \"\").strip()
+guardrails_enabled = bool(data.get(\"guardrails_enabled\"))
+if not prompt:
+    self._send_json({\"error\": \"Prompt is required.\"}, status=400)
+    return
+
+if guardrails_enabled:
+    import guardrails
+    payload, status = guardrails.guarded_ollama_chat(
+        prompt=prompt,
+        ollama_url=OLLAMA_URL,
+        ollama_model=OLLAMA_MODEL,
+    )
+    self._send_json(payload, status=status)
+    return
+
+ollama_request_json = {\"model\": OLLAMA_MODEL, \"prompt\": prompt, \"stream\": False}
+req = request.Request(
+    f\"{OLLAMA_URL}/api/generate\",
+    data=json.dumps(ollama_request_json).encode(\"utf-8\"),
+    headers={\"Content-Type\": \"application/json\"},
+    method=\"POST\",
+)
+with request.urlopen(req, timeout=120) as resp:
+    response_data = json.loads(resp.read().decode(\"utf-8\"))""",
+            }
+        ]
+    },
+    "after": {
+        "sections": [
+            {
+                "title": "app.py: Toggle Branch Into guardrails.py",
+                "file": "app.py",
+                "code": """guardrails_enabled = bool(data.get(\"guardrails_enabled\"))
+
+if guardrails_enabled:
+    import guardrails
+
+    payload, status = guardrails.guarded_ollama_chat(
+        prompt=prompt,
+        ollama_url=OLLAMA_URL,
+        ollama_model=OLLAMA_MODEL,
+    )
+    self._send_json(payload, status=status)
+    return""",
+            },
+            {
+                "title": "guardrails.py: IN -> Ollama -> OUT Flow",
+                "file": "guardrails.py",
+                "code": """def guarded_ollama_chat(prompt, ollama_url, ollama_model):
+    trace_steps = []
+
+    in_blocked, in_meta = _zag_check(\"IN\", prompt)
+    trace_steps.append(in_meta[\"trace_step\"])
+    if in_meta.get(\"error\"):
+        return {\"error\": in_meta[\"error\"], \"trace\": {\"steps\": trace_steps}}, 502
+    if in_blocked:
+        return {\"response\": \"Blocked by AI Guard (prompt).\", \"trace\": {\"steps\": trace_steps}}, 200
+
+    ollama_data, ollama_meta = _ollama_generate(prompt, ollama_url, ollama_model)
+    trace_steps.append(ollama_meta[\"trace_step\"])
+
+    text = (ollama_data.get(\"response\") or \"\").strip()
+    out_blocked, out_meta = _zag_check(\"OUT\", text)
+    trace_steps.append(out_meta[\"trace_step\"])
+    if out_blocked:
+        return {\"response\": \"Blocked by AI Guard (response).\", \"trace\": {\"steps\": trace_steps}}, 200
+
+    return {\"response\": text, \"guardrails\": {\"enabled\": True, \"blocked\": False}, \"trace\": {\"steps\": trace_steps}}, 200""",
+            },
+            {
+                "title": "guardrails.py: Zscaler Resolve Policy Endpoint Call",
+                "file": "guardrails.py",
+                "code": """def _zag_check(direction, content):
+    zag_url, zag_key, zag_timeout = _guardrails_config()
+    payload = {\"direction\": direction, \"content\": content or \"\"}
+    headers = {
+        \"Authorization\": f\"Bearer {zag_key}\",
+        \"Content-Type\": \"application/json\",
+    }
+
+    status, body = _post_json(
+        zag_url,
+        payload=payload,
+        headers=headers,
+        timeout=zag_timeout,
+    )
+
+    blocked = (
+        isinstance(body, dict)
+        and (body.get(\"blocked\") is True or str(body.get(\"action\", \"\")).upper() == \"BLOCK\")
+    )""",
+            },
+        ]
+    },
+}
+
+
+def _script_safe_json(value: object) -> str:
+    return json.dumps(value).replace("</", "<\\/")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -335,7 +700,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/":
-            self._send_html(HTML)
+            self._send_html(
+                HTML.replace("__CODE_SNIPPETS_JSON__", _script_safe_json(CODE_SNIPPETS))
+            )
             return
         self._send_json({"error": "Not found"}, status=404)
 
