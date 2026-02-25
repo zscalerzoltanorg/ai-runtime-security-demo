@@ -34,12 +34,31 @@ Requirements:
 
 Optional:
 
-- `export ANTHROPIC_MODEL='claude-3-5-haiku-latest'`
+- `export ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'`
 
 Notes:
 
 - `Ollama (Local)` remains the default provider
 - If Anthropic SDK or API key is missing and you select `Anthropic`, the app returns a clear error and shows the provider trace in `HTTP Trace`
+
+### Optional: Local Corporate TLS / ZIA (Anthropic + AI Guard)
+
+If you are running locally behind corporate TLS interception (for example ZIA), you may need to trust your corporate/Zscaler root CA for outbound HTTPS used by providers (like Anthropic).
+
+This repo includes a Zscaler root CA PEM and a combined CA bundle example for local SE/demo use:
+
+- `certs/zscaler-root-ca.pem`
+- `certs/combined-ca-bundle.pem` (built from `certifi` CA bundle + Zscaler root CA)
+
+When needed, start the app with:
+
+- `export SSL_CERT_FILE='/absolute/path/to/certs/combined-ca-bundle.pem'`
+- `export REQUESTS_CA_BUNDLE='/absolute/path/to/certs/combined-ca-bundle.pem'`
+
+Notes:
+
+- This is typically a local workstation/corporate network requirement
+- It may not be needed when deployed in cloud environments without TLS interception
 
 ## UI Features
 
@@ -54,6 +73,16 @@ Notes:
 - `Code Path Viewer`:
   - Shows provider-aware before/after code paths
   - Auto mode follows selected provider and Zscaler AI Guard toggle state
+
+## App Name (optional)
+
+You can customize the browser/app title shown in the UI with an env var:
+
+- `export APP_DEMO_NAME='My AI Demo App'`
+
+If not set, the app defaults to:
+
+- `AI App Demo`
 
 ## Optional Zscaler AI Guardrails (toggleable in UI)
 
@@ -97,4 +126,5 @@ In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode
 - `OLLAMA_MODEL` (default: `llama3.2:1b`)
 - `OLLAMA_URL` (default: `http://127.0.0.1:11434`)
 - `ANTHROPIC_API_KEY` (required only when `Anthropic` provider is selected)
-- `ANTHROPIC_MODEL` (default: `claude-3-5-haiku-latest`)
+- `ANTHROPIC_MODEL` (default: `claude-sonnet-4-5-20250929`)
+- `APP_DEMO_NAME` (default: `AI App Demo`)

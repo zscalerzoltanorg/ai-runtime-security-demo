@@ -5,7 +5,7 @@ from urllib import error, request
 import json
 
 
-DEFAULT_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
+DEFAULT_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 
 
 def available_providers() -> list[dict[str, str]]:

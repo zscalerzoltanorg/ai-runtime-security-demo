@@ -9,7 +9,8 @@ HOST = "127.0.0.1"
 PORT = 5000
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+APP_DEMO_NAME = os.getenv("APP_DEMO_NAME", "AI App Demo")
 
 
 HTML = f"""<!doctype html>
@@ -17,7 +18,7 @@ HTML = f"""<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Local LLM Demo</title>
+    <title>{APP_DEMO_NAME}</title>
     <style>
       :root {{
         --bg: #f4f1ea;
@@ -325,7 +326,7 @@ HTML = f"""<!doctype html>
     <main class="wrap">
       <div class="layout">
         <section class="card">
-          <h1>Local LLM Chat Demo</h1>
+          <h1>{APP_DEMO_NAME}</h1>
           <p class="sub">Local default: <strong>{OLLAMA_MODEL}</strong> (Ollama). Anthropic env model: <strong>{ANTHROPIC_MODEL}</strong></p>
 
           <label for="prompt" class="sub">Prompt</label>
@@ -403,6 +404,13 @@ HTML = f"""<!doctype html>
         }} catch {{
           return String(obj);
         }}
+      }}
+
+      function providerWaitingText() {{
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        return provider === "ollama"
+          ? "Waiting for local model response..."
+          : "Waiting for remote model response...";
       }}
 
       function escapeHtml(value) {{
@@ -584,7 +592,7 @@ HTML = f"""<!doctype html>
         sendBtn.disabled = true;
         statusEl.textContent = "Sending...";
         responseEl.classList.remove("error");
-        responseEl.textContent = "Waiting for local model response...";
+        responseEl.textContent = providerWaitingText();
 
         try {{
           lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
