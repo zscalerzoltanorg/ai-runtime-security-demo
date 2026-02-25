@@ -1,0 +1,267 @@
+import json
+import os
+from urllib import error, request
+
+
+DEFAULT_ZS_GUARDRAILS_URL = (
+    "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
+)
+
+
+def _guardrails_config() -> tuple[str, str, float]:
+    url = os.getenv("ZS_GUARDRAILS_URL", DEFAULT_ZS_GUARDRAILS_URL)
+    api_key = os.getenv("ZS_GUARDRAILS_API_KEY", "")
+    timeout = float(os.getenv("ZS_GUARDRAILS_TIMEOUT_SECONDS", "15"))
+    return url, api_key, timeout
+
+
+def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[int, object]:
+    raw = json.dumps(payload).encode("utf-8")
+    req = request.Request(url, data=raw, headers=headers, method="POST")
+    with request.urlopen(req, timeout=timeout) as resp:
+        text = resp.read().decode("utf-8", errors="replace")
+        if not text:
+            return resp.status, {}
+        try:
+            return resp.status, json.loads(text)
+        except json.JSONDecodeError:
+            return resp.status, text
+
+
+def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
+    zag_url, zag_key, zag_timeout = _guardrails_config()
+
+    if not zag_key:
+        return False, {
+            "error": "ZS_GUARDRAILS_API_KEY is not set.",
+            "status_code": 500,
+            "trace_step": {
+                "name": f"Zscaler AI Guard ({direction})",
+                "request": {
+                    "method": "POST",
+                    "url": zag_url,
+                    "headers": {
+                        "Authorization": "Bearer ***missing***",
+                        "Content-Type": "application/json",
+                    },
+                    "payload": {"direction": direction, "content": content or ""},
+                },
+                "response": {
+                    "status": 500,
+                    "body": {"error": "Missing ZS_GUARDRAILS_API_KEY"},
+                },
+            },
+        }
+
+    payload = {"direction": direction, "content": content or ""}
+    headers = {
+        "Authorization": f"Bearer {zag_key}",
+        "Content-Type": "application/json",
+    }
+    redacted_headers = {
+        "Authorization": "Bearer ***redacted***",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        status, body = _post_json(
+            ZS_GUARDRAILS_URL,
+            # Resolve env-config per call so users can update env without restarting.
+            # (toggle is already per-request)
+            # noqa: E265
+            # Using a local var keeps trace output accurate for custom endpoints.
+            payload=payload,
+            headers=headers,
+            timeout=zag_timeout,
+        )
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return False, {
+            "error": f"Zscaler AI Guard HTTP error on {direction} check.",
+            "status_code": 502,
+            "details": detail,
+            "trace_step": {
+                "name": f"Zscaler AI Guard ({direction})",
+                "request": {
+                    "method": "POST",
+                    "url": zag_url,
+                    "headers": redacted_headers,
+                    "payload": payload,
+                },
+                "response": {"status": exc.code, "body": detail},
+            },
+        }
+    except Exception as exc:  # network/timeouts/etc.
+        return False, {
+            "error": f"Could not reach Zscaler AI Guard on {direction} check.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {
+                "name": f"Zscaler AI Guard ({direction})",
+                "request": {
+                    "method": "POST",
+                    "url": zag_url,
+                    "headers": redacted_headers,
+                    "payload": payload,
+                },
+                "response": {"status": 502, "body": {"error": str(exc)}},
+            },
+        }
+
+    blocked = False
+    if isinstance(body, dict):
+        blocked = body.get("blocked") is True or str(body.get("action", "")).upper() == "BLOCK"
+
+    return blocked, {
+        "trace_step": {
+            "name": f"Zscaler AI Guard ({direction})",
+            "request": {
+                "method": "POST",
+                "url": zag_url,
+                "headers": redacted_headers,
+                "payload": payload,
+            },
+            "response": {"status": status, "body": body},
+        }
+    }
+
+
+def _ollama_generate(prompt: str, ollama_url: str, ollama_model: str) -> tuple[dict | None, dict | None]:
+    payload = {"model": ollama_model, "prompt": prompt, "stream": False}
+    url = f"{ollama_url}/api/generate"
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        status, body = _post_json(url, payload=payload, headers=headers, timeout=120)
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return None, {
+            "error": "Ollama request failed.",
+            "status_code": 502,
+            "details": detail,
+            "trace_step": {
+                "name": "Ollama",
+                "request": {
+                    "method": "POST",
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                },
+                "response": {"status": exc.code, "body": detail},
+            },
+        }
+    except Exception as exc:
+        return None, {
+            "error": "Could not reach local Ollama server.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {
+                "name": "Ollama",
+                "request": {
+                    "method": "POST",
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                },
+                "response": {"status": 502, "body": {"error": str(exc)}},
+            },
+        }
+
+    if not isinstance(body, dict):
+        return None, {
+            "error": "Unexpected Ollama response format.",
+            "status_code": 502,
+            "details": str(body),
+            "trace_step": {
+                "name": "Ollama",
+                "request": {
+                    "method": "POST",
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                },
+                "response": {"status": status, "body": body},
+            },
+        }
+
+    return body, {
+        "trace_step": {
+            "name": "Ollama",
+            "request": {
+                "method": "POST",
+                "url": url,
+                "headers": headers,
+                "payload": payload,
+            },
+            "response": {"status": status, "body": body},
+        }
+    }
+
+
+def guarded_ollama_chat(prompt: str, ollama_url: str, ollama_model: str) -> tuple[dict, int]:
+    trace_steps: list[dict] = []
+
+    in_blocked, in_meta = _zag_check("IN", prompt)
+    trace_steps.append(in_meta["trace_step"])
+    if in_meta.get("error"):
+        return (
+            {
+                "error": in_meta["error"],
+                "details": in_meta.get("details"),
+                "trace": {"steps": trace_steps},
+            },
+            int(in_meta.get("status_code", 502)),
+        )
+    if in_blocked:
+        return (
+            {
+                "response": "Blocked by AI Guard (prompt).",
+                "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
+                "trace": {"steps": trace_steps},
+            },
+            200,
+        )
+
+    ollama_data, ollama_meta = _ollama_generate(prompt, ollama_url=ollama_url, ollama_model=ollama_model)
+    trace_steps.append(ollama_meta["trace_step"])
+    if ollama_data is None:
+        return (
+            {
+                "error": ollama_meta["error"],
+                "details": ollama_meta.get("details"),
+                "trace": {"steps": trace_steps},
+            },
+            int(ollama_meta.get("status_code", 502)),
+        )
+
+    text = (ollama_data.get("response") or "").strip()
+
+    out_blocked, out_meta = _zag_check("OUT", text)
+    trace_steps.append(out_meta["trace_step"])
+    if out_meta.get("error"):
+        return (
+            {
+                "error": out_meta["error"],
+                "details": out_meta.get("details"),
+                "trace": {"steps": trace_steps},
+            },
+            int(out_meta.get("status_code", 502)),
+        )
+    if out_blocked:
+        return (
+            {
+                "response": "Blocked by AI Guard (response).",
+                "guardrails": {"enabled": True, "blocked": True, "stage": "OUT"},
+                "trace": {"steps": trace_steps},
+            },
+            200,
+        )
+
+    return (
+        {
+            "response": text,
+            "guardrails": {"enabled": True, "blocked": False},
+            "trace": {"steps": trace_steps},
+        },
+        200,
+    )

@@ -154,6 +154,10 @@ HTML = f"""<!doctype html>
           <div class="actions">
             <button id="sendBtn" type="button">Send</button>
             <button id="clearBtn" type="button">Clear</button>
+            <label class="status" style="display:flex;align-items:center;gap:6px;">
+              <input id="guardrailsToggle" type="checkbox" />
+              Guardrails
+            </label>
             <span id="status" class="status">Idle</span>
           </div>
 
@@ -180,6 +184,7 @@ HTML = f"""<!doctype html>
       const statusEl = document.getElementById("status");
       const clearBtn = document.getElementById("clearBtn");
       const logListEl = document.getElementById("logList");
+      const guardrailsToggleEl = document.getElementById("guardrailsToggle");
 
       let traceCount = 0;
 
@@ -205,7 +210,7 @@ HTML = f"""<!doctype html>
           method: "POST",
           url: `${{window.location.origin}}/chat`,
           headers: {{ "Content-Type": "application/json" }},
-          payload: {{ prompt: entry.prompt }}
+          payload: {{ prompt: entry.prompt, guardrails_enabled: !!entry.guardrailsEnabled }}
         }};
         const clientRes = {{
           status: entry.status,
@@ -213,6 +218,16 @@ HTML = f"""<!doctype html>
         }};
         const upstreamReq = entry.body && entry.body.trace ? entry.body.trace.upstream_request : null;
         const upstreamRes = entry.body && entry.body.trace ? entry.body.trace.upstream_response : null;
+        const traceSteps = entry.body && entry.body.trace && Array.isArray(entry.body.trace.steps)
+          ? entry.body.trace.steps
+          : [];
+
+        const traceStepsHtml = traceSteps.map((step, idx) => `
+          <div class="log-label">Step ${{idx + 1}}: ${{step.name || "Upstream"}}</div>
+          <pre>${{pretty(step.request || {{}})}}</pre>
+          <div class="log-label">Step ${{idx + 1}} Response</div>
+          <pre>${{pretty(step.response || {{}})}}</pre>
+        `).join("");
 
         item.innerHTML = `
           <div class="log-title">#${{traceCount}} ${{now}}</div>
@@ -222,6 +237,7 @@ HTML = f"""<!doctype html>
           <pre>${{pretty(clientRes)}}</pre>
           ${{upstreamReq ? `<div class="log-label">Upstream Request (Ollama)</div><pre>${{pretty(upstreamReq)}}</pre>` : ""}}
           ${{upstreamRes ? `<div class="log-label">Upstream Response (Ollama)</div><pre>${{pretty(upstreamRes)}}</pre>` : ""}}
+          ${{traceStepsHtml}}
         `;
 
         logListEl.prepend(item);
@@ -262,11 +278,15 @@ HTML = f"""<!doctype html>
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify({{ prompt }})
+            body: JSON.stringify({{
+              prompt,
+              guardrails_enabled: guardrailsToggleEl.checked
+            }})
           }});
           const data = await res.json();
           addTrace({{
             prompt,
+            guardrailsEnabled: guardrailsToggleEl.checked,
             status: res.status,
             body: data
           }});
@@ -334,8 +354,31 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         prompt = (data.get("prompt") or "").strip()
+        guardrails_enabled = bool(data.get("guardrails_enabled"))
         if not prompt:
             self._send_json({"error": "Prompt is required."}, status=400)
+            return
+
+        if guardrails_enabled:
+            try:
+                import guardrails
+
+                payload, status = guardrails.guarded_ollama_chat(
+                    prompt=prompt,
+                    ollama_url=OLLAMA_URL,
+                    ollama_model=OLLAMA_MODEL,
+                )
+            except Exception as exc:
+                self._send_json(
+                    {
+                        "error": "Guardrails module failed.",
+                        "details": str(exc),
+                    },
+                    status=500,
+                )
+                return
+
+            self._send_json(payload, status=status)
             return
 
         ollama_request_json = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
@@ -419,6 +462,7 @@ def main() -> None:
     print(f"Serving demo app at http://{HOST}:{PORT}")
     print(f"Using Ollama model: {OLLAMA_MODEL}")
     print(f"Ollama base URL: {OLLAMA_URL}")
+    print("Guardrails toggle default: OFF (per-request in UI)")
     server.serve_forever()
 
 
