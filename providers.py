@@ -1,5 +1,6 @@
 import os
 from typing import Any
+import ast
 
 from urllib import error, request
 import json
@@ -9,6 +10,53 @@ DEFAULT_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-202509
 DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = os.getenv("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
+
+
+def _proxy_guardrails_block_from_error(
+    *,
+    status_code: int | None,
+    response_body: Any = None,
+    details_text: str | None = None,
+) -> dict[str, Any] | None:
+    if int(status_code or 0) != 403:
+        return None
+
+    body: Any = response_body
+    if body is None and details_text:
+        txt = str(details_text)
+        if " - " in txt:
+            _, suffix = txt.split(" - ", 1)
+            suffix = suffix.strip()
+            if suffix.startswith("{") and suffix.endswith("}"):
+                try:
+                    body = ast.literal_eval(suffix)
+                except Exception:
+                    body = None
+        if body is None and txt.strip().startswith("{") and txt.strip().endswith("}"):
+            try:
+                body = ast.literal_eval(txt.strip())
+            except Exception:
+                body = None
+
+    if not isinstance(body, dict):
+        return None
+
+    reason = str(body.get("reason") or "")
+    if "Zscaler AI Guard" not in reason and not any(k in body for k in ("policyName", "inputDetections", "outputDetections")):
+        return None
+
+    input_detections = body.get("inputDetections")
+    output_detections = body.get("outputDetections")
+    stage = "IN" if input_detections else ("OUT" if output_detections else "UNKNOWN")
+    return {
+        "reason": reason or "Your request was blocked by Zscaler AI Guard",
+        "policyName": body.get("policyName"),
+        "inputDetections": input_detections if isinstance(input_detections, list) else [],
+        "outputDetections": output_detections if isinstance(output_detections, list) else [],
+        "stage": stage,
+        "raw": body,
+        "status_code": 403,
+    }
 
 
 def available_providers() -> list[dict[str, str]]:
@@ -316,14 +364,42 @@ def _anthropic_generate(
             "text": text,
         }
     except Exception as exc:
+        err_status = getattr(exc, "status_code", None)
+        err_response = getattr(exc, "response", None)
+        err_body: Any = None
+        if err_response is not None:
+            try:
+                if hasattr(err_response, "json"):
+                    err_body = err_response.json()
+            except Exception:
+                err_body = None
+            if err_body is None:
+                err_body = getattr(err_response, "text", None)
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=int(err_status or 0) if err_status else None,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
         return None, {
             "error": "Anthropic request failed.",
-            "status_code": 502,
+            "status_code": int(err_status or 502),
             "details": str(exc),
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
             "trace_step": {
                 "name": "Anthropic",
                 "request": trace_request,
-                "response": {"status": 502, "body": {"error": str(exc)}},
+                "response": {
+                    "status": int(err_status or 502),
+                    "body": {
+                        "error": str(exc),
+                        **({"status_code": err_status} if err_status is not None else {}),
+                        **({"response_body": err_body} if err_body is not None else {}),
+                    },
+                },
             },
         }
 
@@ -445,14 +521,42 @@ def _anthropic_chat_messages(
             "text": text,
         }
     except Exception as exc:
+        err_status = getattr(exc, "status_code", None)
+        err_response = getattr(exc, "response", None)
+        err_body: Any = None
+        if err_response is not None:
+            try:
+                if hasattr(err_response, "json"):
+                    err_body = err_response.json()
+            except Exception:
+                err_body = None
+            if err_body is None:
+                err_body = getattr(err_response, "text", None)
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=int(err_status or 0) if err_status else None,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
         return None, {
             "error": "Anthropic request failed.",
-            "status_code": 502,
+            "status_code": int(err_status or 502),
             "details": str(exc),
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
             "trace_step": {
                 "name": "Anthropic",
                 "request": trace_request,
-                "response": {"status": 502, "body": {"error": str(exc)}},
+                "response": {
+                    "status": int(err_status or 502),
+                    "body": {
+                        "error": str(exc),
+                        **({"status_code": err_status} if err_status is not None else {}),
+                        **({"response_body": err_body} if err_body is not None else {}),
+                    },
+                },
             },
         }
 
@@ -592,10 +696,20 @@ def _openai_chat_messages(
                 err_body = None
             if err_body is None:
                 err_body = getattr(err_response, "text", None)
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=int(err_status or 0) if err_status else None,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
         return None, {
             "error": "OpenAI request failed.",
-            "status_code": 502,
+            "status_code": int(err_status or 502),
             "details": str(exc),
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
             "trace_step": {
                 "name": "OpenAI",
                 "request": trace_request,

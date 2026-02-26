@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 from datetime import datetime
@@ -73,6 +74,9 @@ HTML = f"""<!doctype html>
       }}
       .code-path-card {{
         margin-top: 26px;
+      }}
+      .flow-card {{
+        margin-top: 20px;
       }}
       h1 {{ margin: 0 0 8px; font-size: 1.5rem; }}
       .sub {{ margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }}
@@ -458,6 +462,186 @@ HTML = f"""<!doctype html>
         color: var(--muted);
         font-size: 0.8rem;
       }}
+      .flow-sub {{
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }}
+      .flow-toolbar {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }}
+      .flow-toolbar-actions {{
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+      }}
+      .flow-toolbar-actions button {{
+        padding: 8px 12px;
+      }}
+      .flow-toolbar-status {{
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
+      .flow-wrap {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background:
+          radial-gradient(circle at 1px 1px, rgba(167, 139, 250, 0.22) 1px, transparent 1.5px),
+          #080b14;
+        background-size: 20px 20px;
+        min-height: 540px;
+        overflow: auto;
+        position: relative;
+      }}
+      .flow-viewport {{
+        min-width: 100%;
+        min-height: 780px;
+        position: relative;
+      }}
+      .flow-empty {{
+        color: #cbd5e1;
+        padding: 16px;
+        font-size: 0.9rem;
+      }}
+      .flow-svg {{
+        display: block;
+        min-width: 100%;
+      }}
+      .flow-node rect {{
+        fill: #111827;
+        stroke: #334155;
+        stroke-width: 1.2;
+      }}
+      .flow-node text {{
+        fill: #e5e7eb;
+        font-size: 12px;
+        font-weight: 600;
+      }}
+      .flow-node.provider rect {{ fill: #052e2b; stroke: #0f766e; }}
+      .flow-node.aiguard rect {{ fill: #083344; stroke: #0891b2; }}
+      .flow-node.tool rect {{ fill: #3f2a00; stroke: #facc15; }}
+      .flow-node.agent rect {{ fill: #172554; stroke: #3b82f6; }}
+      .flow-node.client rect {{ fill: #1f2937; stroke: #94a3b8; }}
+      .flow-node.app rect {{ fill: #1f2937; stroke: #10b981; }}
+      .flow-edge {{
+        stroke: #a78bfa;
+        stroke-width: 2;
+        fill: none;
+        stroke-dasharray: 6 5;
+        stroke-dashoffset: 0;
+        opacity: 0.9;
+        animation: flow-dash-req 1.35s linear infinite;
+      }}
+      .flow-edge.request {{
+        stroke: #a78bfa;
+      }}
+      .flow-edge.response {{
+        stroke: #22d3ee;
+        stroke-dasharray: 10 8;
+        stroke-width: 1.8;
+        stroke-dashoffset: 0;
+        opacity: 0.95;
+        animation: flow-dash-resp 1.2s linear infinite;
+      }}
+      .flow-edge.response.danger {{
+        stroke: #ef4444;
+      }}
+      .flow-edge-label text {{
+        fill: #e5e7eb;
+        font-size: 11px;
+        font-weight: 700;
+        text-anchor: middle;
+        dominant-baseline: middle;
+      }}
+      .flow-edge-label rect {{
+        fill: rgba(15, 23, 42, 0.85);
+        stroke: #334155;
+        rx: 6;
+        ry: 6;
+      }}
+      .flow-edge-label.request text {{
+        fill: #c4b5fd;
+      }}
+      .flow-edge-label.response text {{
+        fill: #67e8f9;
+      }}
+      .flow-edge-label.response.danger text {{
+        fill: #fca5a5;
+      }}
+      .flow-edge.solid {{
+        stroke-dasharray: 10 8;
+      }}
+      @keyframes flow-dash-req {{
+        from {{ stroke-dashoffset: 0; }}
+        to {{ stroke-dashoffset: -44; }}
+      }}
+      @keyframes flow-dash-resp {{
+        from {{ stroke-dashoffset: 0; }}
+        to {{ stroke-dashoffset: 44; }}
+      }}
+      @media (prefers-reduced-motion: reduce) {{
+        .flow-edge {{
+          animation: none !important;
+        }}
+      }}
+      .flow-node {{
+        cursor: grab;
+      }}
+      .flow-node.dragging {{
+        cursor: grabbing;
+      }}
+      .flow-node.dragging rect {{
+        filter: drop-shadow(0 0 10px rgba(167,139,250,0.35));
+      }}
+      .flow-tooltip {{
+        position: absolute;
+        z-index: 5;
+        max-width: 360px;
+        pointer-events: none;
+        display: none;
+        background: rgba(17, 24, 39, 0.96);
+        color: #e5e7eb;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 8px 10px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+        font-size: 0.78rem;
+        line-height: 1.35;
+        white-space: pre-wrap;
+      }}
+      .flow-legend {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }}
+      .flow-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }}
+      .flow-dot {{
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }}
+      .flow-dot.client {{ background: #94a3b8; }}
+      .flow-dot.app {{ background: #10b981; }}
+      .flow-dot.aiguard {{ background: #0891b2; }}
+      .flow-dot.provider {{ background: #0f766e; }}
+      .flow-dot.agent {{ background: #3b82f6; }}
+      .flow-dot.tool {{ background: #facc15; }}
       .collapsible-content {{
         display: none;
       }}
@@ -638,6 +822,34 @@ HTML = f"""<!doctype html>
         </div>
       </div>
 
+      <section class="card flow-card">
+        <h1>Flow Graph</h1>
+        <p class="flow-sub">Visualizes the latest request path (app, AI Guard, provider, agents, tools/MCP) from the captured traces.</p>
+        <div class="flow-toolbar">
+          <div class="flow-toolbar-actions">
+            <button id="flowZoomInBtn" class="secondary" type="button" title="Zoom in">Zoom In</button>
+            <button id="flowZoomOutBtn" class="secondary" type="button" title="Zoom out">Zoom Out</button>
+            <button id="flowZoomResetBtn" class="secondary" type="button" title="Reset zoom and node positions">Reset View</button>
+          </div>
+          <div id="flowToolbarStatus" class="flow-toolbar-status">Latest flow graph: none</div>
+        </div>
+        <div id="flowGraphWrap" class="flow-wrap">
+          <div id="flowGraphViewport" class="flow-viewport">
+            <div id="flowGraphEmpty" class="flow-empty">Send a prompt to render the latest traffic flow graph.</div>
+            <svg id="flowGraphSvg" class="flow-svg" xmlns="http://www.w3.org/2000/svg" style="display:none;"></svg>
+            <div id="flowGraphTooltip" class="flow-tooltip" role="tooltip"></div>
+          </div>
+        </div>
+        <div class="flow-legend">
+          <span class="flow-pill"><span class="flow-dot client"></span>Client</span>
+          <span class="flow-pill"><span class="flow-dot app"></span>App</span>
+          <span class="flow-pill"><span class="flow-dot aiguard"></span>AI Guard</span>
+          <span class="flow-pill"><span class="flow-dot provider"></span>Provider</span>
+          <span class="flow-pill"><span class="flow-dot agent"></span>Agent</span>
+          <span class="flow-pill"><span class="flow-dot tool"></span>Tool/MCP</span>
+        </div>
+      </section>
+
       <section class="card code-path-card">
         <h1>Code Path Viewer</h1>
         <p class="sub">Visual snippets for the Python code paths used by this demo (before/after guardrails).</p>
@@ -692,6 +904,15 @@ HTML = f"""<!doctype html>
       const agentTraceToggleBtn = document.getElementById("agentTraceToggleBtn");
       const agentTraceContentEl = document.getElementById("agentTraceContent");
       const agentTraceCountEl = document.getElementById("agentTraceCount");
+      const flowGraphWrapEl = document.getElementById("flowGraphWrap");
+      const flowGraphViewportEl = document.getElementById("flowGraphViewport");
+      const flowGraphEmptyEl = document.getElementById("flowGraphEmpty");
+      const flowGraphSvgEl = document.getElementById("flowGraphSvg");
+      const flowGraphTooltipEl = document.getElementById("flowGraphTooltip");
+      const flowZoomInBtn = document.getElementById("flowZoomInBtn");
+      const flowZoomOutBtn = document.getElementById("flowZoomOutBtn");
+      const flowZoomResetBtn = document.getElementById("flowZoomResetBtn");
+      const flowToolbarStatusEl = document.getElementById("flowToolbarStatus");
 
       let traceCount = 0;
       let codeViewMode = "auto";
@@ -706,6 +927,8 @@ HTML = f"""<!doctype html>
       let mcpStatusTimer = null;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
+      let flowGraphState = null;
+      let flowGraphDragState = null;
 
       function pretty(obj) {{
         try {{
@@ -987,6 +1210,605 @@ HTML = f"""<!doctype html>
         `;
       }}
 
+      function resetFlowGraph() {{
+        flowGraphState = null;
+        flowGraphSvgEl.innerHTML = "";
+        flowGraphSvgEl.style.display = "none";
+        flowGraphEmptyEl.style.display = "block";
+        flowGraphTooltipEl.style.display = "none";
+        flowToolbarStatusEl.textContent = "Latest flow graph: none";
+      }}
+
+      function flowNodeClass(kind) {{
+        const k = String(kind || "").toLowerCase();
+        if (["client","app","aiguard","provider","agent","tool"].includes(k)) return k;
+        return "app";
+      }}
+
+      function _short(text, maxLen = 220) {{
+        const s = String(text ?? "");
+        return s.length > maxLen ? `${{s.slice(0, maxLen)}}...` : s;
+      }}
+
+      function _jsonPreview(value, maxLen = 260) {{
+        try {{
+          return _short(JSON.stringify(value, null, 2), maxLen);
+        }} catch {{
+          return _short(String(value), maxLen);
+        }}
+      }}
+
+      function _providerLabel(providerId) {{
+        return providerId === "ollama" ? "Ollama (Local)"
+          : (providerId === "anthropic" ? "Anthropic" : (providerId === "openai" ? "OpenAI" : providerId));
+      }}
+
+      function makeFlowGraph(entry) {{
+        const nodes = [];
+        const edges = [];
+        const seen = new Set();
+
+        function addNode(id, label, kind, col, lane = null, meta = {{}}) {{
+          if (seen.has(id)) {{
+            const existing = nodes.find(n => n.id === id);
+            if (existing && meta && Object.keys(meta).length) {{
+              existing.meta = {{ ...(existing.meta || {{}}), ...meta }};
+            }}
+            return;
+          }}
+          seen.add(id);
+          nodes.push({{ id, label, kind, col, lane, meta }});
+        }}
+        function addEdge(from, to, direction = "request", opts = {{}}) {{
+          if (!from || !to) return;
+          edges.push({{
+            from, to, direction,
+            style: opts.style || (direction === "response" ? "solid" : "dashed"),
+            label: opts.label || "",
+            danger: !!opts.danger
+          }});
+        }}
+
+        const providerId = String(entry.provider || "ollama");
+        const providerLabel = _providerLabel(providerId);
+        const body = entry.body && typeof entry.body === "object" ? entry.body : {{}};
+        const trace = body.trace && typeof body.trace === "object" ? body.trace : {{}};
+        const traceSteps = Array.isArray(trace.steps) ? trace.steps : [];
+        const agentTrace = Array.isArray(body.agent_trace) ? body.agent_trace : [];
+        const guardrails = body.guardrails && typeof body.guardrails === "object" ? body.guardrails : {{}};
+        const proxyMode = !!entry.zscalerProxyMode || String(guardrails.mode || "") === "proxy";
+        const guardrailsEnabled = !!entry.guardrailsEnabled || !!guardrails.enabled;
+        const guardrailsBlocked = !!guardrails.blocked;
+        const guardrailsBlockStage = String(guardrails.stage || "").toUpperCase();
+        const hasAiGuardIn = traceSteps.some((s) => String((s || {{}}).name || "").includes("AI Guard (IN)"));
+        const hasAiGuardOut = traceSteps.some((s) => String((s || {{}}).name || "").includes("AI Guard (OUT)"));
+        const dasApiMode = guardrailsEnabled && !proxyMode;
+        const providerStep = traceSteps.find((s) => {{
+          const n = String((s || {{}}).name || "");
+          return !!n && !n.startsWith("Zscaler");
+        }});
+
+        addNode("client", "Browser", "client", 0, 2, {{
+          "Request URL": `${{window.location.origin}}/chat`,
+          "Prompt": entry.prompt || "",
+          "Provider": providerLabel,
+          "Chat Mode": entry.chatMode || "single",
+          "Guardrails": guardrailsEnabled,
+          "Proxy Mode": proxyMode,
+          "Agentic": !!entry.agenticEnabled,
+          "Multi-Agent": !!entry.multiAgentEnabled,
+          "Tools": !!entry.toolsEnabled,
+        }});
+        addNode("app", "Demo App /chat", "app", 1, 2, {{
+          "Status": entry.status,
+          "Conversation ID": entry.conversationId || "",
+          "Response Preview": _short(body.response || body.error || ""),
+        }});
+        addEdge("client", "app", "request", {{ style: "solid" }});
+
+        let currentNodeId = "app";
+        let providerRequestSourceNode = "app";
+        let nextCol = 2;
+
+        if (dasApiMode) {{
+          if (hasAiGuardIn) {{
+            const step = traceSteps.find((s) => String((s || {{}}).name || "").includes("AI Guard (IN)")) || {{}};
+            const respBody = ((step.response || {{}}).body || {{}});
+            addNode("aiguard_in", "AI Guard (IN)", "aiguard", 2, 1, {{
+              "URL": (step.request || {{}}).url || "",
+              "Action": respBody.action || "",
+              "Policy": respBody.policyName || "",
+              "Policy ID": respBody.policyId || "",
+              "Severity": respBody.severity || "",
+            }});
+            addEdge("app", "aiguard_in", "request");
+            addEdge("aiguard_in", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "IN" }});
+          }}
+          // Keep DAS/API calls visually off the inline provider path.
+          nextCol = 3;
+        }} else if (proxyMode && guardrailsEnabled) {{
+          addNode("aiguard_proxy", "Zscaler AI Guard", "aiguard", nextCol++, 2, {{
+            "Mode": "Proxy",
+            "Base URL": String(guardrails.proxy_base_url || ""),
+            "Provider": providerLabel,
+          }});
+          addEdge(currentNodeId, "aiguard_proxy", "request");
+          currentNodeId = "aiguard_proxy";
+          providerRequestSourceNode = "aiguard_proxy";
+        }}
+
+        const pipelineStart = agentTrace.find((i) => (i && i.kind) === "multi_agent" && i.event === "pipeline_start");
+        if (pipelineStart) {{
+          addNode("orchestrator", "Orchestrator", "agent", nextCol, 1, {{
+            "Role": "Planner",
+            "What it does": "Creates the multi-agent plan and routes work to specialist agents.",
+            "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
+            "Tool execution": "No direct tool execution (delegates to researcher)"
+          }});
+          addNode("researcher", "Researcher", "agent", nextCol + 1, 0, {{
+            "Role": "Research / tools",
+            "Uses Tools": !!pipelineStart.tools_enabled,
+            "What it does": "Gathers information, can call tools/MCP when enabled, then returns findings.",
+            "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
+            "Tool execution": pipelineStart.tools_enabled ? "Yes (tool/MCP calls may happen here)" : "No (tools disabled)"
+          }});
+          addNode("reviewer", "Reviewer", "agent", nextCol + 2, 2, {{
+            "Role": "Quality/risk review",
+            "What it does": "Reviews the researcher output for clarity, gaps, and issues before final response.",
+            "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
+            "Tool execution": "Typically no"
+          }});
+          addNode("finalizer", "Finalizer", "agent", nextCol + 3, 3, {{
+            "Role": "User-facing answer",
+            "What it does": "Produces the final response shown in chat using prior agent outputs.",
+            "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
+            "Tool execution": "Typically no"
+          }});
+          addEdge(currentNodeId, "orchestrator", "request");
+          addEdge("orchestrator", "researcher", "request");
+          addEdge("researcher", "reviewer", "request");
+          addEdge("reviewer", "finalizer", "request");
+          addEdge("finalizer", "reviewer", "response");
+          addEdge("reviewer", "researcher", "response");
+          addEdge("researcher", "orchestrator", "response");
+          currentNodeId = "finalizer";
+          providerRequestSourceNode = "finalizer";
+          nextCol += 4;
+        }} else if (entry.agenticEnabled) {{
+          addNode("agent", "Agentic Loop", "agent", nextCol++, 1, {{
+            "Mode": "Single-agent tool loop",
+            "Steps": agentTrace.length || 0,
+            "What it does": "Single agent plans, optionally calls tools/MCP, and then finalizes the answer.",
+            "LLM calls": "Yes (multiple provider calls possible)",
+            "Tool execution": entry.toolsEnabled ? "Allowed when model requests it" : "Disabled"
+          }});
+          addEdge(currentNodeId, "agent", "request");
+          currentNodeId = "agent";
+          providerRequestSourceNode = "agent";
+        }}
+
+        const providerNodeId = "provider";
+        const providerMeta = providerStep ? {{
+          "Step": providerStep.name || providerLabel,
+          "URL": ((providerStep.request || {{}}).url || ""),
+          "Model": (((providerStep.request || {{}}).payload || {{}}).model || ""),
+          "Status": ((providerStep.response || {{}}).status ?? ""),
+        }} : {{
+          "Provider": providerLabel,
+          "Mode": proxyMode ? "Proxy" : "Direct",
+        }};
+        const inBlockedBeforeProvider = dasApiMode && guardrailsBlocked && guardrailsBlockStage === "IN" && !providerStep;
+        const shouldShowProvider = !inBlockedBeforeProvider;
+        if (shouldShowProvider) {{
+          addNode(providerNodeId, providerLabel + (proxyMode ? " (via Proxy)" : ""), "provider", nextCol++, 2, providerMeta);
+          addEdge(providerRequestSourceNode, providerNodeId, "request");
+        }}
+
+        const mcpEvents = agentTrace.filter((i) => (i && i.kind) === "mcp");
+        const toolEvents = agentTrace.filter((i) => (i && i.kind) === "tool");
+        const toolAnchor = pipelineStart ? "researcher" : (entry.agenticEnabled ? "agent" : providerNodeId);
+        if (mcpEvents.length) {{
+          const toolsListEvent = mcpEvents.find((i) => i.event === "tools_list") || mcpEvents[0];
+          addNode("mcp", "MCP Server", "tool", nextCol, 0, {{
+            "Server": (toolsListEvent.server_info || {{}}).name || "bundled/local",
+            "Tool Count": toolsListEvent.tool_count ?? "",
+            "Event": toolsListEvent.event || "",
+          }});
+          addEdge(toolAnchor, "mcp", "request");
+          addEdge("mcp", toolAnchor, "response");
+        }}
+
+        const toolIds = [];
+        toolEvents.forEach((item, idx) => {{
+          const toolName = String(item.tool || "").trim() || `tool_${{idx+1}}`;
+          const id = `tool_${{idx}}`;
+          toolIds.push(id);
+          const outputPreview = _short(
+            typeof item.output === "string" ? item.output : _jsonPreview(item.output),
+            180
+          );
+          addNode(id, toolName, "tool", nextCol + 1 + idx, (idx % 2 === 0 ? 0 : 4), {{
+            "Tool": toolName,
+            "Agent": item.agent || "",
+            "Input": _jsonPreview(item.input),
+            "Output": outputPreview,
+            "Source": ((item.tool_trace || {{}}).source || "local"),
+          }});
+          const sourceNode = mcpEvents.length ? "mcp" : toolAnchor;
+          addEdge(sourceNode, id, "request");
+          addEdge(id, sourceNode, "response");
+        }});
+        if ((toolIds.length || mcpEvents.length) && shouldShowProvider) {{
+          nextCol += 2 + Math.max(1, toolIds.length);
+          const returnNode = toolIds.length ? toolIds[toolIds.length - 1] : "mcp";
+          addEdge(returnNode, providerNodeId, "response");
+        }}
+
+        if (dasApiMode && hasAiGuardOut) {{
+          const step = traceSteps.find((s) => String((s || {{}}).name || "").includes("AI Guard (OUT)")) || {{}};
+          const respBody = ((step.response || {{}}).body || {{}});
+          const outCol = shouldShowProvider ? Math.max(3, nextCol - 1) : 3;
+          addNode("aiguard_out", "AI Guard (OUT)", "aiguard", outCol, 3, {{
+            "URL": (step.request || {{}}).url || "",
+            "Action": respBody.action || "",
+            "Policy": respBody.policyName || "",
+            "Policy ID": respBody.policyId || "",
+            "Severity": respBody.severity || "",
+          }});
+          addEdge("app", "aiguard_out", "request");
+          addEdge("aiguard_out", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
+        }}
+
+        if (proxyMode && guardrailsEnabled && shouldShowProvider) {{
+          addEdge(providerNodeId, "aiguard_proxy", "response", {{ danger: guardrailsBlocked }});
+          addEdge("aiguard_proxy", "app", "response", {{ danger: guardrailsBlocked }});
+        }} else if (shouldShowProvider) {{
+          addEdge(providerNodeId, "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
+        }}
+        addEdge("app", "client", "response", {{
+          style: "solid",
+          danger: guardrailsBlocked && (guardrailsBlockStage === "IN" || guardrailsBlockStage === "OUT" || proxyMode)
+        }});
+
+        for (const direction of ["request", "response"]) {{
+          const dirEdges = edges.filter(e => e.direction === direction);
+          const groups = new Map();
+          const order = [];
+          for (const e of dirEdges) {{
+            const key = `${{e.from}}`;
+            if (!groups.has(key)) {{
+              groups.set(key, []);
+              order.push(key);
+            }}
+            groups.get(key).push(e);
+          }}
+          let counter = 1;
+          for (const key of order) {{
+            const list = groups.get(key) || [];
+            list.forEach((e, idx) => {{
+              e.flow_group_index = idx;
+              e.flow_group_size = list.length;
+            }});
+            if (list.length === 1) {{
+              list[0].flow_label = `${{direction === "response" ? "r" : ""}}${{counter}}`;
+            }} else {{
+              list.forEach((e, idx) => {{
+                const letter = String.fromCharCode(97 + idx);
+                e.flow_label = `${{direction === "response" ? "r" : ""}}${{counter}}${{letter}}`;
+              }});
+            }}
+            counter += 1;
+          }}
+        }}
+        return {{ nodes, edges }};
+      }}
+
+      function _flowInitPositions(nodes) {{
+        const cols = Math.max(...nodes.map(n => Number(n.col || 0)), 0) + 1;
+        const colWidth = 310;
+        const leftPad = 52;
+        const laneYs = [84, 208, 356, 504, 652];
+        const nodeW = 190;
+        const nodeH = 42;
+        const width = Math.max(2200, leftPad * 2 + colWidth * Math.max(cols, 7) + 120);
+        const height = 760;
+        const positions = new Map();
+        let fallbackLaneIdx = 0;
+        for (const n of nodes) {{
+          let lane = Number.isInteger(n.lane) ? n.lane : null;
+          if (lane == null) {{
+            lane = [0, 1, 3, 4][fallbackLaneIdx % 4];
+            fallbackLaneIdx += 1;
+          }}
+          const x = leftPad + (Number(n.col || 0) * colWidth);
+          const y = laneYs[Math.max(0, Math.min(laneYs.length - 1, lane))];
+          positions.set(n.id, {{ x, y }});
+        }}
+        return {{ positions, width, height, nodeW, nodeH }};
+      }}
+
+      function _flowEdgePath(a, b, edge, nodeW, nodeH, edgeIndex) {{
+        const req = edge.direction !== "response";
+        const x1 = req ? (a.x + nodeW) : a.x;
+        const x2 = req ? b.x : (b.x + nodeW);
+        const slotOffset = (((edge.flow_group_index || 0) - (((edge.flow_group_size || 1) - 1) / 2)) * 10);
+        const baseOffset = req ? -(nodeH * 0.22) : +(nodeH * 0.22);
+        const y1 = a.y + nodeH / 2 + baseOffset + slotOffset;
+        const y2 = b.y + nodeH / 2 + baseOffset + slotOffset;
+        const midX = (x1 + x2) / 2;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const ctrlSpread = Math.max(38, Math.min(140, Math.abs(dx) * 0.42));
+        if ((req && x2 >= x1) || (!req && x2 <= x1)) {{
+          const c1x = x1 + (req ? ctrlSpread : -ctrlSpread);
+          const c2x = x2 - (req ? ctrlSpread : -ctrlSpread);
+          const bend = req ? -18 : 18;
+          const c1y = y1 + (dy * 0.15) + bend;
+          const c2y = y2 - (dy * 0.15) + bend;
+          const labelX = (x1 + 3 * c1x + 3 * c2x + x2) / 8;
+          const labelY = (y1 + 3 * c1y + 3 * c2y + y2) / 8 + (req ? -12 : 12);
+          return {{
+            d: `M ${{x1}} ${{y1}} C ${{c1x}} ${{c1y}}, ${{c2x}} ${{c2y}}, ${{x2}} ${{y2}}`,
+            labelX,
+            labelY,
+          }};
+        }}
+        const hump = Math.max(40, 54 + (edgeIndex % 4) * 16);
+        const yMid = req ? (Math.min(y1, y2) - hump) : (Math.max(y1, y2) + hump);
+        const c1x = x1 + (req ? 44 : -44);
+        const c2x = midX;
+        const c4x = x2 - (req ? 44 : -44);
+        const labelX = midX;
+        const labelY = req ? (yMid - 12) : (yMid + 12);
+        return {{
+          d: `M ${{x1}} ${{y1}} C ${{c1x}} ${{y1}}, ${{c2x}} ${{yMid}}, ${{midX}} ${{yMid}} S ${{c4x}} ${{y2}}, ${{x2}} ${{y2}}`,
+          labelX,
+          labelY,
+        }};
+      }}
+
+      function computeFlowGraphFitScale() {{
+        if (!flowGraphState) return 1;
+        const wrapW = Math.max(1, flowGraphWrapEl.clientWidth - 8);
+        const wrapH = Math.max(1, flowGraphWrapEl.clientHeight - 8);
+        const sx = wrapW / Math.max(1, flowGraphState.width);
+        const sy = wrapH / Math.max(1, flowGraphState.height);
+        return Math.max(0.4, Math.min(1.15, Math.min(sx, sy)));
+      }}
+
+      function centerFlowGraphViewport() {{
+        if (!flowGraphState) return;
+        const scaledW = Math.round(flowGraphState.width * flowGraphState.scale);
+        const scaledH = Math.round(flowGraphState.height * flowGraphState.scale);
+        flowGraphWrapEl.scrollLeft = Math.max(0, Math.round((scaledW - flowGraphWrapEl.clientWidth) / 2));
+        flowGraphWrapEl.scrollTop = Math.max(0, Math.round((scaledH - flowGraphWrapEl.clientHeight) / 2));
+      }}
+
+      function _flowTooltipText(node) {{
+        const lines = [`${{node.label}}`];
+        const meta = node.meta && typeof node.meta === "object" ? node.meta : {{}};
+        for (const [k, v] of Object.entries(meta)) {{
+          if (v == null || v === "") continue;
+          lines.push(`${{k}}: ${{typeof v === "string" ? _short(v, 220) : _short(_jsonPreview(v, 220), 220)}}`);
+        }}
+        return lines.join("\\n");
+      }}
+
+      function _showFlowTooltip(node, evt) {{
+        if (!node) return;
+        flowGraphTooltipEl.textContent = _flowTooltipText(node);
+        flowGraphTooltipEl.style.display = "block";
+        _moveFlowTooltip(evt);
+      }}
+
+      function _moveFlowTooltip(evt) {{
+        if (flowGraphTooltipEl.style.display !== "block") return;
+        const wrapRect = flowGraphWrapEl.getBoundingClientRect();
+        const tipRect = flowGraphTooltipEl.getBoundingClientRect();
+        let x = (evt.clientX - wrapRect.left) + 12 + flowGraphWrapEl.scrollLeft;
+        let y = (evt.clientY - wrapRect.top) + 12 + flowGraphWrapEl.scrollTop;
+        const maxX = flowGraphWrapEl.scrollLeft + flowGraphWrapEl.clientWidth - tipRect.width - 8;
+        const maxY = flowGraphWrapEl.scrollTop + flowGraphWrapEl.clientHeight - tipRect.height - 8;
+        x = Math.min(Math.max(flowGraphWrapEl.scrollLeft + 8, x), Math.max(flowGraphWrapEl.scrollLeft + 8, maxX));
+        y = Math.min(Math.max(flowGraphWrapEl.scrollTop + 8, y), Math.max(flowGraphWrapEl.scrollTop + 8, maxY));
+        flowGraphTooltipEl.style.left = `${{x}}px`;
+        flowGraphTooltipEl.style.top = `${{y}}px`;
+      }}
+
+      function _hideFlowTooltip() {{
+        flowGraphTooltipEl.style.display = "none";
+      }}
+
+      function refreshFlowGraphGeometry() {{
+        if (!flowGraphState) return;
+        const state = flowGraphState;
+        flowGraphSvgEl.querySelectorAll(".flow-node").forEach((el) => {{
+          const nodeId = el.getAttribute("data-node-id");
+          const p = state.positions.get(nodeId);
+          if (!p) return;
+          el.setAttribute("transform", `translate(${{p.x}},${{p.y}})`);
+        }});
+        flowGraphSvgEl.querySelectorAll("path[data-edge-idx]").forEach((el) => {{
+          const idx = Number(el.getAttribute("data-edge-idx") || "-1");
+          const edge = state.edges[idx];
+          if (!edge) return;
+          const a = state.positions.get(edge.from);
+          const b = state.positions.get(edge.to);
+          if (!a || !b) return;
+          const geom = _flowEdgePath(a, b, edge, state.nodeW, state.nodeH, idx);
+          el.setAttribute("d", geom.d);
+          const labelGroup = flowGraphSvgEl.querySelector(`.flow-edge-label[data-edge-label-idx="${{idx}}"]`);
+          if (labelGroup) {{
+            const rect = labelGroup.querySelector("rect");
+            const text = labelGroup.querySelector("text");
+            if (rect) {{
+              rect.setAttribute("x", String(geom.labelX - 15));
+              rect.setAttribute("y", String(geom.labelY - 9));
+            }}
+            if (text) {{
+              text.setAttribute("x", String(geom.labelX));
+              text.setAttribute("y", String(geom.labelY));
+            }}
+          }}
+        }});
+      }}
+
+      function drawFlowGraph() {{
+        if (!flowGraphState) {{
+          resetFlowGraph();
+          return;
+        }}
+        const state = flowGraphState;
+        const esc = (s) => String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+        const nodeW = state.nodeW;
+        const nodeH = state.nodeH;
+        const edgeParts = state.edges.map((edge, idx) => {{
+          const a = state.positions.get(edge.from);
+          const b = state.positions.get(edge.to);
+          if (!a || !b) return null;
+          const geom = _flowEdgePath(a, b, edge, nodeW, nodeH, idx);
+          const cls = `flow-edge ${{edge.direction === "response" ? "response" : "request"}} ${{edge.style === "solid" ? "solid" : ""}} ${{edge.danger ? "danger" : ""}}`;
+          return {{
+            path: `<path data-edge-idx="${{idx}}" class="${{cls}}" d="${{geom.d}}" marker-end="url(#flowArrow${{edge.direction === "response" ? (edge.danger ? "RespDanger" : "Resp") : "Req"}})"></path>`,
+            label: edge.flow_label
+              ? `<g class="flow-edge-label ${{edge.direction === "response" ? "response" : "request"}} ${{edge.danger ? "danger" : ""}}" data-edge-label-idx="${{idx}}"><rect x="${{geom.labelX - 15}}" y="${{geom.labelY - 9}}" width="30" height="18" rx="6" ry="6"></rect><text x="${{geom.labelX}}" y="${{geom.labelY}}">${{edge.flow_label}}</text></g>`
+              : "",
+          }};
+        }}).filter(Boolean);
+        const edgeSvg = edgeParts.map(p => p.path).join("");
+        const edgeLabelSvg = edgeParts.map(p => p.label || "").join("");
+
+        const nodeSvg = state.nodes.map((n) => {{
+          const p = state.positions.get(n.id);
+          if (!p) return "";
+          return `
+            <g class="flow-node ${{flowNodeClass(n.kind)}}" data-node-id="${{esc(n.id)}}" transform="translate(${{p.x}},${{p.y}})">
+              <rect rx="9" ry="9" width="${{nodeW}}" height="${{nodeH}}"></rect>
+              <text x="${{nodeW / 2}}" y="22" text-anchor="middle">${{esc(n.label)}}</text>
+            </g>
+          `;
+        }}).join("");
+
+        flowGraphSvgEl.setAttribute("viewBox", `0 0 ${{state.width}} ${{state.height}}`);
+        flowGraphSvgEl.setAttribute("width", String(Math.round(state.width * state.scale)));
+        flowGraphSvgEl.setAttribute("height", String(Math.round(state.height * state.scale)));
+        flowGraphSvgEl.innerHTML = `
+          <defs>
+            <marker id="flowArrowReq" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#a78bfa"></path>
+            </marker>
+            <marker id="flowArrowResp" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#22d3ee"></path>
+            </marker>
+            <marker id="flowArrowRespDanger" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#ef4444"></path>
+            </marker>
+          </defs>
+          <g class="flow-edges">${{edgeSvg}}</g>
+          <g class="flow-edge-labels">${{edgeLabelSvg}}</g>
+          <g class="flow-nodes">${{nodeSvg}}</g>
+        `;
+
+        const nodeById = new Map(state.nodes.map(n => [n.id, n]));
+        flowGraphSvgEl.querySelectorAll(".flow-node").forEach((el) => {{
+          const nodeId = el.getAttribute("data-node-id");
+          const node = nodeById.get(nodeId);
+          el.addEventListener("mouseenter", (evt) => _showFlowTooltip(node, evt));
+          el.addEventListener("mousemove", (evt) => _moveFlowTooltip(evt));
+          el.addEventListener("mouseleave", () => _hideFlowTooltip());
+          el.addEventListener("pointerdown", (evt) => {{
+            evt.preventDefault();
+            el.setPointerCapture(evt.pointerId);
+            const p = state.positions.get(nodeId);
+            if (!p) return;
+            flowGraphDragState = {{
+              pointerId: evt.pointerId,
+              nodeId,
+              startClientX: evt.clientX,
+              startClientY: evt.clientY,
+              startX: p.x,
+              startY: p.y,
+            }};
+            el.classList.add("dragging");
+            _hideFlowTooltip();
+          }});
+          el.addEventListener("pointermove", (evt) => {{
+            if (!flowGraphDragState || flowGraphDragState.pointerId !== evt.pointerId || flowGraphDragState.nodeId !== nodeId) return;
+            const dx = (evt.clientX - flowGraphDragState.startClientX) / state.scale;
+            const dy = (evt.clientY - flowGraphDragState.startClientY) / state.scale;
+            const maxX = Math.max(8, state.width - state.nodeW - 8);
+            const maxY = Math.max(8, state.height - state.nodeH - 8);
+            state.positions.set(nodeId, {{
+              x: Math.min(maxX, Math.max(8, flowGraphDragState.startX + dx)),
+              y: Math.min(maxY, Math.max(8, flowGraphDragState.startY + dy)),
+            }});
+            refreshFlowGraphGeometry();
+          }});
+          el.addEventListener("pointerup", (evt) => {{
+            if (flowGraphDragState && flowGraphDragState.pointerId === evt.pointerId) {{
+              flowGraphDragState = null;
+            }}
+            el.classList.remove("dragging");
+          }});
+          el.addEventListener("pointercancel", () => {{
+            flowGraphDragState = null;
+            el.classList.remove("dragging");
+          }});
+        }});
+
+        flowGraphEmptyEl.style.display = "none";
+        flowGraphSvgEl.style.display = "block";
+        const reqCount = state.edges.filter(e => e.direction !== "response").length;
+        const respCount = state.edges.filter(e => e.direction === "response").length;
+        flowToolbarStatusEl.textContent = `Nodes: ${{state.nodes.length}} | Request flows: ${{reqCount}} | Return flows: ${{respCount}} | Zoom: ${{Math.round(state.scale * 100)}}%`;
+      }}
+
+      function renderFlowGraph(entry) {{
+        if (!entry) {{
+          resetFlowGraph();
+          return;
+        }}
+        const graph = makeFlowGraph(entry);
+        const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+        const edges = Array.isArray(graph.edges) ? graph.edges : [];
+        if (!nodes.length) {{
+          resetFlowGraph();
+          return;
+        }}
+        const init = _flowInitPositions(nodes);
+        flowGraphState = {{
+          entry,
+          nodes,
+          edges,
+          positions: init.positions,
+          initialPositions: new Map(Array.from(init.positions.entries()).map(([k, v]) => [k, {{...v}}])),
+          width: init.width,
+          height: init.height,
+          nodeW: init.nodeW,
+          nodeH: init.nodeH,
+          scale: 1,
+        }};
+        resetFlowGraphView();
+      }}
+
+      function flowZoomBy(multiplier) {{
+        if (!flowGraphState) return;
+        flowGraphState.scale = Math.max(0.55, Math.min(2.4, flowGraphState.scale * multiplier));
+        drawFlowGraph();
+      }}
+
+      function resetFlowGraphView() {{
+        if (!flowGraphState) return;
+        if (flowGraphState.initialPositions) {{
+          flowGraphState.positions = new Map(
+            Array.from(flowGraphState.initialPositions.entries()).map(([k, v]) => [k, {{...v}}])
+          );
+        }}
+        flowGraphState.scale = computeFlowGraphFitScale();
+        drawFlowGraph();
+        centerFlowGraphViewport();
+      }}
+
       function effectiveCodeMode() {{
         const selectedProvider = providerSelectEl.value || lastSelectedProvider || "ollama";
         const provider = selectedProvider === "ollama" ? "ollama" : "anthropic";
@@ -998,6 +1820,135 @@ HTML = f"""<!doctype html>
         }}_${{provider}}`;
       }}
 
+      function buildDynamicCodeSections() {{
+        const sections = [];
+        const providerId = providerSelectEl.value || "ollama";
+        const guardOn = !!guardrailsToggleEl.checked;
+        const proxyOn = guardOn && !!zscalerProxyModeToggleEl.checked;
+        const agenticOn = !!agenticToggleEl.checked;
+        const multiAgentOn = !!multiAgentToggleEl.checked;
+        const toolsOn = !!toolsToggleEl.checked && (agenticOn || multiAgentOn);
+
+        if (guardOn) {{
+          sections.push({{
+            title: proxyOn
+              ? "app.py: Zscaler AI Guard Proxy Mode Branch"
+              : "app.py: Zscaler AI Guard DAS/API Branch",
+            file: "app.py",
+            code: proxyOn
+              ? [
+                  "if guardrails_enabled and zscaler_proxy_mode:",
+                  "    payload, status = providers.call_provider(",
+                  "        provider_id,",
+                  "        prompt=prompt,",
+                  "        messages=messages_if_multi_turn,",
+                  "        zscaler_proxy_mode=True,",
+                  "        # provider-specific proxy key env (ANTHROPIC_ZS_PROXY_API_KEY / OPENAI_ZS_PROXY_API_KEY)",
+                  "    )",
+                  "    self._send_json(payload, status=status)",
+                ].join(\"\\n\")
+              : [
+                  "if guardrails_enabled and not zscaler_proxy_mode:",
+                  "    payload, status = guardrails.guarded_chat(",
+                  "        prompt=prompt,",
+                  "        llm_call=lambda ...: providers.call_provider(...),",
+                  "        llm_call_messages=lambda ...: providers.call_provider_messages(...),",
+                  "        conversation_id=conversation_id,",
+                  "    )",
+                  "    self._send_json(payload, status=status)",
+                ].join(\"\\n\")
+          }});
+        }}
+
+        if (agenticOn || multiAgentOn) {{
+          sections.push({{
+            title: multiAgentOn
+              ? "app.py + multi_agent.py: Multi-Agent Execution Path"
+              : "app.py + agentic.py: Agentic Execution Path",
+            file: multiAgentOn ? "multi_agent.py" : "agentic.py",
+            code: multiAgentOn
+              ? [
+                  "if multi_agent_enabled:",
+                  "    result = multi_agent.run_multi_agent(",
+                  "        provider_id=provider_id,",
+                  "        prompt=prompt,",
+                  "        messages=messages_if_multi_turn,",
+                  "        tools_enabled=tools_enabled,",
+                  "    )",
+                  "    # orchestrator -> researcher -> reviewer -> finalizer",
+                ].join(\"\\n\")
+              : [
+                  "if agentic_enabled:",
+                  "    result = agentic.run_agentic_loop(",
+                  "        provider_id=provider_id,",
+                  "        prompt=prompt,",
+                  "        messages=messages_if_multi_turn,",
+                  "        tools_enabled=tools_enabled,",
+                  "    )",
+                  "    # single-agent plan -> tool(optional) -> finalize",
+                ].join(\"\\n\")
+          }});
+        }}
+
+        if (toolsOn) {{
+          sections.push({{
+            title: "agentic.py + mcp_client.py: Tools/MCP Execution Path",
+            file: "mcp_client.py",
+            code: [
+              "if tools_enabled:",
+              "    mcp = get_or_start_mcp_client()  # bundled local MCP server by default",
+              "    tools = mcp.tools_list() or local_fallback_tools()",
+              "    tool_result = mcp.tools_call(name, input)  # falls back to local tools if needed",
+              "    agent_trace.append({{kind: 'tool' | 'mcp', ...}})",
+            ].join(\"\\n\")
+          }});
+        }}
+
+        if (providerId === "openai" || providerId === "anthropic") {{
+          sections.push({{
+            title: "providers.py: Remote Provider SDK Routing",
+            file: "providers.py",
+            code: proxyOn
+              ? [
+                  `# ${{providerId === \"openai\" ? \"OpenAI\" : \"Anthropic\"}} SDK via Zscaler proxy`,
+                  "client = SDK(api_key=provider_api_key, base_url=proxy_base_url, default_headers={{proxy_key_header: proxy_key}})",
+                  "resp = client.<chat_api>(...)",
+                  "return normalized_text, trace_step",
+                ].join(\"\\n\")
+              : [
+                  `# ${{providerId === \"openai\" ? \"OpenAI\" : \"Anthropic\"}} SDK direct`,
+                  "client = SDK(api_key=provider_api_key)",
+                  "resp = client.<chat_api>(...)",
+                  "return normalized_text, trace_step",
+                ].join(\"\\n\")
+          }});
+        }}
+
+        return sections;
+      }}
+
+      function relabelCodeSectionsForProvider(sections, providerId) {{
+        const list = Array.isArray(sections) ? sections : [];
+        if (providerId !== "openai") return list;
+        return list.map((section) => {{
+          if (!section || typeof section !== "object") return section;
+          const title = String(section.title || "")
+            .replaceAll("Anthropic selected", "OpenAI selected")
+            .replaceAll("Anthropic/OpenAI", "OpenAI/Anthropic");
+          const file = String(section.file || "");
+          let code = String(section.code || "");
+          code = code
+            .replaceAll("_anthropic_", "_openai_")
+            .replaceAll("anthropic_model", "openai_model")
+            .replaceAll("ANTHROPIC_MODEL", "OPENAI_MODEL")
+            .replaceAll("Anthropic(", "OpenAI(")
+            .replaceAll("Anthropic SDK", "OpenAI SDK")
+            .replaceAll("from anthropic import Anthropic", "from openai import OpenAI")
+            .replaceAll('# "anthropic"', '# "openai"');
+          return {{ ...section, title, file, code }};
+        }});
+      }}
+
       function renderCodeViewer() {{
         const mode = effectiveCodeMode();
         const spec = codeSnippets[mode];
@@ -1007,16 +1958,24 @@ HTML = f"""<!doctype html>
           return;
         }}
 
+        const providerId = providerSelectEl.value || "ollama";
+        const providerLabel = providerId === "ollama" ? "Ollama (Local)" : (providerId === "openai" ? "OpenAI" : "Anthropic");
+        const zMode = guardrailsToggleEl.checked
+          ? (zscalerProxyModeToggleEl.checked ? "Proxy Mode" : "API/DAS Mode")
+          : "OFF";
+        const execMode = multiAgentToggleEl.checked
+          ? "Multi-Agent"
+          : (agenticToggleEl.checked ? "Agentic" : "Direct");
+        const toolsState = (agenticToggleEl.checked || multiAgentToggleEl.checked)
+          ? (toolsToggleEl.checked ? "ON" : "OFF")
+          : "N/A";
+
         codeStatusEl.textContent = codeViewMode === "auto"
           ? `Auto mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
-            }} for ${{
-              (providerSelectEl.value || "ollama") === "ollama"
-                ? "Ollama (Local)"
-                : ((providerSelectEl.value || "ollama") === "openai" ? "OpenAI" : "Anthropic")
-            }} in ${{
+            }} for ${{providerLabel}} in ${{
               currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
-            }} mode (Zscaler AI Guard toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
+            }} mode | Zscaler AI Guard: ${{zMode}} | Execution: ${{execMode}} | Tools/MCP: ${{toolsState}}`
           : `Manual mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
             }} for ${{mode.endsWith("_ollama") ? "Ollama (Local)" : "Remote Provider (Anthropic/OpenAI)"}} in ${{
@@ -1027,7 +1986,10 @@ HTML = f"""<!doctype html>
         codeBeforeBtn.classList.toggle("secondary", codeViewMode !== "before");
         codeAfterBtn.classList.toggle("secondary", codeViewMode !== "after");
 
-        const allSections = [...(spec.sections || []), ...(chatModeSpec.sections || [])];
+        const allSections = relabelCodeSectionsForProvider(
+          [...(spec.sections || []), ...(chatModeSpec.sections || []), ...buildDynamicCodeSections()],
+          providerId
+        );
         codePanelsEl.innerHTML = allSections.map(renderCodeBlock).join("");
       }}
 
@@ -1131,6 +2093,7 @@ HTML = f"""<!doctype html>
         `;
 
         logListEl.prepend(item);
+        renderFlowGraph(entry);
       }}
 
       function resetTrace() {{
@@ -1160,6 +2123,7 @@ HTML = f"""<!doctype html>
         agentTraceExpanded = false;
         resetTrace();
         resetAgentTrace();
+        resetFlowGraph();
         syncTracePanels();
         renderConversation();
         updateChatModeUI();
@@ -1277,6 +2241,10 @@ HTML = f"""<!doctype html>
           statusEl.textContent = "Copy failed";
         }}
       }});
+      flowZoomInBtn.addEventListener("click", () => flowZoomBy(1.15));
+      flowZoomOutBtn.addEventListener("click", () => flowZoomBy(1 / 1.15));
+      flowZoomResetBtn.addEventListener("click", () => resetFlowGraphView());
+      flowGraphWrapEl.addEventListener("mouseleave", () => _hideFlowTooltip());
       presetToggleBtn.addEventListener("click", () => {{
         const isOpen = presetPanelEl.classList.toggle("open");
         presetToggleBtn.textContent = isOpen ? "Hide Presets" : "Prompt Presets";
@@ -1362,6 +2330,7 @@ HTML = f"""<!doctype html>
       refreshMcpStatus();
       mcpStatusTimer = setInterval(refreshMcpStatus, 60000);
       resetAgentTrace();
+      resetFlowGraph();
       renderCodeViewer();
     </script>
   </body>
@@ -1761,6 +2730,107 @@ def _hhmmss_now() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+def _proxy_block_message(stage: str, block_body: object) -> str:
+    if not isinstance(block_body, dict):
+        return f"This {stage} was blocked by AI Guard per Company Policy."
+    policy_name = block_body.get("policyName") or "n/a"
+    reason = block_body.get("reason") or "Your request was blocked by Zscaler AI Guard"
+    detections = []
+    if isinstance(block_body.get("inputDetections"), list):
+        detections.extend([str(x) for x in block_body.get("inputDetections") or []])
+    if isinstance(block_body.get("outputDetections"), list):
+        detections.extend([str(x) for x in block_body.get("outputDetections") or []])
+    detectors_text = ", ".join(detections) if detections else "n/a"
+    return (
+        f"This {stage} was blocked by AI Guard per Company Policy. "
+        "If you believe this is incorrect or have an exception to make please contact "
+        "helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555.\n\n"
+        "Block details:\n"
+        f"- policyName: {policy_name}\n"
+        f"- reason: {reason}\n"
+        f"- triggeredDetectors: {detectors_text}"
+    )
+
+
+def _parse_proxy_block_dict_from_text(text: object) -> dict | None:
+    s = str(text or "").strip()
+    if not s:
+        return None
+    if " - " in s:
+        _, suffix = s.split(" - ", 1)
+        s = suffix.strip()
+    if not (s.startswith("{") and s.endswith("}")):
+        return None
+    try:
+        parsed = ast.literal_eval(s)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_proxy_block_info_from_meta(meta: dict | None) -> dict | None:
+    if not isinstance(meta, dict):
+        return None
+    block = meta.get("proxy_guardrails_block")
+    if isinstance(block, dict):
+        return block
+    trace_step = meta.get("trace_step") or {}
+    resp = (trace_step.get("response") or {}) if isinstance(trace_step, dict) else {}
+    body = resp.get("body") if isinstance(resp, dict) else None
+    if isinstance(body, dict):
+        nested = body.get("response_body")
+        if isinstance(nested, dict) and ("policyName" in nested or "reason" in nested):
+            return {
+                "stage": "IN" if nested.get("inputDetections") else ("OUT" if nested.get("outputDetections") else "UNKNOWN"),
+                **nested,
+            }
+    details = meta.get("details") or ((body or {}).get("error") if isinstance(body, dict) else None)
+    parsed = _parse_proxy_block_dict_from_text(details)
+    if isinstance(parsed, dict) and ("policyName" in parsed or "reason" in parsed):
+        return {
+            "stage": "IN" if parsed.get("inputDetections") else ("OUT" if parsed.get("outputDetections") else "UNKNOWN"),
+            **parsed,
+        }
+    return None
+
+
+def _extract_proxy_block_info_from_payload(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    if isinstance(payload.get("proxy_guardrails_block"), dict):
+        return payload["proxy_guardrails_block"]
+    trace = payload.get("trace") if isinstance(payload.get("trace"), dict) else {}
+    steps = trace.get("steps") if isinstance(trace, dict) else None
+    if isinstance(steps, list):
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            resp = step.get("response") or {}
+            if not isinstance(resp, dict):
+                continue
+            body = resp.get("body")
+            if isinstance(body, dict):
+                nested = body.get("response_body")
+                if isinstance(nested, dict) and ("policyName" in nested or "reason" in nested):
+                    return {
+                        "stage": "IN" if nested.get("inputDetections") else ("OUT" if nested.get("outputDetections") else "UNKNOWN"),
+                        **nested,
+                    }
+                parsed = _parse_proxy_block_dict_from_text(body.get("error"))
+                if parsed and ("policyName" in parsed or "reason" in parsed):
+                    return {
+                        "stage": "IN" if parsed.get("inputDetections") else ("OUT" if parsed.get("outputDetections") else "UNKNOWN"),
+                        **parsed,
+                    }
+    parsed = _parse_proxy_block_dict_from_text(payload.get("details"))
+    if parsed and ("policyName" in parsed or "reason" in parsed):
+        return {
+            "stage": "IN" if parsed.get("inputDetections") else ("OUT" if parsed.get("outputDetections") else "UNKNOWN"),
+            **parsed,
+        }
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -1888,6 +2958,31 @@ class Handler(BaseHTTPRequestHandler):
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
                 )
+                proxy_block = _extract_proxy_block_info_from_payload(payload)
+                if proxy_block:
+                    trace_steps = []
+                    if isinstance(payload.get("trace"), dict) and isinstance(payload["trace"].get("steps"), list):
+                        trace_steps = payload["trace"]["steps"]
+                    block_stage = str(proxy_block.get("stage") or "IN").upper()
+                    block_payload = {
+                        "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
+                        "guardrails": {
+                            "enabled": True,
+                            "mode": "proxy",
+                            "blocked": True,
+                            "stage": block_stage,
+                            "proxy_base_url": ZS_PROXY_BASE_URL,
+                        },
+                        "trace": {"steps": trace_steps},
+                        "agent_trace": payload.get("agent_trace", []),
+                        "multi_agent": payload.get("multi_agent", {"enabled": True, "implemented": True}),
+                    }
+                    if chat_mode == "multi":
+                        block_payload["conversation"] = messages_for_provider + [
+                            {"role": "assistant", "content": str(block_payload["response"]), "ts": _hhmmss_now()}
+                        ]
+                    self._send_json(block_payload, status=200)
+                    return
                 payload["guardrails"] = {
                     "enabled": True,
                     "mode": "proxy",
@@ -2030,6 +3125,30 @@ class Handler(BaseHTTPRequestHandler):
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
                 )
+                proxy_block = _extract_proxy_block_info_from_payload(payload)
+                if proxy_block:
+                    trace_steps = []
+                    if isinstance(payload.get("trace"), dict) and isinstance(payload["trace"].get("steps"), list):
+                        trace_steps = payload["trace"]["steps"]
+                    block_stage = str(proxy_block.get("stage") or "IN").upper()
+                    block_payload = {
+                        "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
+                        "guardrails": {
+                            "enabled": True,
+                            "mode": "proxy",
+                            "blocked": True,
+                            "stage": block_stage,
+                            "proxy_base_url": ZS_PROXY_BASE_URL,
+                        },
+                        "trace": {"steps": trace_steps},
+                        "agent_trace": payload.get("agent_trace", []),
+                    }
+                    if chat_mode == "multi":
+                        block_payload["conversation"] = messages_for_provider + [
+                            {"role": "assistant", "content": str(block_payload["response"]), "ts": _hhmmss_now()}
+                        ]
+                    self._send_json(block_payload, status=200)
+                    return
                 payload["guardrails"] = {
                     "enabled": True,
                     "mode": "proxy",
@@ -2167,6 +3286,26 @@ class Handler(BaseHTTPRequestHandler):
             if zscaler_proxy_mode:
                 text, meta = _provider_messages_call(messages_for_provider)
                 if text is None:
+                    proxy_block = _extract_proxy_block_info_from_meta(meta)
+                    if proxy_block:
+                        block_stage = str(proxy_block.get("stage") or "IN").upper()
+                        payload = {
+                            "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
+                            "guardrails": {
+                                "enabled": True,
+                                "mode": "proxy",
+                                "blocked": True,
+                                "stage": block_stage,
+                                "proxy_base_url": ZS_PROXY_BASE_URL,
+                            },
+                            "trace": {"steps": [meta.get("trace_step", {})]},
+                        }
+                        if chat_mode == "multi":
+                            payload["conversation"] = messages_for_provider + [
+                                {"role": "assistant", "content": str(payload["response"]), "ts": _hhmmss_now()}
+                            ]
+                        self._send_json(payload, status=200)
+                        return
                     self._send_json(
                         {
                             "error": meta.get("error", "Provider request failed."),
@@ -2187,6 +3326,7 @@ class Handler(BaseHTTPRequestHandler):
                     "guardrails": {
                         "enabled": True,
                         "mode": "proxy",
+                        "blocked": False,
                         "proxy_base_url": ZS_PROXY_BASE_URL,
                     },
                     "trace": {"steps": [meta["trace_step"]]},

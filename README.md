@@ -13,6 +13,7 @@ Very small demo app for local testing and live demos.
 - Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
 - Zscaler AI Guard mode toggle: DAS/API Mode vs Proxy Mode (Proxy Mode supported for remote providers)
 - HTTP trace sidebar showing request/response payloads (including upstream calls)
+- Flow Graph panel showing a visual path of the latest request (app, AI Guard, provider, agents, tools/MCP)
 - Code Path Viewer (before/after guardrails, auto follows toggle/provider)
 - Agent / Tool Trace panel (LLM decisions + tool calls)
 
@@ -102,6 +103,10 @@ Notes:
   - Client request to `/chat`
   - Client response from the app
   - Upstream calls (selected provider and, when enabled, Zscaler AI Guard IN/OUT checks)
+- `Flow Graph` panel:
+  - Visualizes the latest captured request path using the same `HTTP Trace` + `Agent / Tool Trace` data
+  - Shows nodes such as browser/app, AI Guard, provider, agents, MCP, and tools (when present)
+  - Resets on `Clear`
 - `Agent / Tool Trace` panel:
   - Agent LLM decision steps
   - Tool call inputs/outputs
