@@ -1,396 +1,157 @@
 # Local LLM Demo (Multi-Provider + Optional Zscaler AI Guard)
 
-Very small demo app for local testing and live demos.
+Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy), agentic/multi-agent workflows, MCP/tools, and rich traces.
 
-## What this demo shows
+## What You Can Demo
 
-- Local web chat UI (`python app.py`)
-- Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic`, `Azure AI Foundry`, `AWS Bedrock`, `AWS Bedrock Agent`, `Google Gemini`, `Google Vertex`, `LiteLLM`, `OpenAI`, `Perplexity`, and `xAI (Grok)`)
-- Single-turn / Multi-turn chat mode toggle (provider-agnostic)
-- Agentic Mode toggle (provider-agnostic single-agent tool loop)
-- Multi-Agent Mode toggle (orchestrator + specialist agents)
-- Tools (MCP) toggle for agent tool execution (MCP-friendly architecture; see note below)
-- Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
-- Zscaler AI Guard mode toggle: DAS/API Mode vs Proxy Mode (Proxy Mode supported for remote providers)
-- HTTP trace sidebar showing request/response payloads (including upstream calls)
-- Flow Graph panel showing a visual path of the latest request (app, AI Guard, provider, agents, tools/MCP)
-- Code Path Viewer (before/after guardrails, auto follows toggle/provider)
-- Agent / Tool Trace panel (LLM decisions + tool calls)
+- Multi-provider chat (local + cloud)
+- Zscaler AI Guard toggle and mode switch (API/DAS vs Proxy)
+- Single-turn and multi-turn behavior
+- Agentic and multi-agent execution
+- Tools/MCP behavior
+- HTTP trace + agent/tool trace + prompt/instruction inspector
+- Flow graph and code path viewer
 
-## Quick start
+## Provider Validation Status
 
-1. Start Ollama:
+Tested end-to-end in this demo environment:
+
+- Ollama (Local)
+- Anthropic
+- OpenAI
+- LiteLLM
+
+Present in UI but not yet fully validated end-to-end in this environment:
+
+- AWS Bedrock
+- AWS Bedrock Agent
+- Google Gemini
+- Google Vertex
+- Perplexity
+- xAI (Grok)
+- Azure AI Foundry
+
+---
+
+## Recommended Setup (No Docker Required)
+
+This project is designed to run directly with Python.
+
+### macOS / Linux
+
+1. Install prerequisites:
+   - Python 3.11+
+   - Git
+   - Ollama ([download](https://ollama.com/download))
+2. Clone:
+   - `git clone https://github.com/zscalerzoltanorg/local-llm-demo.git`
+   - `cd local-llm-demo`
+3. Bootstrap:
+   - `./scripts/bootstrap_mac_linux.sh`
+   - This script installs Ollama when possible, starts `ollama serve`, and pulls `llama3.2:1b`
+4. Start Ollama runtime if not already running:
    - `ollama serve`
-2. Pull a small model (once):
-   - `ollama pull llama3.2:1b`
-3. Run app:
+5. Run app:
+   - `set -a; source .env.local; set +a`
    - `python app.py`
-4. Open:
-   - `http://127.0.0.1:5000`
-
-## Optional Additional Providers
-
-The app supports multiple remote providers in the UI. Some use SDKs, some use HTTP APIs.
-
-Requirements:
-
-- Install SDKs you plan to use:
-  - `pip install anthropic`
-  - `pip install openai`
-  - `pip install boto3` (for Bedrock Invoke + Bedrock Agent)
-- Set your API key:
-  - `export ANTHROPIC_API_KEY='your_key_here'`
-  - `export OPENAI_API_KEY='your_key_here'`
-  - `export PERPLEXITY_API_KEY='your_key_here'`
-  - `export XAI_API_KEY='your_key_here'`
-  - `export GEMINI_API_KEY='your_key_here'`
-  - For Google Vertex, use Google ADC credentials (service account / gcloud auth) and set `VERTEX_PROJECT_ID`
-  - `export AZURE_AI_FOUNDRY_API_KEY='your_key_here'` (for Azure AI Foundry model inference endpoint)
-  - For AWS Bedrock, use normal AWS credentials (`aws configure`, env vars, SSO, etc.)
-
-Optional:
-
-- `export ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'`
-- `export OPENAI_MODEL='gpt-4o-mini'`
-- `export AWS_REGION='us-east-1'`
-- `export BEDROCK_INVOKE_MODEL='amazon.nova-lite-v1:0'`
-- `export BEDROCK_AGENT_ID='your_agent_id'`
-- `export BEDROCK_AGENT_ALIAS_ID='your_alias_id'`
-- `export PERPLEXITY_MODEL='sonar'`
-- `export XAI_MODEL='grok-2-latest'`
-- `export GEMINI_MODEL='gemini-1.5-flash'`
-- `export VERTEX_PROJECT_ID='your-gcp-project-id'`
-- `export VERTEX_LOCATION='us-central1'`
-  - `export VERTEX_MODEL='gemini-1.5-flash'`
-  - `export LITELLM_API_KEY='your_litellm_virtual_key'`
-  - `export LITELLM_BASE_URL='http://<your-litellm-host>/v1'`
-  - `export LITELLM_MODEL='claude-3-haiku-20240307'` (or another LiteLLM-routed model)
-  - `export AZURE_AI_FOUNDRY_BASE_URL='https://<your-endpoint>.inference.ai.azure.com/v1'`
-- `export AZURE_AI_FOUNDRY_MODEL='gpt-4o-mini'` (or your deployed model id)
-
-Notes:
-
-- `Ollama (Local)` remains the default provider
-- If a provider SDK/API key/config is missing, the app returns a clear error and shows the provider trace in `HTTP Trace`
-
-### Optional: Local Corporate TLS / ZIA (Anthropic + AI Guard)
-
-If you are running locally behind corporate TLS interception (for example ZIA), you may need to trust your corporate/Zscaler root CA for outbound HTTPS used by providers (like Anthropic).
-
-This repo includes a Zscaler root CA PEM and a combined CA bundle example for local SE/demo use:
-
-- `certs/zscaler-root-ca.pem`
-- `certs/combined-ca-bundle.pem` (built from `certifi` CA bundle + Zscaler root CA)
-
-When needed, start the app with:
-
-- `export SSL_CERT_FILE='/absolute/path/to/certs/combined-ca-bundle.pem'`
-- `export REQUESTS_CA_BUNDLE='/absolute/path/to/certs/combined-ca-bundle.pem'`
-
-Notes:
-
-- This is typically a local workstation/corporate network requirement
-- It may not be needed when deployed in cloud environments without TLS interception
-
-## UI Features
-
-- `Send`: submits prompt to `/chat`
-- `Prompt Presets`: opens a grouped list of curated demo prompts (fills the prompt box only)
-- `Clear`: clears prompt, response, status, HTTP trace, code path viewer state, multi-turn conversation transcript, and `Agent / Tool Trace` (but keeps the selected LLM provider)
-- `LLM` dropdown: choose any configured provider (local or remote)
-- `Multi-turn Chat` toggle:
-  - OFF (default): single-turn prompt/response
-  - ON: chat transcript mode with conversation history sent to the selected provider
-- `Tools (MCP)` toggle:
-  - Enables tool execution for agentic runs
-  - Uses a bundled local MCP server (`stdio`) by default
-  - Can be redirected to another MCP server via `MCP_SERVER_COMMAND`
-- `Agentic Mode` toggle:
-  - Enables a realistic single-agent, multi-step loop (LLM decides tool use, runs tool, then finalizes)
-  - Works with all configured providers via the same provider abstraction (quality/tool reliability varies by model)
-- `Multi-Agent Mode` toggle:
-  - Enables a realistic multi-agent pipeline:
-    - `orchestrator` (planning)
-    - `researcher` (can use tools/MCP)
-    - `reviewer` (quality/risk/gaps review)
-    - `finalizer` (user-facing answer)
-  - Works with all configured providers via the same provider abstraction (quality/tool reliability varies by model)
-  - Mutually exclusive with `Agentic Mode` in the UI (turning one ON turns the other OFF)
-- `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
-- `Proxy Mode` toggle (disabled until `Zscaler AI Guard` is ON):
-  - OFF: DAS/API Mode (`IN`/`OUT` checks via resolve-policy endpoint)
-  - ON: Proxy Mode (provider SDK request sent to Zscaler proxy)
-  - Current support: `Anthropic`, `OpenAI` (not `Ollama (Local)`)
-- `HTTP Trace` panel:
-  - Client request to `/chat`
-  - Client response from the app
-  - Upstream calls (selected provider and, when enabled, Zscaler AI Guard IN/OUT checks)
-- `Flow Graph` panel:
-  - Visualizes the latest captured request path using the same `HTTP Trace` + `Agent / Tool Trace` data
-  - Shows nodes such as browser/app, AI Guard, provider, agents, MCP, and tools (when present)
-  - Resets on `Clear`
-- `Agent / Tool Trace` panel:
-  - Agent LLM decision steps
-  - Tool call inputs/outputs
-  - Tool-specific request/response traces (for network tools like weather/web fetch/search)
-- `Code Path Viewer`:
-  - Shows provider-aware before/after code paths
-  - Auto mode follows selected provider, chat mode, and Zscaler AI Guard toggle state
+6. Open:
+   - [http://127.0.0.1:5050](http://127.0.0.1:5050)
 
-Notes:
+### Windows (PowerShell)
 
-- Several toggles include UI tooltips (`title` hover text) to explain behavior during demos.
+1. Install prerequisites:
+   - Python 3.11+
+   - Git for Windows
+   - Ollama ([download](https://ollama.com/download))
+2. Clone:
+   - `git clone https://github.com/zscalerzoltanorg/local-llm-demo.git`
+   - `cd local-llm-demo`
+3. Bootstrap:
+   - `./scripts/bootstrap_windows.ps1`
+   - This script installs Ollama (via winget when available), starts `ollama serve`, and pulls `llama3.2:1b`
+4. Start Ollama app/service
+5. Run app:
+   - `python app.py`
+6. Open:
+   - [http://127.0.0.1:5050](http://127.0.0.1:5050)
 
-## App Name (optional)
+---
 
-You can customize the browser/app title shown in the UI with an env var:
+## Configuration Philosophy
 
-- `export APP_DEMO_NAME='My AI Demo App'`
+- Start with local defaults from `.env.example` -> `.env.local`
+- Use the in-app **Settings (⚙)** modal for day-to-day config edits (preferred)
+- Save settings locally; restart when prompted
 
-If not set, the app defaults to:
+You do **not** need to prefill every env variable.
+Only set keys/providers you actually want to use.
 
-- `AI App Demo`
+---
 
-## Optional Zscaler AI Guardrails (toggleable in UI)
+## Minimal Local Defaults
 
-The app includes a `Zscaler AI Guard` toggle (default: OFF). When enabled, each chat request uses this flow:
+Your `.env.local` should at least have:
 
-1. Zscaler AI Guard `IN` check (prompt)
-2. Selected LLM provider generation (`Ollama (Local)`, `Anthropic`, or `OpenAI`)
-3. Zscaler AI Guard `OUT` check (response)
+```env
+PORT=5050
+OLLAMA_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.2:1b
+MCP_SERVER_COMMAND=
+MCP_TIMEOUT_SECONDS=15
+MCP_PROTOCOL_VERSION=2024-11-05
+```
 
-If Zscaler blocks the prompt or response, the app returns a blocked message.
+When `MCP_SERVER_COMMAND` is empty, the app automatically uses the bundled local MCP server.
 
-In multi-turn mode, the guardrails flow remains the same but is applied per turn:
+---
 
-1. `IN` check on the latest user message
-2. Selected provider is called with conversation history (`messages`)
-3. `OUT` check on the generated assistant response
+## Optional Provider Credentials (Set Only If Needed)
 
-When `Agentic Mode` is enabled:
+- Anthropic: `ANTHROPIC_API_KEY`
+- OpenAI: `OPENAI_API_KEY`
+- LiteLLM: `LITELLM_API_KEY`, `LITELLM_BASE_URL`
+- Bedrock: AWS auth + optional `AWS_REGION`, plus agent IDs for Bedrock Agent
+- Perplexity: `PERPLEXITY_API_KEY`
+- xAI: `XAI_API_KEY`
+- Gemini: `GEMINI_API_KEY`
+- Vertex: `VERTEX_PROJECT_ID` + Google auth
+- Azure AI Foundry: `AZURE_AI_FOUNDRY_API_KEY`, `AZURE_AI_FOUNDRY_BASE_URL`
 
-1. `IN` check runs on the latest user message
-2. Agent loop runs (selected provider, optional tools if `Tools (MCP)` is ON)
-3. `OUT` check runs on the final agent response
-
-When `Multi-Agent Mode` is enabled:
-
-1. `IN` check runs on the latest user message
-2. Multi-agent pipeline runs (orchestrator -> researcher -> reviewer -> finalizer)
-3. `OUT` check runs on the finalizer response
-
-The current demo does **not** apply guardrails to each intermediate tool input/output or intermediate agent handoff yet (only user input and final output). This is intentional for a clear baseline and easy future comparison when adding deeper tool-loop guardrail coverage.
-
-### DAS/API Mode vs Proxy Mode
-
-When `Zscaler AI Guard` is ON, you can choose between:
-
-- `Proxy Mode` OFF (default): DAS/API Mode
-  - App performs AI Guard `IN` and `OUT` checks directly against the resolve-policy endpoint
-- `Proxy Mode` ON: Zscaler Proxy Mode
-  - App sends the provider SDK request to Zscaler proxy (`ZS_PROXY_BASE_URL`)
-  - This is currently supported for remote SDK providers:
-    - `Anthropic`
-    - `OpenAI`
-  - `Ollama (Local)` remains DAS/API-only in this demo
-
-Notes:
-
-- Proxy Mode uses a **different Zscaler AI Guard proxy key** than DAS/API mode
-- In Proxy Mode, this demo does not perform separate `IN`/`OUT` API checks (the proxy path is the enforcement path)
-
-This demo app is configured to use the Zscaler Resolve Policy endpoint (not a specific Policy ID in the request payload):
-
-- `https://api.zseclipse.net/v1/detection/resolve-and-execute-policy`
-
-### Local env vars (recommended for labs)
-
-- `ZS_GUARDRAILS_API_KEY` (required when using Guardrails toggle ON)
-- `ZS_GUARDRAILS_URL` (default: `https://api.zseclipse.net/v1/detection/resolve-and-execute-policy`)
-- `ZS_GUARDRAILS_TIMEOUT_SECONDS` (default: `15`)
-- `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME` (optional; if set, the app forwards a per-conversation ID to AI Guard in this header)
-- `ZS_PROXY_API_KEY` (required when using `Proxy Mode` ON)
-- `ANTHROPIC_ZS_PROXY_API_KEY` / `ANTHROPIC_ZS_PROXY_KEY` (optional provider-specific proxy key; overrides `ZS_PROXY_API_KEY`)
-- `OPENAI_ZS_PROXY_API_KEY` / `OPENAI_ZS_PROXY_KEY` (optional provider-specific proxy key; overrides `ZS_PROXY_API_KEY`)
-- `ZS_PROXY_BASE_URL` (default: `https://proxy.zseclipse.net`)
-- `ZS_PROXY_API_KEY_HEADER_NAME` (default: `X-ApiKey`)
-
-Example (zsh/bash):
-
-- `export ZS_GUARDRAILS_API_KEY='your_local_key_here'`
-- `export ZS_GUARDRAILS_URL='https://api.zseclipse.net/v1/detection/resolve-and-execute-policy'` (optional; default shown)
-- `export ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME='conversationIdHeaderName'` (optional example)
-- `export ZS_PROXY_API_KEY='your_proxy_mode_key_here'` (only needed for Proxy Mode)
-- `export ANTHROPIC_ZS_PROXY_API_KEY='your_anthropic_proxy_key_here'` (optional provider-specific override)
-- `export OPENAI_ZS_PROXY_API_KEY='your_openai_proxy_key_here'` (optional provider-specific override)
-- `export ZS_PROXY_BASE_URL='https://proxy.zseclipse.net'` (optional; default shown)
-- `python app.py`
-
-If the API key is not set and `Guardrails` is ON, the app will return a clear error and show the attempted Zscaler request in the HTTP trace panel.
-
-If `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME` is set, the app sends a stable per-conversation ID (generated in the browser and reset on `Clear`) in that header for both AI Guard `IN` and `OUT` checks. This is visible in the trace panel.
-
-## Zscaler Console Setup (DAS/API Mode)
-
-In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode in the console:
-
-1. Created the App (for example, `Local LLM`)
-2. Created the API Key tied to the App (you will use this for `ZS_GUARDRAILS_API_KEY`)
-3. Created a Policy Configuration with at least one detector
-4. Created a Policy Control tied to the Policy Configuration with criteria for the App/Credentials you set
-
-## Optional env vars
-
-- `OLLAMA_MODEL` (default: `llama3.2:1b`)
-- `OLLAMA_URL` (default: `http://127.0.0.1:11434`)
-- `AWS_REGION` (default: `us-east-1`; used by Bedrock Invoke + Bedrock Agent)
-- `BEDROCK_INVOKE_MODEL` (default: `amazon.nova-lite-v1:0`)
-- `BEDROCK_AGENT_ID` (required when `AWS Bedrock Agent` provider is selected)
-- `BEDROCK_AGENT_ALIAS_ID` (required when `AWS Bedrock Agent` provider is selected)
-- `ANTHROPIC_API_KEY` (required only when `Anthropic` provider is selected)
-- `ANTHROPIC_MODEL` (default: `claude-sonnet-4-5-20250929`)
-- `OPENAI_API_KEY` (required only when `OpenAI` provider is selected)
-- `OPENAI_MODEL` (default: `gpt-4o-mini`)
-- `PERPLEXITY_API_KEY` (required only when `Perplexity` provider is selected)
-- `PERPLEXITY_MODEL` (default: `sonar`)
-- `PERPLEXITY_BASE_URL` (optional override for Perplexity OpenAI-compatible endpoint)
-- `XAI_API_KEY` (required only when `xAI (Grok)` provider is selected)
-- `XAI_MODEL` (default: `grok-2-latest`)
-- `XAI_BASE_URL` (optional override; default uses `https://api.x.ai/v1`)
-- `GEMINI_API_KEY` (required only when `Google Gemini` provider is selected)
-- `GEMINI_MODEL` (default: `gemini-1.5-flash`)
-- `GEMINI_BASE_URL` (optional override; default `https://generativelanguage.googleapis.com`)
-- `VERTEX_PROJECT_ID` (required when `Google Vertex` provider is selected)
-- `VERTEX_LOCATION` (default: `us-central1`)
-- `VERTEX_MODEL` (default: `gemini-1.5-flash`)
-- `LITELLM_API_KEY` (required when `LiteLLM` provider is selected; LiteLLM virtual key)
-- `LITELLM_BASE_URL` (default: `http://127.0.0.1:4000/v1`; set to your LiteLLM gateway `/v1` base)
-- `LITELLM_MODEL` (default: `claude-3-haiku-20240307`; can be any LiteLLM-routed model)
-- `AZURE_AI_FOUNDRY_API_KEY` (required when `Azure AI Foundry` provider is selected)
-- `AZURE_AI_FOUNDRY_BASE_URL` (required; your Azure AI Foundry/OpenAI-compatible inference base URL)
-- `AZURE_AI_FOUNDRY_MODEL` (default: `gpt-4o-mini`)
-- `BRAVE_SEARCH_API_KEY` (required only if using the `brave_search` tool)
-- `BRAVE_SEARCH_BASE_URL` (default: `https://api.search.brave.com`)
-- `BRAVE_SEARCH_MAX_RESULTS` (default: `5`)
-- `AGENTIC_MAX_STEPS` (default: `3`)
-- `MULTI_AGENT_MAX_SPECIALIST_ROUNDS` (default: `1`)
-- `MCP_SERVER_COMMAND` (optional; shell command used to start an MCP server over `stdio`)
-- `MCP_TIMEOUT_SECONDS` (default: `15`)
-- `MCP_PROTOCOL_VERSION` (default: `2024-11-05`)
-- `APP_DEMO_NAME` (default: `AI App Demo`)
-
-## Tools (Agentic / Multi-Agent Mode)
-
-Built-in tools currently available when `Tools (MCP)` is enabled:
-
-- `calculator` (local arithmetic, no API key)
-- `weather` (uses `wttr.in`, no API key)
-- `web_fetch` (fetches URL content and extracts text)
-- `brave_search` (Brave Search API, requires `BRAVE_SEARCH_API_KEY`)
-- `current_time` (timezone-aware current date/time)
-- `dns_lookup` (hostname -> IP addresses)
-- `http_head` (HTTP status + response headers for a URL)
-- `hash_text` (md5/sha1/sha256/sha512)
-- `url_codec` (URL encode/decode)
-- `text_stats` (char/word/line counts)
-- `uuid_generate` (UUIDv4 values)
-- `base64_codec` (encode/decode)
+All model overrides are optional and can be configured later.
 
-### Brave Search vs Web Fetch
+---
 
-- `brave_search` finds relevant URLs/results for a query (search API)
-- `web_fetch` retrieves the content of a specific URL
+## Zscaler AI Guard (Optional)
 
-They are different and often complementary in agentic workflows.
+### DAS/API mode
 
-In `Multi-Agent Mode`, tools are primarily used by the `researcher` agent.
+- `ZS_GUARDRAILS_API_KEY`
+- Optional: `ZS_GUARDRAILS_URL`, `ZS_GUARDRAILS_TIMEOUT_SECONDS`, `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME`
 
-### Example Tool Prompts
+### Proxy mode
 
-- `Use the weather tool to get tomorrow's weather for Franklin, TN 37064 and tell me if I should bring a jacket.`
-- `Use the calculator tool to compute (23*19)+7 and return only the number.`
-- `Use dns_lookup on api.search.brave.com and return the IP addresses.`
-- `Use http_head on https://ollama.com and summarize the status code and server headers.`
-- `Use hash_text with sha256 on the text "local demo".`
-- `Use url_codec to encode "Franklin TN 37064 coffee shops".`
-- `Use text_stats on this text: "one two three\nfour".`
-- `Generate 3 UUIDs using uuid_generate.`
+- `ZS_PROXY_BASE_URL` (default shown in `.env.example`)
+- `ZS_PROXY_API_KEY` (or provider-specific keys)
+- Optional provider-specific proxy keys:
+  - `ANTHROPIC_ZS_PROXY_API_KEY`
+  - `OPENAI_ZS_PROXY_API_KEY`
 
-## Multi-Agent Mode (How To Use)
+---
 
-This demo includes a realistic v1 multi-agent flow that runs multiple specialist agents in sequence.
+## Security Notes
 
-Pipeline:
+- `.env`, `.env.*` are git-ignored (`!.env.example` is allowed)
+- Do not commit real API keys
+- Rotate/revoke temporary keys after demos
 
-1. `orchestrator`
-   - Reads the user request and creates a plan (goal, research focus, whether tools are useful)
-2. `researcher`
-   - Gathers facts and drafts a working answer
-   - Can use tools/MCP if `Tools (MCP)` is ON
-3. `reviewer`
-   - Reviews the research output for gaps/risks/clarity
-4. `finalizer`
-   - Produces the final user-facing response
+---
 
-How to demo it:
+## Docker?
 
-1. Select a strong remote provider (recommended: `Anthropic` or `OpenAI`)
-2. Turn `Multi-Agent Mode` ON
-3. Optionally turn `Tools (MCP)` ON for richer traces
-4. Send a prompt that benefits from decomposition (research + recommendation)
-5. Open `Agent / Tool Trace` and show the handoffs plus specialist outputs
+Not required.
 
-Good expectations:
+Best path today:
+- Native Python + `.env.local` + Ollama local runtime
 
-- You should see multiple LLM calls in `Agent / Tool Trace` with agent names (`orchestrator`, `researcher`, `reviewer`, `finalizer`)
-- If `Tools (MCP)` is ON, the `researcher` agent may call tools and you will see tool/MCP trace entries
-- Final answer is produced by the `finalizer` agent and returned in the normal chat response area
-
-Important limitations (current v1):
-
-- Specialist agents run sequentially (not parallel) for trace clarity and reliability
-- The `researcher` agent uses the existing single-agent tool loop under the hood (realistic foundation, easy to extend)
-- Guardrails are applied to the latest user input and final output, not each intermediate handoff/tool payload yet
-
-Recommended multi-agent demo prompts:
-
-- `Research two good coffee shop options in Franklin, TN 37064 for a morning meeting and recommend one with a short rationale.`
-- `Compare two approaches for storing API keys in a local demo app, then recommend the safer option for a team demo.`
-- `Create a short demo plan for testing AI Guard with secrets, prompt injection, and PII examples, and explain the order to run them.`
-
-## MCP Status (Important)
-
-This build now supports a **real MCP client path over `stdio`** and includes a bundled local MCP tool server for easy local demos.
-
-Current MCP behavior:
-
-- If `MCP_SERVER_COMMAND` is **not** set:
-  - The app auto-starts the bundled local MCP server (`mcp_tool_server.py`)
-  - Your existing built-in tools (weather, brave search, calculator, etc.) are exposed via MCP
-- If `MCP_SERVER_COMMAND` **is** set:
-  - The app starts the MCP server process
-  - Calls `initialize`
-  - Sends `notifications/initialized`
-  - Calls `tools/list`
-  - Exposes MCP tools to the agent alongside local built-in tools
-  - Calls `tools/call` when the agent selects an MCP tool name
-
-Notes:
-
-- Your existing tools do **not** disappear; they are now available through the bundled local MCP server by default
-- If a custom MCP server does not expose a tool name, the app still falls back to local built-in tools for that tool
-- MCP server startup / tool list events are shown in `Agent / Tool Trace`
-- MCP tool call request/response envelopes are included in tool traces
-
-### Example MCP setup (stdio)
-
-By default, no setup is required (the bundled local MCP server is auto-launched).
-
-To use a different MCP server, set the command before starting the app:
-
-- `export MCP_SERVER_COMMAND='python /path/to/your_mcp_server.py'`
-
-Then start the app normally and enable:
-
-- `Agentic Mode` = ON
-- `Tools (MCP)` = ON
+Optional future enhancement:
+- Add Docker/Compose for reproducible team onboarding

@@ -1114,17 +1114,20 @@ HTML = f"""<!doctype html>
               <label class="status" for="providerSelect">LLM</label>
               <select id="providerSelect" class="provider-select">
               <option value="anthropic">Anthropic</option>
-              <option value="azure_foundry">Azure AI Foundry</option>
-              <option value="bedrock_invoke">AWS Bedrock</option>
-              <option value="bedrock_agent">AWS Bedrock Agent</option>
-              <option value="gemini">Google Gemini</option>
-              <option value="vertex">Google Vertex</option>
+              <option value="azure_foundry">Azure AI Foundry (Untested)</option>
+              <option value="bedrock_invoke">AWS Bedrock (Untested)</option>
+              <option value="bedrock_agent">AWS Bedrock Agent (Untested)</option>
+              <option value="gemini">Google Gemini (Untested)</option>
+              <option value="vertex">Google Vertex (Untested)</option>
               <option value="litellm">LiteLLM</option>
               <option value="ollama">Ollama (Local)</option>
               <option value="openai">OpenAI</option>
-              <option value="perplexity">Perplexity</option>
-              <option value="xai">xAI (Grok)</option>
+              <option value="perplexity">Perplexity (Untested)</option>
+              <option value="xai">xAI (Grok) (Untested)</option>
               </select>
+              <span id="providerTestPill" class="status-pill" title="Provider validation marker based on this demo's tested coverage">
+                Provider: unknown
+              </span>
               <span id="mcpStatusPill" class="status-pill" title="MCP server status (auto-refreshes every minute)">
                 <span id="mcpStatusDot" class="status-dot" aria-hidden="true"></span>
                 <span id="mcpStatusText">MCP: checking...</span>
@@ -1372,6 +1375,7 @@ HTML = f"""<!doctype html>
       const zscalerModeRightLabelEl = document.getElementById("zscalerModeRightLabel");
       const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
+      const providerTestPillEl = document.getElementById("providerTestPill");
       const currentModelTextEl = document.getElementById("currentModelText");
       const settingsBtnEl = document.getElementById("settingsBtn");
       const settingsModalEl = document.getElementById("settingsModal");
@@ -1458,6 +1462,7 @@ HTML = f"""<!doctype html>
         perplexity: "{providers.DEFAULT_PERPLEXITY_MODEL}",
         xai: "{providers.DEFAULT_XAI_MODEL}"
       }};
+      const testedProviderSet = new Set(["ollama", "anthropic", "openai", "litellm"]);
 
       function pretty(obj) {{
         try {{
@@ -1506,6 +1511,17 @@ HTML = f"""<!doctype html>
         currentModelTextEl.title = observed
           ? `Observed from latest provider trace (fallback: ${{fallback}})`
           : "Configured/default model";
+      }}
+
+      function refreshProviderValidationText() {{
+        const providerId = (providerSelectEl.value || "ollama").toLowerCase();
+        const tested = testedProviderSet.has(providerId);
+        providerTestPillEl.textContent = tested
+          ? "Provider: tested"
+          : "Provider: untested";
+        providerTestPillEl.title = tested
+          ? "Validated in this demo: provider path tested end-to-end"
+          : "Not yet validated in this demo environment. Configure and test before relying on it.";
       }}
 
       function _extractObservedModelFromEntry(entry) {{
@@ -3632,6 +3648,7 @@ HTML = f"""<!doctype html>
       providerSelectEl.addEventListener("change", () => {{
         lastSelectedProvider = providerSelectEl.value || "ollama";
         refreshCurrentModelText();
+        refreshProviderValidationText();
         syncZscalerProxyModeState();
         syncOllamaStatusVisibility();
         refreshOllamaStatus();
@@ -3703,6 +3720,7 @@ HTML = f"""<!doctype html>
       }});
       renderPresetCatalog();
       refreshCurrentModelText();
+      refreshProviderValidationText();
       renderConversation();
       updateChatModeUI();
       syncAgentModeExclusivityState();
