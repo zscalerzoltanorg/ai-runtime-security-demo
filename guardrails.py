@@ -6,6 +6,7 @@ from urllib import error, request
 DEFAULT_ZS_GUARDRAILS_URL = (
     "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
 )
+DEMO_USER_HEADER_NAME = "X-Demo-User"
 
 
 def _guardrails_config() -> tuple[str, str, float, str]:
@@ -80,7 +81,12 @@ def _block_message(stage: str, block_body: object) -> str:
     )
 
 
-def _zag_check(direction: str, content: str, conversation_id: str | None = None) -> tuple[bool, dict]:
+def _zag_check(
+    direction: str,
+    content: str,
+    conversation_id: str | None = None,
+    demo_user: str | None = None,
+) -> tuple[bool, dict]:
     zag_url, zag_key, zag_timeout, conversation_id_header = _guardrails_config()
 
     if not zag_key:
@@ -100,6 +106,7 @@ def _zag_check(direction: str, content: str, conversation_id: str | None = None)
                             if conversation_id_header and conversation_id
                             else {}
                         ),
+                        **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
                     },
                     "payload": {"direction": direction, "content": content or ""},
                 },
@@ -117,12 +124,16 @@ def _zag_check(direction: str, content: str, conversation_id: str | None = None)
     }
     if conversation_id_header and conversation_id:
         headers[conversation_id_header] = str(conversation_id)
+    if demo_user:
+        headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     redacted_headers = {
         "Authorization": "Bearer ***redacted***",
         "Content-Type": "application/json",
     }
     if conversation_id_header and conversation_id:
         redacted_headers[conversation_id_header] = str(conversation_id)
+    if demo_user:
+        redacted_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
 
     try:
         status, body = _post_json(
@@ -183,10 +194,15 @@ def _zag_check(direction: str, content: str, conversation_id: str | None = None)
     }
 
 
-def guarded_chat(prompt: str, llm_call, conversation_id: str | None = None) -> tuple[dict, int]:
+def guarded_chat(
+    prompt: str,
+    llm_call,
+    conversation_id: str | None = None,
+    demo_user: str | None = None,
+) -> tuple[dict, int]:
     trace_steps: list[dict] = []
 
-    in_blocked, in_meta = _zag_check("IN", prompt, conversation_id=conversation_id)
+    in_blocked, in_meta = _zag_check("IN", prompt, conversation_id=conversation_id, demo_user=demo_user)
     trace_steps.append(in_meta["trace_step"])
     if in_meta.get("error"):
         return (
@@ -222,7 +238,7 @@ def guarded_chat(prompt: str, llm_call, conversation_id: str | None = None) -> t
 
     text = (llm_text or "").strip()
 
-    out_blocked, out_meta = _zag_check("OUT", text, conversation_id=conversation_id)
+    out_blocked, out_meta = _zag_check("OUT", text, conversation_id=conversation_id, demo_user=demo_user)
     trace_steps.append(out_meta["trace_step"])
     if out_meta.get("error"):
         return (

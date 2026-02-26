@@ -902,6 +902,14 @@ HTML = f"""<!doctype html>
               </div>
             </div>
             <div class="chat-meta-controls">
+              <label class="status" for="demoUserSelect">Demo User</label>
+              <select id="demoUserSelect" class="provider-select" title="Adds X-Demo-User header to requests (and forwards upstream where supported)">
+                <option value="alex.rivera@acme-demo.com">alex.rivera@acme-demo.com</option>
+                <option value="maria.chen@northwind.test">maria.chen@northwind.test</option>
+                <option value="jamal.brooks@contoso-labs.io">jamal.brooks@contoso-labs.io</option>
+                <option value="priya.nair@fabrikam-demo.net">priya.nair@fabrikam-demo.net</option>
+                <option value="leo.martin@globex.example">leo.martin@globex.example</option>
+              </select>
               <label class="status" for="providerSelect">LLM</label>
               <select id="providerSelect" class="provider-select">
               <option value="anthropic">Anthropic</option>
@@ -1110,6 +1118,7 @@ HTML = f"""<!doctype html>
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
       const zscalerProxyModeWrapEl = document.getElementById("zscalerProxyModeWrap");
       const zscalerProxyModeToggleEl = document.getElementById("zscalerProxyModeToggle");
+      const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
       const currentModelTextEl = document.getElementById("currentModelText");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
@@ -1214,6 +1223,10 @@ HTML = f"""<!doctype html>
 
       function currentChatMode() {{
         return multiTurnToggleEl.checked ? "multi" : "single";
+      }}
+
+      function currentDemoUser() {{
+        return String((demoUserSelectEl && demoUserSelectEl.value) || "").trim();
       }}
 
       function refreshCurrentModelText() {{
@@ -1894,6 +1907,7 @@ HTML = f"""<!doctype html>
         addNode("client", "Browser", "client", 0, 2, {{
           "Request URL": `${{window.location.origin}}/chat`,
           "Prompt": entry.prompt || "",
+          "Demo User Header": entry.demoUser || "",
           "Provider": providerLabel,
           "Chat Mode": entry.chatMode || "single",
           "Guardrails": guardrailsEnabled,
@@ -1908,6 +1922,7 @@ HTML = f"""<!doctype html>
         addNode("app", "Demo App /chat", "app", 1, 2, {{
           "Status": entry.status,
           "Conversation ID": entry.conversationId || "",
+          "Demo User Header": entry.demoUser || "",
           "Response Preview": _short(body.response || body.error || ""),
           ..._transportMetaFromUrl(`${{window.location.origin}}/chat`, {{
             note: "Local web app server endpoint handling /chat"
@@ -2657,7 +2672,10 @@ HTML = f"""<!doctype html>
         const clientReq = {{
           method: "POST",
           url: `${{window.location.origin}}/chat`,
-          headers: {{ "Content-Type": "application/json" }},
+          headers: {{
+            "Content-Type": "application/json",
+            ...(entry.demoUser ? {{ "X-Demo-User": entry.demoUser }} : {{}})
+          }},
           payload: {{
             prompt: entry.prompt,
             provider: entry.provider || "ollama",
@@ -2810,7 +2828,10 @@ HTML = f"""<!doctype html>
           startThinkingUI();
           const res = await fetch("/chat", {{
             method: "POST",
-            headers: {{ "Content-Type": "application/json" }},
+            headers: {{
+              "Content-Type": "application/json",
+              ...(currentDemoUser() ? {{ "X-Demo-User": currentDemoUser() }} : {{}})
+            }},
             body: JSON.stringify({{
               prompt,
               provider: providerSelectEl.value,
@@ -2829,6 +2850,7 @@ HTML = f"""<!doctype html>
           addTrace({{
             prompt,
             provider: providerSelectEl.value,
+            demoUser: currentDemoUser(),
             chatMode: currentChatMode(),
             messages: pendingMessages,
             conversationId: clientConversationId,
@@ -3726,6 +3748,7 @@ class Handler(BaseHTTPRequestHandler):
         provider_id = (data.get("provider") or "ollama").strip().lower()
         chat_mode = "multi" if str(data.get("chat_mode") or "").lower() == "multi" else "single"
         conversation_id = str(data.get("conversation_id") or "").strip()
+        demo_user = str(self.headers.get("X-Demo-User") or "").strip()
         guardrails_enabled = bool(data.get("guardrails_enabled"))
         zscaler_proxy_mode = bool(data.get("zscaler_proxy_mode")) and guardrails_enabled
         tools_enabled = bool(data.get("tools_enabled"))
@@ -3756,6 +3779,7 @@ class Handler(BaseHTTPRequestHandler):
                 openai_model=OPENAI_MODEL,
                 zscaler_proxy_mode=zscaler_proxy_mode,
                 conversation_id=conversation_id,
+                demo_user=demo_user,
             )
 
         if multi_agent_enabled:
@@ -3818,7 +3842,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 trace_steps: list[dict] = []
                 in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
-                    "IN", prompt, conversation_id=conversation_id
+                    "IN", prompt, conversation_id=conversation_id, demo_user=demo_user
                 )
                 trace_steps.append(in_meta.get("trace_step", {}))
                 if in_meta.get("error"):
@@ -3875,7 +3899,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 final_text = str(payload.get("response") or "").strip()
                 out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
-                    "OUT", final_text, conversation_id=conversation_id
+                    "OUT", final_text, conversation_id=conversation_id, demo_user=demo_user
                 )
                 trace_steps.append(out_meta.get("trace_step", {}))
                 payload["trace"] = {"steps": trace_steps}
@@ -3984,7 +4008,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 trace_steps: list[dict] = []
                 in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
-                    "IN", prompt, conversation_id=conversation_id
+                    "IN", prompt, conversation_id=conversation_id, demo_user=demo_user
                 )
                 trace_steps.append(in_meta.get("trace_step", {}))
                 if in_meta.get("error"):
@@ -4040,7 +4064,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 final_text = str(payload.get("response") or "").strip()
                 out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
-                    "OUT", final_text, conversation_id=conversation_id
+                    "OUT", final_text, conversation_id=conversation_id, demo_user=demo_user
                 )
                 trace_steps.append(out_meta.get("trace_step", {}))
                 payload["trace"] = {"steps": trace_steps}
@@ -4151,6 +4175,7 @@ class Handler(BaseHTTPRequestHandler):
                     prompt=prompt,
                     llm_call=lambda p: _provider_messages_call(messages_for_provider),
                     conversation_id=conversation_id,
+                    demo_user=demo_user,
                 )
             except Exception as exc:
                 self._send_json(

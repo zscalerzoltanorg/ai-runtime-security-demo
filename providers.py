@@ -19,6 +19,7 @@ DEFAULT_VERTEX_MODEL = os.getenv("VERTEX_MODEL", "gemini-1.5-flash")
 DEFAULT_AZURE_AI_FOUNDRY_MODEL = os.getenv("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini")
 DEFAULT_ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = os.getenv("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
+DEMO_USER_HEADER_NAME = "X-Demo-User"
 
 
 def _proxy_guardrails_block_from_error(
@@ -112,6 +113,7 @@ def _normalize_messages(messages: list[dict] | None) -> list[dict]:
 def _zscaler_proxy_sdk_config(
     provider_family: str,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, str, str, dict[str, str], str]:
     provider_prefix = (provider_family or "").strip().upper()
     provider_key_envs = [
@@ -137,6 +139,8 @@ def _zscaler_proxy_sdk_config(
     conv_header_name = os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip()
     if conv_header_name and conversation_id:
         headers[conv_header_name] = conversation_id
+    if demo_user:
+        headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     return proxy_key or None, base_url, api_key_header_name, headers, proxy_key_source
 
 
@@ -156,6 +160,7 @@ def _openai_compatible_chat_messages(
     base_url_env: str,
     messages: list[dict],
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv(api_key_env, "").strip()
     base_url = os.getenv(base_url_env, "").strip() or default_base_url
@@ -175,6 +180,7 @@ def _openai_compatible_chat_messages(
                 if os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip() and conversation_id
                 else {}
             ),
+            **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
         },
         "payload": request_payload,
     }
@@ -208,6 +214,8 @@ def _openai_compatible_chat_messages(
     conv_header_name = os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip()
     if conv_header_name and conversation_id:
         default_headers[conv_header_name] = str(conversation_id)
+    if demo_user:
+        default_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
 
     try:
         client = OpenAI(api_key=api_key, base_url=base_url, default_headers=default_headers or None)
@@ -263,10 +271,12 @@ def _openai_compatible_chat_messages(
         }
 
 
-def _ollama_generate(prompt: str, ollama_url: str, ollama_model: str) -> tuple[str | None, dict]:
+def _ollama_generate(
+    prompt: str, ollama_url: str, ollama_model: str, demo_user: str | None = None
+) -> tuple[str | None, dict]:
     payload = {"model": ollama_model, "prompt": prompt, "stream": False}
     url = f"{ollama_url}/api/generate"
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})}
 
     try:
         status, body = _post_json(url, payload=payload, headers=headers, timeout=120)
@@ -337,11 +347,11 @@ def _ollama_generate(prompt: str, ollama_url: str, ollama_model: str) -> tuple[s
 
 
 def _ollama_chat_messages(
-    messages: list[dict], ollama_url: str, ollama_model: str
+    messages: list[dict], ollama_url: str, ollama_model: str, demo_user: str | None = None
 ) -> tuple[str | None, dict]:
     payload = {"model": ollama_model, "messages": _normalize_messages(messages), "stream": False}
     url = f"{ollama_url}/api/chat"
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})}
 
     try:
         status, body = _post_json(url, payload=payload, headers=headers, timeout=120)
@@ -398,11 +408,13 @@ def _anthropic_generate(
     *,
     proxy_mode: bool = False,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, proxy_key_source = _zscaler_proxy_sdk_config(
         "ANTHROPIC",
         conversation_id,
+        demo_user,
     )
     effective_api_key = proxy_key if proxy_mode else api_key
     request_payload = {
@@ -414,6 +426,8 @@ def _anthropic_generate(
     trace_headers: dict[str, str] = {
         "x-api-key": "***redacted***" if effective_api_key else "***missing***"
     }
+    if demo_user:
+        trace_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     if proxy_mode:
         trace_headers.update(
             {
@@ -479,7 +493,10 @@ def _anthropic_generate(
         if proxy_mode:
             client = Anthropic(api_key=effective_api_key, base_url=proxy_base_url, default_headers=proxy_headers)
         else:
-            client = Anthropic(api_key=effective_api_key)
+            client = Anthropic(
+                api_key=effective_api_key,
+                default_headers=({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None),
+            )
         resp = client.messages.create(**request_payload)
         text = "".join(
             block.text
@@ -551,11 +568,13 @@ def _anthropic_chat_messages(
     *,
     proxy_mode: bool = False,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, proxy_key_source = _zscaler_proxy_sdk_config(
         "ANTHROPIC",
         conversation_id,
+        demo_user,
     )
     effective_api_key = proxy_key if proxy_mode else api_key
     normalized = _normalize_messages(messages)
@@ -571,6 +590,8 @@ def _anthropic_chat_messages(
     trace_headers: dict[str, str] = {
         "x-api-key": "***redacted***" if effective_api_key else "***missing***"
     }
+    if demo_user:
+        trace_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     if proxy_mode:
         trace_headers.update(
             {
@@ -636,7 +657,10 @@ def _anthropic_chat_messages(
         if proxy_mode:
             client = Anthropic(api_key=effective_api_key, base_url=proxy_base_url, default_headers=proxy_headers)
         else:
-            client = Anthropic(api_key=effective_api_key)
+            client = Anthropic(
+                api_key=effective_api_key,
+                default_headers=({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None),
+            )
         resp = client.messages.create(**request_payload)
         text = "".join(
             block.text
@@ -708,11 +732,13 @@ def _openai_chat_messages(
     *,
     proxy_mode: bool = False,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("OPENAI_API_KEY", "")
     proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, proxy_key_source = _zscaler_proxy_sdk_config(
         "OPENAI",
         conversation_id,
+        demo_user,
     )
     effective_api_key = proxy_key if proxy_mode else api_key
     normalized = _normalize_messages(messages)
@@ -724,6 +750,8 @@ def _openai_chat_messages(
     trace_headers: dict[str, str] = {
         "Authorization": "Bearer ***redacted***" if effective_api_key else "***missing***"
     }
+    if demo_user:
+        trace_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     if proxy_mode:
         trace_headers.update(
             {
@@ -793,7 +821,10 @@ def _openai_chat_messages(
                 default_headers=proxy_headers,
             )
         else:
-            client = OpenAI(api_key=effective_api_key)
+            client = OpenAI(
+                api_key=effective_api_key,
+                default_headers=({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None),
+            )
         resp = client.chat.completions.create(**request_payload)
         choice0 = (getattr(resp, "choices", None) or [None])[0]
         message_obj = getattr(choice0, "message", None)
@@ -1009,6 +1040,7 @@ def _bedrock_agent_chat_messages(
 def _gemini_chat_messages(
     messages: list[dict],
     model: str,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
@@ -1031,7 +1063,11 @@ def _gemini_chat_messages(
     trace_request = {
         "method": "POST",
         "url": f"{base_url}/v1beta/models/{model}:generateContent",
-        "headers": {"x-goog-api-key": "***redacted***" if api_key else "***missing***", "Content-Type": "application/json"},
+        "headers": {
+            "x-goog-api-key": "***redacted***" if api_key else "***missing***",
+            "Content-Type": "application/json",
+            **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
+        },
         "payload": payload,
     }
     if not api_key:
@@ -1044,7 +1080,7 @@ def _gemini_chat_messages(
         status, body = _post_json(
             f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
             payload=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})},
             timeout=120,
         )
         text = ""
@@ -1085,6 +1121,7 @@ def _vertex_chat_messages(
     *,
     project_id: str,
     location: str,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     normalized = _normalize_messages(messages)
     contents = []
@@ -1111,6 +1148,7 @@ def _vertex_chat_messages(
         "headers": {
             "Authorization": "Bearer ***redacted***",
             "Content-Type": "application/json",
+            **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
         },
         "payload": payload,
     }
@@ -1138,7 +1176,11 @@ def _vertex_chat_messages(
         status, body = _post_json(
             endpoint,
             payload=payload,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+                **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
+            },
             timeout=120,
         )
         text = ""
@@ -1182,6 +1224,7 @@ def call_provider_messages(
     openai_model: str | None = None,
     zscaler_proxy_mode: bool = False,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     provider = (provider_id or "ollama").strip().lower()
     aws_region = os.getenv("AWS_REGION", DEFAULT_AWS_REGION).strip() or DEFAULT_AWS_REGION
@@ -1201,6 +1244,7 @@ def call_provider_messages(
             anthropic_model or DEFAULT_ANTHROPIC_MODEL,
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "openai":
         return _openai_chat_messages(
@@ -1208,6 +1252,7 @@ def call_provider_messages(
             openai_model or DEFAULT_OPENAI_MODEL,
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "bedrock_invoke":
         return _bedrock_invoke_chat_messages(
@@ -1230,6 +1275,7 @@ def call_provider_messages(
             base_url_env="PERPLEXITY_BASE_URL",
             messages=messages,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "xai":
         return _openai_compatible_chat_messages(
@@ -1240,11 +1286,13 @@ def call_provider_messages(
             base_url_env="XAI_BASE_URL",
             messages=messages,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "gemini":
         return _gemini_chat_messages(
             messages,
             os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL,
+            demo_user=demo_user,
         )
     if provider == "vertex":
         return _vertex_chat_messages(
@@ -1252,6 +1300,7 @@ def call_provider_messages(
             os.getenv("VERTEX_MODEL", DEFAULT_VERTEX_MODEL).strip() or DEFAULT_VERTEX_MODEL,
             project_id=os.getenv("VERTEX_PROJECT_ID", "").strip(),
             location=os.getenv("VERTEX_LOCATION", DEFAULT_VERTEX_LOCATION).strip() or DEFAULT_VERTEX_LOCATION,
+            demo_user=demo_user,
         )
     if provider == "litellm":
         return _openai_compatible_chat_messages(
@@ -1262,6 +1311,7 @@ def call_provider_messages(
             base_url_env="LITELLM_BASE_URL",
             messages=messages,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "azure_foundry":
         return _openai_compatible_chat_messages(
@@ -1272,6 +1322,7 @@ def call_provider_messages(
             base_url_env="AZURE_AI_FOUNDRY_BASE_URL",
             messages=messages,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider != "ollama":
         return None, {
@@ -1283,7 +1334,9 @@ def call_provider_messages(
                 "response": {"status": 400, "body": {"error": "Unsupported provider"}},
             },
         }
-    return _ollama_chat_messages(messages, ollama_url=ollama_url, ollama_model=ollama_model)
+    return _ollama_chat_messages(
+        messages, ollama_url=ollama_url, ollama_model=ollama_model, demo_user=demo_user
+    )
 
 
 def call_provider(
@@ -1296,6 +1349,7 @@ def call_provider(
     openai_model: str | None = None,
     zscaler_proxy_mode: bool = False,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     return call_provider_messages(
         provider_id,
@@ -1306,4 +1360,5 @@ def call_provider(
         openai_model=openai_model,
         zscaler_proxy_mode=zscaler_proxy_mode,
         conversation_id=conversation_id,
+        demo_user=demo_user,
     )
