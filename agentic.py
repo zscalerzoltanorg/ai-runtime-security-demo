@@ -1,8 +1,14 @@
+import base64
+import hashlib
 import json
 import os
 import re
+import socket
+import uuid
+from datetime import datetime, timezone
 from typing import Callable
 from urllib import error, parse, request
+from zoneinfo import ZoneInfo
 
 
 BRAVE_SEARCH_BASE_URL = os.getenv("BRAVE_SEARCH_BASE_URL", "https://api.search.brave.com")
@@ -26,6 +32,38 @@ TOOLS = {
     "brave_search": {
         "description": "Search the web via Brave Search API and return top results (requires BRAVE_SEARCH_API_KEY).",
         "input_schema": {"query": "string"},
+    },
+    "current_time": {
+        "description": "Get current date/time in a timezone (IANA tz, e.g., America/Chicago).",
+        "input_schema": {"timezone": "string (optional)"},
+    },
+    "dns_lookup": {
+        "description": "Resolve a hostname to IP addresses.",
+        "input_schema": {"host": "string"},
+    },
+    "http_head": {
+        "description": "Fetch HTTP headers/status for a URL (HEAD request).",
+        "input_schema": {"url": "string"},
+    },
+    "hash_text": {
+        "description": "Hash text using md5/sha1/sha256/sha512.",
+        "input_schema": {"text": "string", "algorithm": "string (optional)"},
+    },
+    "url_codec": {
+        "description": "URL-encode or URL-decode text.",
+        "input_schema": {"mode": "encode|decode", "text": "string"},
+    },
+    "text_stats": {
+        "description": "Get simple text statistics (chars/words/lines).",
+        "input_schema": {"text": "string"},
+    },
+    "uuid_generate": {
+        "description": "Generate UUIDv4 values (1-10).",
+        "input_schema": {"count": "integer (optional)"},
+    },
+    "base64_codec": {
+        "description": "Base64 encode or decode text.",
+        "input_schema": {"mode": "encode|decode", "text": "string"},
     },
 }
 
@@ -75,6 +113,12 @@ def _http_get(url: str, headers: dict | None = None, timeout: float = 15.0) -> t
     with request.urlopen(req, timeout=timeout) as resp:
         body = resp.read().decode("utf-8", errors="replace")
         return resp.status, body
+
+
+def _http_head(url: str, headers: dict | None = None, timeout: float = 15.0) -> tuple[int, dict]:
+    req = request.Request(url, headers=headers or {}, method="HEAD")
+    with request.urlopen(req, timeout=timeout) as resp:
+        return resp.status, dict(resp.headers.items())
 
 
 def _tool_weather(args: dict) -> tuple[str, dict]:
@@ -208,6 +252,145 @@ def _tool_calculator(args: dict) -> tuple[str, dict]:
     return result, {"tool": "calculator", "input": args, "response": {"result": result}}
 
 
+def _tool_current_time(args: dict) -> tuple[str, dict]:
+    tz_name = str((args or {}).get("timezone") or "UTC").strip() or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz_name = "UTC"
+        tz = timezone.utc
+    now = datetime.now(tz)
+    payload = {
+        "timezone": tz_name,
+        "iso": now.isoformat(),
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "weekday": now.strftime("%A"),
+    }
+    return json.dumps(payload), {"tool": "current_time", "input": args, "response": payload}
+
+
+def _tool_dns_lookup(args: dict) -> tuple[str, dict]:
+    host = str((args or {}).get("host") or "").strip()
+    if not host:
+        return "Error: dns_lookup requires `host`.", {"tool": "dns_lookup", "input": args, "error": "missing host"}
+    try:
+        infos = socket.getaddrinfo(host, None)
+        addrs = sorted({info[4][0] for info in infos if info and len(info) > 4 and info[4]})
+    except Exception as exc:
+        return f"Error: dns lookup failed: {exc}", {"tool": "dns_lookup", "input": args, "error": str(exc)}
+    payload = {"host": host, "addresses": addrs}
+    return json.dumps(payload), {"tool": "dns_lookup", "input": args, "response": payload}
+
+
+def _tool_http_head(args: dict) -> tuple[str, dict]:
+    url = str((args or {}).get("url") or "").strip()
+    if not url:
+        return "Error: http_head requires `url`.", {"tool": "http_head", "input": args, "error": "missing url"}
+    if not url.startswith(("http://", "https://")):
+        return "Error: http_head only supports http/https URLs.", {"tool": "http_head", "input": args, "error": "invalid scheme"}
+    req_headers = {"User-Agent": "LocalLLMDemo/1.0"}
+    try:
+        status, headers = _http_head(url, headers=req_headers, timeout=15.0)
+    except error.HTTPError as exc:
+        return f"Error: http_head HTTP {exc.code}", {
+            "tool": "http_head",
+            "input": args,
+            "request": {"method": "HEAD", "url": url},
+            "response": {"status": exc.code, "headers": dict(exc.headers.items()) if exc.headers else {}},
+        }
+    except Exception as exc:
+        return f"Error: http_head failed: {exc}", {
+            "tool": "http_head",
+            "input": args,
+            "request": {"method": "HEAD", "url": url},
+            "error": str(exc),
+        }
+    payload = {"url": url, "status": status, "headers": headers}
+    return json.dumps(payload), {
+        "tool": "http_head",
+        "input": args,
+        "request": {"method": "HEAD", "url": url},
+        "response": {"status": status, "headers": headers},
+    }
+
+
+def _tool_hash_text(args: dict) -> tuple[str, dict]:
+    text = str((args or {}).get("text") or "")
+    algorithm = str((args or {}).get("algorithm") or "sha256").strip().lower()
+    allowed = {"md5", "sha1", "sha256", "sha512"}
+    if algorithm not in allowed:
+        return (
+            f"Error: unsupported algorithm `{algorithm}`. Use one of: {', '.join(sorted(allowed))}",
+            {"tool": "hash_text", "input": args, "error": "unsupported algorithm"},
+        )
+    h = hashlib.new(algorithm)
+    h.update(text.encode("utf-8"))
+    payload = {"algorithm": algorithm, "hex": h.hexdigest(), "length": len(text)}
+    return json.dumps(payload), {"tool": "hash_text", "input": args, "response": payload}
+
+
+def _tool_url_codec(args: dict) -> tuple[str, dict]:
+    mode = str((args or {}).get("mode") or "encode").strip().lower()
+    text = str((args or {}).get("text") or "")
+    if mode == "encode":
+        out = parse.quote(text)
+    elif mode == "decode":
+        out = parse.unquote(text)
+    else:
+        return "Error: url_codec mode must be `encode` or `decode`.", {
+            "tool": "url_codec",
+            "input": args,
+            "error": "invalid mode",
+        }
+    payload = {"mode": mode, "input": text, "output": out}
+    return json.dumps(payload), {"tool": "url_codec", "input": args, "response": payload}
+
+
+def _tool_text_stats(args: dict) -> tuple[str, dict]:
+    text = str((args or {}).get("text") or "")
+    lines = text.splitlines() or ([text] if text else [])
+    words = [w for w in re.split(r"\s+", text.strip()) if w] if text.strip() else []
+    payload = {
+        "chars": len(text),
+        "chars_no_spaces": len(re.sub(r"\s+", "", text)),
+        "words": len(words),
+        "lines": len(lines),
+    }
+    return json.dumps(payload), {"tool": "text_stats", "input": args, "response": payload}
+
+
+def _tool_uuid_generate(args: dict) -> tuple[str, dict]:
+    count_raw = (args or {}).get("count")
+    try:
+        count = max(1, min(int(count_raw if count_raw is not None else 1), 10))
+    except Exception:
+        count = 1
+    values = [str(uuid.uuid4()) for _ in range(count)]
+    payload = {"version": 4, "count": count, "uuids": values}
+    return json.dumps(payload), {"tool": "uuid_generate", "input": args, "response": payload}
+
+
+def _tool_base64_codec(args: dict) -> tuple[str, dict]:
+    mode = str((args or {}).get("mode") or "encode").strip().lower()
+    text = str((args or {}).get("text") or "")
+    try:
+        if mode == "encode":
+            out = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        elif mode == "decode":
+            out = base64.b64decode(text.encode("ascii"), validate=True).decode("utf-8", errors="replace")
+        else:
+            return "Error: base64_codec mode must be `encode` or `decode`.", {
+                "tool": "base64_codec",
+                "input": args,
+                "error": "invalid mode",
+            }
+    except Exception as exc:
+        return f"Error: base64_codec failed: {exc}", {"tool": "base64_codec", "input": args, "error": str(exc)}
+    payload = {"mode": mode, "input": text, "output": out}
+    return json.dumps(payload), {"tool": "base64_codec", "input": args, "response": payload}
+
+
 def run_tool(tool_name: str, tool_input: dict) -> tuple[str, dict]:
     tool = (tool_name or "").strip()
     if tool == "calculator":
@@ -218,6 +401,22 @@ def run_tool(tool_name: str, tool_input: dict) -> tuple[str, dict]:
         return _tool_web_fetch(tool_input)
     if tool == "brave_search":
         return _tool_brave_search(tool_input)
+    if tool == "current_time":
+        return _tool_current_time(tool_input)
+    if tool == "dns_lookup":
+        return _tool_dns_lookup(tool_input)
+    if tool == "http_head":
+        return _tool_http_head(tool_input)
+    if tool == "hash_text":
+        return _tool_hash_text(tool_input)
+    if tool == "url_codec":
+        return _tool_url_codec(tool_input)
+    if tool == "text_stats":
+        return _tool_text_stats(tool_input)
+    if tool == "uuid_generate":
+        return _tool_uuid_generate(tool_input)
+    if tool == "base64_codec":
+        return _tool_base64_codec(tool_input)
     return (
         f"Error: unknown tool `{tool}`",
         {"tool": tool, "input": tool_input, "error": "unknown tool"},

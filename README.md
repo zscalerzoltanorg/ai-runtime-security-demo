@@ -67,6 +67,7 @@ Notes:
 ## UI Features
 
 - `Send`: submits prompt to `/chat`
+- `Prompt Presets`: opens a grouped list of curated demo prompts (fills the prompt box only)
 - `Clear`: clears prompt, response, status, HTTP trace, code path viewer state, multi-turn conversation transcript, and `Agent / Tool Trace` (but keeps the selected LLM provider)
 - `LLM` dropdown: choose `Ollama (Local)` or `Anthropic`
 - `Multi-turn Chat` toggle:
@@ -74,7 +75,7 @@ Notes:
   - ON: chat transcript mode with conversation history sent to the selected provider
 - `Tools (MCP)` toggle:
   - Enables tool execution for agentic runs
-  - Includes built-in tools for now: `calculator`, `weather`, `web_fetch`, `brave_search`
+  - Includes a larger built-in tool set (weather, web/search, diagnostics, text/encoding, hashing, time)
   - The architecture is MCP-friendly, but this version does not yet connect to an external MCP server transport (`stdio`/`sse`)
 - `Agentic Mode` toggle:
   - Enables a realistic single-agent, multi-step loop (LLM decides tool use, runs tool, then finalizes)
@@ -184,6 +185,14 @@ Built-in tools currently available when `Tools (MCP)` is enabled:
 - `weather` (uses `wttr.in`, no API key)
 - `web_fetch` (fetches URL content and extracts text)
 - `brave_search` (Brave Search API, requires `BRAVE_SEARCH_API_KEY`)
+- `current_time` (timezone-aware current date/time)
+- `dns_lookup` (hostname -> IP addresses)
+- `http_head` (HTTP status + response headers for a URL)
+- `hash_text` (md5/sha1/sha256/sha512)
+- `url_codec` (URL encode/decode)
+- `text_stats` (char/word/line counts)
+- `uuid_generate` (UUIDv4 values)
+- `base64_codec` (encode/decode)
 
 ### Brave Search vs Web Fetch
 
@@ -191,6 +200,17 @@ Built-in tools currently available when `Tools (MCP)` is enabled:
 - `web_fetch` retrieves the content of a specific URL
 
 They are different and often complementary in agentic workflows.
+
+### Example Tool Prompts
+
+- `Use the weather tool to get tomorrow's weather for Franklin, TN 37064 and tell me if I should bring a jacket.`
+- `Use the calculator tool to compute (23*19)+7 and return only the number.`
+- `Use dns_lookup on api.search.brave.com and return the IP addresses.`
+- `Use http_head on https://ollama.com and summarize the status code and server headers.`
+- `Use hash_text with sha256 on the text "local demo".`
+- `Use url_codec to encode "Franklin TN 37064 coffee shops".`
+- `Use text_stats on this text: "one two three\nfour".`
+- `Generate 3 UUIDs using uuid_generate.`
 
 ## MCP Status (Important)
 
