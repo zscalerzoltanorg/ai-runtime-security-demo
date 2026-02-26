@@ -1707,6 +1707,85 @@ HTML = f"""<!doctype html>
         return providerId;
       }}
 
+      function _inferProviderFromModelName(modelName) {{
+        const m = String(modelName || "").trim().toLowerCase();
+        if (!m) return "";
+        if (m.startsWith("anthropic/")) return "Anthropic";
+        if (m.startsWith("openai/")) return "OpenAI";
+        if (m.startsWith("perplexity/")) return "Perplexity";
+        if (m.startsWith("xai/")) return "xAI (Grok)";
+        if (m.startsWith("google/") || m.startsWith("vertex_ai/")) return "Google";
+        if (m.startsWith("azure/")) return "Azure";
+        if (m.startsWith("bedrock/") || m.startsWith("amazon.")) return "AWS Bedrock";
+        if (m.startsWith("claude-")) return "Anthropic";
+        if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "OpenAI";
+        if (m.includes("grok")) return "xAI (Grok)";
+        if (m.includes("sonar")) return "Perplexity";
+        if (m.includes("gemini")) return "Google Gemini";
+        if (m.includes("nova")) return "AWS Bedrock";
+        return "";
+      }}
+
+      function _extractGatewayDownstreamMeta(providerId, providerStep) {{
+        if (String(providerId || "").toLowerCase() !== "litellm") return {{}};
+        const step = providerStep || {{}};
+        const req = (step.request && typeof step.request === "object") ? step.request : {{}};
+        const res = (step.response && typeof step.response === "object") ? step.response : {{}};
+        const reqPayload = (req.payload && typeof req.payload === "object") ? req.payload : {{}};
+        const resBody = (res.body && typeof res.body === "object") ? res.body : {{}};
+        const nestedBody = (resBody.response_body && typeof resBody.response_body === "object")
+          ? resBody.response_body
+          : {{}};
+
+        const requestedModel = String(reqPayload.model || "");
+        const responseModel = String(resBody.model || nestedBody.model || "");
+        const observedProvider = String(
+          resBody.provider ||
+          resBody.provider_name ||
+          resBody.litellm_provider ||
+          nestedBody.provider ||
+          nestedBody.provider_name ||
+          nestedBody.litellm_provider ||
+          ""
+        ).trim();
+
+        const observedPairs = [];
+        const locations = [
+          ["response.body", resBody],
+          ["response.body.response_body", nestedBody],
+        ];
+        for (const [loc, obj] of locations) {{
+          if (!obj || typeof obj !== "object") continue;
+          for (const key of ["provider", "provider_name", "litellm_provider", "model", "deployment"]) {{
+            if (Object.prototype.hasOwnProperty.call(obj, key) && obj[key] != null && obj[key] !== "") {{
+              observedPairs.push(`${{loc}}.${{key}}=${{String(obj[key])}}`);
+            }}
+          }}
+        }}
+
+        const inferredProvider = _inferProviderFromModelName(responseModel || requestedModel);
+        const meta = {{
+          "Gateway Type": "LLM Gateway / Proxy (LiteLLM)",
+          "Downstream Visibility": observedProvider
+            ? "Observed from LiteLLM response metadata"
+            : (inferredProvider ? "Inferred from model name only" : "Not visible to client"),
+          "Requested Model (to LiteLLM)": requestedModel || "",
+          "Response Model (from LiteLLM)": responseModel || "",
+        }};
+        if (observedProvider) {{
+          meta["Observed Downstream Provider"] = observedProvider;
+        }}
+        if (inferredProvider) {{
+          meta["Inferred Downstream Provider"] = inferredProvider;
+          meta["Inference Basis"] = responseModel ? "LiteLLM response.model" : "LiteLLM request.model";
+        }}
+        meta["Observed Metadata Fields"] = observedPairs.length
+          ? observedPairs.join(" | ")
+          : "None returned to client in this response";
+        meta["Note"] = "LiteLLM internal retries/fallbacks/routing are not visible to this app unless LiteLLM exposes telemetry/metadata.";
+        return meta;
+      }}
+
       function makeFlowGraph(entry) {{
         const nodes = [];
         const edges = [];
@@ -1857,6 +1936,7 @@ HTML = f"""<!doctype html>
           "URL": ((providerStep.request || {{}}).url || ""),
           "Model": (((providerStep.request || {{}}).payload || {{}}).model || ""),
           "Status": ((providerStep.response || {{}}).status ?? ""),
+          ..._extractGatewayDownstreamMeta(providerId, providerStep),
         }} : {{
           "Provider": providerLabel,
           "Mode": proxyMode ? "Proxy" : "Direct",
