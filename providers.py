@@ -254,12 +254,15 @@ def _anthropic_generate(prompt: str, anthropic_model: str) -> tuple[str | None, 
 def _anthropic_chat_messages(messages: list[dict], anthropic_model: str) -> tuple[str | None, dict]:
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     normalized = _normalize_messages(messages)
+    system_blocks = [m["content"] for m in normalized if m["role"] == "system" and m["content"].strip()]
     request_payload = {
         "model": anthropic_model,
         "max_tokens": 400,
         "temperature": 0.2,
         "messages": [m for m in normalized if m["role"] in {"user", "assistant"}],
     }
+    if system_blocks:
+        request_payload["system"] = "\n\n".join(system_blocks)
     trace_request = {
         "method": "SDK",
         "url": "Anthropic SDK (messages.create)",

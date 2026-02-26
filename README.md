@@ -7,9 +7,12 @@ Very small demo app for local testing and live demos.
 - Local web chat UI (`python app.py`)
 - Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic`)
 - Single-turn / Multi-turn chat mode toggle (provider-agnostic)
+- Agentic Mode toggle (provider-agnostic single-agent tool loop)
+- Tools (MCP) toggle for agent tool execution (MCP-friendly architecture; see note below)
 - Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
 - HTTP trace sidebar showing request/response payloads (including upstream calls)
 - Code Path Viewer (before/after guardrails, auto follows toggle/provider)
+- Agent / Tool Trace panel (LLM decisions + tool calls)
 
 ## Quick start
 
@@ -64,19 +67,37 @@ Notes:
 ## UI Features
 
 - `Send`: submits prompt to `/chat`
-- `Clear`: clears prompt, response, status, HTTP trace, and code path viewer state (but keeps the selected LLM provider)
+- `Clear`: clears prompt, response, status, HTTP trace, code path viewer state, multi-turn conversation transcript, and `Agent / Tool Trace` (but keeps the selected LLM provider)
 - `LLM` dropdown: choose `Ollama (Local)` or `Anthropic`
 - `Multi-turn Chat` toggle:
   - OFF (default): single-turn prompt/response
   - ON: chat transcript mode with conversation history sent to the selected provider
+- `Tools (MCP)` toggle:
+  - Enables tool execution for agentic runs
+  - Includes built-in tools for now: `calculator`, `weather`, `web_fetch`, `brave_search`
+  - The architecture is MCP-friendly, but this version does not yet connect to an external MCP server transport (`stdio`/`sse`)
+- `Agentic Mode` toggle:
+  - Enables a realistic single-agent, multi-step loop (LLM decides tool use, runs tool, then finalizes)
+  - Works with both `Ollama (Local)` and `Anthropic` via the same provider abstraction
+- `Multi-Agent Mode` toggle:
+  - Placeholder (disabled in UI for now)
+  - Planned for later (orchestrator + specialist agents)
 - `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
 - `HTTP Trace` panel:
   - Client request to `/chat`
   - Client response from the app
   - Upstream calls (selected provider and, when enabled, Zscaler AI Guard IN/OUT checks)
+- `Agent / Tool Trace` panel:
+  - Agent LLM decision steps
+  - Tool call inputs/outputs
+  - Tool-specific request/response traces (for network tools like weather/web fetch/search)
 - `Code Path Viewer`:
   - Shows provider-aware before/after code paths
   - Auto mode follows selected provider, chat mode, and Zscaler AI Guard toggle state
+
+Notes:
+
+- Several toggles include UI tooltips (`title` hover text) to explain behavior during demos.
 
 ## App Name (optional)
 
@@ -104,6 +125,14 @@ In multi-turn mode, the guardrails flow remains the same but is applied per turn
 2. Selected provider is called with conversation history (`messages`)
 3. `OUT` check on the generated assistant response
 
+When `Agentic Mode` is enabled:
+
+1. `IN` check runs on the latest user message
+2. Agent loop runs (selected provider, optional tools if `Tools (MCP)` is ON)
+3. `OUT` check runs on the final agent response
+
+The current demo does **not** apply guardrails to each intermediate tool input/output yet (only user input and final output). This is intentional for a clear baseline and easy future comparison when adding deeper tool-loop guardrail coverage.
+
 This demo app is configured to use the Zscaler Resolve Policy endpoint (not a specific Policy ID in the request payload):
 
 - `https://api.zseclipse.net/v1/detection/resolve-and-execute-policy`
@@ -113,14 +142,18 @@ This demo app is configured to use the Zscaler Resolve Policy endpoint (not a sp
 - `ZS_GUARDRAILS_API_KEY` (required when using Guardrails toggle ON)
 - `ZS_GUARDRAILS_URL` (default: `https://api.zseclipse.net/v1/detection/resolve-and-execute-policy`)
 - `ZS_GUARDRAILS_TIMEOUT_SECONDS` (default: `15`)
+- `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME` (optional; if set, the app forwards a per-conversation ID to AI Guard in this header)
 
 Example (zsh/bash):
 
 - `export ZS_GUARDRAILS_API_KEY='your_local_key_here'`
 - `export ZS_GUARDRAILS_URL='https://api.zseclipse.net/v1/detection/resolve-and-execute-policy'` (optional; default shown)
+- `export ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME='conversationIdHeaderName'` (optional example)
 - `python app.py`
 
 If the API key is not set and `Guardrails` is ON, the app will return a clear error and show the attempted Zscaler request in the HTTP trace panel.
+
+If `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME` is set, the app sends a stable per-conversation ID (generated in the browser and reset on `Clear`) in that header for both AI Guard `IN` and `OUT` checks. This is visible in the trace panel.
 
 ## Zscaler Console Setup (DAS/API Mode)
 
@@ -137,4 +170,40 @@ In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode
 - `OLLAMA_URL` (default: `http://127.0.0.1:11434`)
 - `ANTHROPIC_API_KEY` (required only when `Anthropic` provider is selected)
 - `ANTHROPIC_MODEL` (default: `claude-sonnet-4-5-20250929`)
+- `BRAVE_SEARCH_API_KEY` (required only if using the `brave_search` tool)
+- `BRAVE_SEARCH_BASE_URL` (default: `https://api.search.brave.com`)
+- `BRAVE_SEARCH_MAX_RESULTS` (default: `5`)
+- `AGENTIC_MAX_STEPS` (default: `3`)
 - `APP_DEMO_NAME` (default: `AI App Demo`)
+
+## Tools (Agentic Mode)
+
+Built-in tools currently available when `Tools (MCP)` is enabled:
+
+- `calculator` (local arithmetic, no API key)
+- `weather` (uses `wttr.in`, no API key)
+- `web_fetch` (fetches URL content and extracts text)
+- `brave_search` (Brave Search API, requires `BRAVE_SEARCH_API_KEY`)
+
+### Brave Search vs Web Fetch
+
+- `brave_search` finds relevant URLs/results for a query (search API)
+- `web_fetch` retrieves the content of a specific URL
+
+They are different and often complementary in agentic workflows.
+
+## MCP Status (Important)
+
+This build uses a provider-agnostic tool runtime and trace model designed to support MCP cleanly later, but it is **not yet** a full MCP client integration.
+
+What is in place now:
+
+- `Tools (MCP)` UI toggle
+- Tool registry + execution layer
+- Agent/tool tracing suitable for guardrail demos
+
+What is planned next for “true MCP”:
+
+- MCP client transport integration (for example `stdio`)
+- External MCP server/tool discovery and invocation
+- MCP-specific tracing (server, tool schema, request/response envelopes)

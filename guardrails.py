@@ -8,11 +8,12 @@ DEFAULT_ZS_GUARDRAILS_URL = (
 )
 
 
-def _guardrails_config() -> tuple[str, str, float]:
+def _guardrails_config() -> tuple[str, str, float, str]:
     url = os.getenv("ZS_GUARDRAILS_URL", DEFAULT_ZS_GUARDRAILS_URL)
     api_key = os.getenv("ZS_GUARDRAILS_API_KEY", "")
     timeout = float(os.getenv("ZS_GUARDRAILS_TIMEOUT_SECONDS", "15"))
-    return url, api_key, timeout
+    conversation_id_header = os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip()
+    return url, api_key, timeout, conversation_id_header
 
 
 def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[int, object]:
@@ -79,8 +80,8 @@ def _block_message(stage: str, block_body: object) -> str:
     )
 
 
-def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
-    zag_url, zag_key, zag_timeout = _guardrails_config()
+def _zag_check(direction: str, content: str, conversation_id: str | None = None) -> tuple[bool, dict]:
+    zag_url, zag_key, zag_timeout, conversation_id_header = _guardrails_config()
 
     if not zag_key:
         return False, {
@@ -94,6 +95,11 @@ def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
                     "headers": {
                         "Authorization": "Bearer ***missing***",
                         "Content-Type": "application/json",
+                        **(
+                            {conversation_id_header: str(conversation_id)}
+                            if conversation_id_header and conversation_id
+                            else {}
+                        ),
                     },
                     "payload": {"direction": direction, "content": content or ""},
                 },
@@ -109,10 +115,14 @@ def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
         "Authorization": f"Bearer {zag_key}",
         "Content-Type": "application/json",
     }
+    if conversation_id_header and conversation_id:
+        headers[conversation_id_header] = str(conversation_id)
     redacted_headers = {
         "Authorization": "Bearer ***redacted***",
         "Content-Type": "application/json",
     }
+    if conversation_id_header and conversation_id:
+        redacted_headers[conversation_id_header] = str(conversation_id)
 
     try:
         status, body = _post_json(
@@ -173,10 +183,10 @@ def _zag_check(direction: str, content: str) -> tuple[bool, dict]:
     }
 
 
-def guarded_chat(prompt: str, llm_call) -> tuple[dict, int]:
+def guarded_chat(prompt: str, llm_call, conversation_id: str | None = None) -> tuple[dict, int]:
     trace_steps: list[dict] = []
 
-    in_blocked, in_meta = _zag_check("IN", prompt)
+    in_blocked, in_meta = _zag_check("IN", prompt, conversation_id=conversation_id)
     trace_steps.append(in_meta["trace_step"])
     if in_meta.get("error"):
         return (
@@ -212,7 +222,7 @@ def guarded_chat(prompt: str, llm_call) -> tuple[dict, int]:
 
     text = (llm_text or "").strip()
 
-    out_blocked, out_meta = _zag_check("OUT", text)
+    out_blocked, out_meta = _zag_check("OUT", text, conversation_id=conversation_id)
     trace_steps.append(out_meta["trace_step"])
     if out_meta.get("error"):
         return (

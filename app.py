@@ -1,12 +1,14 @@
 import json
 import os
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import agentic
 import providers
 
 
 HOST = "127.0.0.1"
-PORT = 5000
+PORT = int(os.getenv("PORT", "5000"))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
@@ -183,7 +185,18 @@ HTML = f"""<!doctype html>
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+      }}
+      .msg-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
         margin-bottom: 6px;
+      }}
+      .msg-time {{
+        font-size: 0.75rem;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }}
       .error {{ color: #b91c1c; }}
       .sidebar {{
@@ -329,6 +342,39 @@ HTML = f"""<!doctype html>
         color: var(--muted);
         font-size: 0.85rem;
       }}
+      .agent-trace-card {{
+        margin-top: 20px;
+      }}
+      .agent-trace-list {{
+        display: grid;
+        gap: 10px;
+      }}
+      .agent-step {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        padding: 10px;
+      }}
+      .agent-step-head {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }}
+      .agent-step-title {{
+        font-weight: 700;
+        font-size: 0.9rem;
+      }}
+      .badge-agent {{
+        background: #fff7ed;
+        color: #9a3412;
+        border-color: #fdba74;
+      }}
+      .toggle-wrap.disabled {{
+        opacity: 0.55;
+        cursor: not-allowed;
+      }}
       pre {{
         margin: 0;
         white-space: pre-wrap;
@@ -369,6 +415,21 @@ HTML = f"""<!doctype html>
               <option value="ollama">Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
             </select>
+            <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP).">
+              <input id="toolsToggle" type="checkbox" role="switch" aria-label="Toggle tools runtime (MCP planned)" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Tools (MCP)</span>
+            </label>
+            <label class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
+              <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Agentic Mode</span>
+            </label>
+            <label class="toggle-wrap disabled" for="multiAgentToggle" title="Planned: orchestrator + specialist agents (not implemented yet).">
+              <input id="multiAgentToggle" type="checkbox" role="switch" aria-label="Toggle multi-agent mode" disabled />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Multi-Agent Mode</span>
+            </label>
             <label class="toggle-wrap" for="multiTurnToggle">
               <input id="multiTurnToggle" type="checkbox" role="switch" aria-label="Toggle multi-turn chat mode" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -410,6 +471,19 @@ HTML = f"""<!doctype html>
         <div id="codePanels" class="code-panels"></div>
         <div class="code-note">Tip: In Auto mode, the viewer switches based on the Guardrails checkbox and the last sent request path.</div>
       </section>
+
+      <section class="card agent-trace-card">
+        <h1>Agent / Tool Trace</h1>
+        <p class="sub">Shows agent decisions and tool calls when Agentic Mode is enabled.</p>
+        <div id="agentTraceList" class="agent-trace-list">
+          <div class="agent-step">
+            <div class="agent-step-head">
+              <div class="agent-step-title">No agent steps yet</div>
+            </div>
+            <pre>Enable Agentic Mode and send a prompt to capture LLM decision steps and tool activity.</pre>
+          </div>
+        </div>
+      </section>
     </main>
 
     <script>
@@ -424,18 +498,27 @@ HTML = f"""<!doctype html>
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
       const providerSelectEl = document.getElementById("providerSelect");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
+      const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
+      const toolsToggleEl = document.getElementById("toolsToggle");
+      const agenticToggleEl = document.getElementById("agenticToggle");
+      const multiAgentToggleEl = document.getElementById("multiAgentToggle");
       const codeAutoBtn = document.getElementById("codeAutoBtn");
       const codeBeforeBtn = document.getElementById("codeBeforeBtn");
       const codeAfterBtn = document.getElementById("codeAfterBtn");
       const codeStatusEl = document.getElementById("codeStatus");
       const codePanelsEl = document.getElementById("codePanels");
+      const agentTraceListEl = document.getElementById("agentTraceList");
 
       let traceCount = 0;
       let codeViewMode = "auto";
       let lastSentGuardrailsEnabled = false;
       let lastSelectedProvider = "ollama";
       let lastChatMode = "single";
+      let lastAgentTrace = [];
       let conversation = [];
+      let clientConversationId = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
 
       function pretty(obj) {{
         try {{
@@ -446,14 +529,38 @@ HTML = f"""<!doctype html>
       }}
 
       function providerWaitingText() {{
+        if (agenticToggleEl.checked) {{
+          return "Agentic mode: planning and executing steps...";
+        }}
         const provider = (providerSelectEl.value || "ollama").toLowerCase();
         return provider === "ollama"
           ? "Waiting for local model response..."
           : "Waiting for remote model response...";
       }}
 
+      function hhmmssNow() {{
+        return new Date().toLocaleTimeString([], {{
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        }});
+      }}
+
       function currentChatMode() {{
         return multiTurnToggleEl.checked ? "multi" : "single";
+      }}
+
+      function syncToolsToggleState() {{
+        const agenticOn = !!agenticToggleEl.checked;
+        toolsToggleEl.disabled = !agenticOn;
+        toolsToggleWrapEl.classList.toggle("disabled", !agenticOn);
+        toolsToggleWrapEl.title = agenticOn
+          ? "Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP)."
+          : "Tools requires Agentic Mode. Enable Agentic Mode first.";
+        if (!agenticOn) {{
+          toolsToggleEl.checked = false;
+        }}
       }}
 
       function escapeHtml(value) {{
@@ -472,7 +579,8 @@ HTML = f"""<!doctype html>
           const role = (m.role || "assistant").toLowerCase();
           const label = role === "user" ? "User" : "Assistant";
           const cls = role === "user" ? "msg-user" : "msg-assistant";
-          return `<div class="msg ${{cls}}"><div class="msg-role">${{label}}</div>${{escapeHtml(m.content || "")}}</div>`;
+          const ts = m.ts || "";
+          return `<div class="msg ${{cls}}"><div class="msg-head"><div class="msg-role">${{label}}</div><div class="msg-time">${{escapeHtml(ts)}}</div></div>${{escapeHtml(m.content || "")}}</div>`;
         }}).join("");
         conversationViewEl.scrollTop = conversationViewEl.scrollHeight;
       }}
@@ -484,6 +592,56 @@ HTML = f"""<!doctype html>
         if (multi) {{
           renderConversation();
         }}
+      }}
+
+      function resetAgentTrace() {{
+        lastAgentTrace = [];
+        agentTraceListEl.innerHTML = `
+          <div class="agent-step">
+            <div class="agent-step-head">
+              <div class="agent-step-title">No agent steps yet</div>
+            </div>
+            <pre>Enable Agentic Mode and send a prompt to capture LLM decision steps and tool activity.</pre>
+          </div>
+        `;
+      }}
+
+      function renderAgentTrace(traceItems) {{
+        const items = Array.isArray(traceItems) ? traceItems : [];
+        lastAgentTrace = items;
+        if (!items.length) {{
+          resetAgentTrace();
+          return;
+        }}
+        agentTraceListEl.innerHTML = items.map((item, idx) => {{
+          const kind = String(item.kind || "").toLowerCase();
+          const badge = kind === "tool"
+            ? '<span class="badge badge-agent">Tool</span>'
+            : '<span class="badge badge-ai">Agent Step</span>';
+          const title = kind === "tool"
+            ? `Step ${{item.step || (idx + 1)}} Tool: ${{escapeHtml(item.tool || "unknown")}}`
+            : `Step ${{item.step || (idx + 1)}} LLM Decision`;
+          const detail = kind === "tool"
+            ? pretty({{
+                tool: item.tool,
+                input: item.input,
+                output: item.output,
+                tool_trace: item.tool_trace
+              }})
+            : pretty({{
+                trace_step: item.trace_step,
+                raw_output: item.raw_output
+              }});
+          return `
+            <div class="agent-step">
+              <div class="agent-step-head">
+                <div class="agent-step-title">${{title}}</div>
+                <div>${{badge}}</div>
+              </div>
+              <pre>${{detail}}</pre>
+            </div>
+          `;
+        }}).join("");
       }}
 
       function renderCodeBlock(section) {{
@@ -564,7 +722,11 @@ HTML = f"""<!doctype html>
             prompt: entry.prompt,
             provider: entry.provider || "ollama",
             chat_mode: entry.chatMode || "single",
-            guardrails_enabled: !!entry.guardrailsEnabled
+            conversation_id: entry.conversationId || clientConversationId,
+            guardrails_enabled: !!entry.guardrailsEnabled,
+            agentic_enabled: !!entry.agenticEnabled,
+            tools_enabled: !!entry.toolsEnabled,
+            multi_agent_enabled: !!entry.multiAgentEnabled
           }}
         }};
         if (entry.chatMode === "multi" && Array.isArray(entry.messages)) {{
@@ -580,6 +742,11 @@ HTML = f"""<!doctype html>
               responseBodyForDisplay.trace.steps.length
             }} step(s))`
           }};
+        }}
+        if (responseBodyForDisplay && Array.isArray(responseBodyForDisplay.agent_trace)) {{
+          responseBodyForDisplay.agent_trace = `See Agent / Tool Trace panel (${{
+            responseBodyForDisplay.agent_trace.length
+          }} step(s))`;
         }}
 
         const clientRes = {{
@@ -655,7 +822,11 @@ HTML = f"""<!doctype html>
         lastSelectedProvider = providerSelectEl.value || "ollama";
         lastChatMode = currentChatMode();
         conversation = [];
+        clientConversationId = (window.crypto && window.crypto.randomUUID)
+          ? window.crypto.randomUUID()
+          : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
         resetTrace();
+        resetAgentTrace();
         renderConversation();
         updateChatModeUI();
         renderCodeViewer();
@@ -681,7 +852,7 @@ HTML = f"""<!doctype html>
           renderCodeViewer();
           const multi = currentChatMode() === "multi";
           const pendingMessages = multi
-            ? [...conversation, {{ role: "user", content: prompt }}]
+            ? [...conversation, {{ role: "user", content: prompt, ts: hhmmssNow() }}]
             : null;
           if (multi) {{
             renderConversation();
@@ -694,16 +865,25 @@ HTML = f"""<!doctype html>
               provider: providerSelectEl.value,
               chat_mode: currentChatMode(),
               messages: pendingMessages || undefined,
-              guardrails_enabled: guardrailsToggleEl.checked
+              conversation_id: clientConversationId,
+              guardrails_enabled: guardrailsToggleEl.checked,
+              agentic_enabled: agenticToggleEl.checked,
+              tools_enabled: toolsToggleEl.checked,
+              multi_agent_enabled: multiAgentToggleEl.checked
             }})
           }});
           const data = await res.json();
+          renderAgentTrace(data.agent_trace || []);
           addTrace({{
             prompt,
             provider: providerSelectEl.value,
             chatMode: currentChatMode(),
             messages: pendingMessages,
+            conversationId: clientConversationId,
             guardrailsEnabled: guardrailsToggleEl.checked,
+            agenticEnabled: agenticToggleEl.checked,
+            toolsEnabled: toolsToggleEl.checked,
+            multiAgentEnabled: multiAgentToggleEl.checked,
             status: res.status,
             body: data
           }});
@@ -715,6 +895,9 @@ HTML = f"""<!doctype html>
               conversation = data.conversation;
             }} else {{
               conversation = [...(pendingMessages || []), {{ role: "assistant", content: data.response || "(Empty response)" }}];
+              if (conversation.length) {{
+                conversation[conversation.length - 1].ts = hhmmssNow();
+              }}
             }}
             promptEl.value = "";
             renderConversation();
@@ -725,6 +908,7 @@ HTML = f"""<!doctype html>
           updateChatModeUI();
           renderCodeViewer();
         }} catch (err) {{
+          renderAgentTrace([]);
           responseEl.textContent = err.message || String(err);
           responseEl.classList.add("error");
           statusEl.textContent = "Error";
@@ -751,6 +935,15 @@ HTML = f"""<!doctype html>
         updateChatModeUI();
         renderCodeViewer();
       }});
+      toolsToggleEl.addEventListener("change", () => {{
+        // Valid state: tools OFF while agentic ON (agent will avoid tool execution).
+      }});
+      agenticToggleEl.addEventListener("change", () => {{
+        syncToolsToggleState();
+        if (!agenticToggleEl.checked) {{
+          resetAgentTrace();
+        }}
+      }});
       codeAutoBtn.addEventListener("click", () => {{
         codeViewMode = "auto";
         renderCodeViewer();
@@ -770,6 +963,8 @@ HTML = f"""<!doctype html>
       }});
       renderConversation();
       updateChatModeUI();
+      syncToolsToggleState();
+      resetAgentTrace();
       renderCodeViewer();
     </script>
   </body>
@@ -998,8 +1193,16 @@ def _normalize_client_messages(messages: object) -> list[dict[str, str]]:
         role = str(msg.get("role") or "").strip().lower()
         content = str(msg.get("content") or "")
         if role in {"user", "assistant"}:
-            normalized.append({"role": role, "content": content})
+            item = {"role": role, "content": content}
+            ts = msg.get("ts")
+            if ts is not None:
+                item["ts"] = str(ts)
+            normalized.append(item)
     return normalized
+
+
+def _hhmmss_now() -> str:
+    return datetime.now().strftime("%H:%M:%S")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1044,9 +1247,26 @@ class Handler(BaseHTTPRequestHandler):
         prompt = (data.get("prompt") or "").strip()
         provider_id = (data.get("provider") or "ollama").strip().lower()
         chat_mode = "multi" if str(data.get("chat_mode") or "").lower() == "multi" else "single"
+        conversation_id = str(data.get("conversation_id") or "").strip()
         guardrails_enabled = bool(data.get("guardrails_enabled"))
+        tools_enabled = bool(data.get("tools_enabled"))
+        agentic_enabled = bool(data.get("agentic_enabled"))
+        multi_agent_enabled = bool(data.get("multi_agent_enabled"))
         if not prompt:
             self._send_json({"error": "Prompt is required."}, status=400)
+            return
+        if multi_agent_enabled:
+            self._send_json(
+                {
+                    "response": (
+                        "Multi-Agent Mode is not implemented yet in this demo baseline. "
+                        "Use Agentic Mode for a realistic single-agent tool loop today."
+                    ),
+                    "multi_agent": {"enabled": True, "implemented": False},
+                    "trace": {"steps": []},
+                    "agent_trace": [],
+                }
+            )
             return
 
         if chat_mode == "multi":
@@ -1060,18 +1280,134 @@ class Handler(BaseHTTPRequestHandler):
         else:
             messages_for_provider = [{"role": "user", "content": prompt}]
 
+        def _provider_messages_call(msgs: list[dict]):
+            return providers.call_provider_messages(
+                provider_id,
+                msgs,
+                ollama_url=OLLAMA_URL,
+                ollama_model=OLLAMA_MODEL,
+                anthropic_model=ANTHROPIC_MODEL,
+            )
+
+        if agentic_enabled:
+            if guardrails_enabled:
+                try:
+                    import guardrails
+                except Exception as exc:
+                    self._send_json(
+                        {"error": "Guardrails module failed.", "details": str(exc)},
+                        status=500,
+                    )
+                    return
+
+                trace_steps: list[dict] = []
+                in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
+                    "IN", prompt, conversation_id=conversation_id
+                )
+                trace_steps.append(in_meta.get("trace_step", {}))
+                if in_meta.get("error"):
+                    self._send_json(
+                        {
+                            "error": in_meta["error"],
+                            "details": in_meta.get("details"),
+                            "trace": {"steps": trace_steps},
+                            "agent_trace": [],
+                        },
+                        status=int(in_meta.get("status_code", 502)),
+                    )
+                    return
+                if in_blocked:
+                    in_block_body = (
+                        (in_meta.get("trace_step") or {}).get("response", {}).get("body")
+                    )
+                    payload = {
+                        "response": guardrails._block_message("Prompt", in_block_body),  # noqa: SLF001
+                        "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
+                        "trace": {"steps": trace_steps},
+                        "agent_trace": [],
+                    }
+                    if chat_mode == "multi":
+                        payload["conversation"] = messages_for_provider
+                    self._send_json(payload)
+                    return
+
+                payload, status = agentic.run_agentic_turn(
+                    conversation_messages=messages_for_provider,
+                    provider_messages_call=_provider_messages_call,
+                    tools_enabled=tools_enabled,
+                )
+                agent_trace = payload.get("agent_trace", [])
+                payload_trace_steps = []
+                if isinstance(payload.get("trace"), dict):
+                    steps = payload.get("trace", {}).get("steps")
+                    if isinstance(steps, list):
+                        payload_trace_steps = steps
+                trace_steps.extend(payload_trace_steps)
+                payload["trace"] = {"steps": trace_steps}
+                payload["guardrails"] = {"enabled": True, "blocked": False}
+
+                if status != 200:
+                    self._send_json(payload, status=status)
+                    return
+
+                final_text = str(payload.get("response") or "").strip()
+                out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
+                    "OUT", final_text, conversation_id=conversation_id
+                )
+                trace_steps.append(out_meta.get("trace_step", {}))
+                payload["trace"] = {"steps": trace_steps}
+                if out_meta.get("error"):
+                    self._send_json(
+                        {
+                            "error": out_meta["error"],
+                            "details": out_meta.get("details"),
+                            "trace": {"steps": trace_steps},
+                            "agent_trace": agent_trace,
+                        },
+                        status=int(out_meta.get("status_code", 502)),
+                    )
+                    return
+                if out_blocked:
+                    out_block_body = (
+                        (out_meta.get("trace_step") or {}).get("response", {}).get("body")
+                    )
+                    payload["response"] = guardrails._block_message("Response", out_block_body)  # noqa: SLF001
+                    payload["guardrails"] = {"enabled": True, "blocked": True, "stage": "OUT"}
+
+                if chat_mode == "multi" and status == 200 and payload.get("response"):
+                    payload["conversation"] = messages_for_provider + [
+                        {
+                            "role": "assistant",
+                            "content": str(payload.get("response") or ""),
+                            "ts": _hhmmss_now(),
+                        }
+                    ]
+                self._send_json(payload, status=status)
+                return
+
+            payload, status = agentic.run_agentic_turn(
+                conversation_messages=messages_for_provider,
+                provider_messages_call=_provider_messages_call,
+                tools_enabled=tools_enabled,
+            )
+            if chat_mode == "multi" and status == 200 and payload.get("response"):
+                payload["conversation"] = messages_for_provider + [
+                    {
+                        "role": "assistant",
+                        "content": str(payload.get("response") or ""),
+                        "ts": _hhmmss_now(),
+                    }
+                ]
+            self._send_json(payload, status=status)
+            return
+
         if guardrails_enabled:
             try:
                 import guardrails
                 payload, status = guardrails.guarded_chat(
                     prompt=prompt,
-                    llm_call=lambda p: providers.call_provider_messages(
-                        provider_id,
-                        messages_for_provider,
-                        ollama_url=OLLAMA_URL,
-                        ollama_model=OLLAMA_MODEL,
-                        anthropic_model=ANTHROPIC_MODEL,
-                    ),
+                    llm_call=lambda p: _provider_messages_call(messages_for_provider),
+                    conversation_id=conversation_id,
                 )
             except Exception as exc:
                 self._send_json(
@@ -1085,18 +1421,16 @@ class Handler(BaseHTTPRequestHandler):
 
             if chat_mode == "multi" and status == 200 and payload.get("response"):
                 payload["conversation"] = messages_for_provider + [
-                    {"role": "assistant", "content": str(payload.get("response") or "")}
+                    {
+                        "role": "assistant",
+                        "content": str(payload.get("response") or ""),
+                        "ts": _hhmmss_now(),
+                    }
                 ]
             self._send_json(payload, status=status)
             return
 
-        text, meta = providers.call_provider_messages(
-            provider_id,
-            messages_for_provider,
-            ollama_url=OLLAMA_URL,
-            ollama_model=OLLAMA_MODEL,
-            anthropic_model=ANTHROPIC_MODEL,
-        )
+        text, meta = _provider_messages_call(messages_for_provider)
         if text is None:
             self._send_json(
                 {
@@ -1111,7 +1445,7 @@ class Handler(BaseHTTPRequestHandler):
         payload = {"response": text, "trace": {"steps": [meta["trace_step"]]}}
         if chat_mode == "multi":
             payload["conversation"] = messages_for_provider + [
-                {"role": "assistant", "content": str(text or "")}
+                {"role": "assistant", "content": str(text or ""), "ts": _hhmmss_now()}
             ]
         self._send_json(payload)
 
