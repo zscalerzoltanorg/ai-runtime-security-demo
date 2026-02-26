@@ -8,6 +8,7 @@ Very small demo app for local testing and live demos.
 - Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic` and `OpenAI`)
 - Single-turn / Multi-turn chat mode toggle (provider-agnostic)
 - Agentic Mode toggle (provider-agnostic single-agent tool loop)
+- Multi-Agent Mode toggle (orchestrator + specialist agents)
 - Tools (MCP) toggle for agent tool execution (MCP-friendly architecture; see note below)
 - Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
 - Zscaler AI Guard mode toggle: DAS/API Mode vs Proxy Mode (Proxy Mode supported for remote providers)
@@ -85,8 +86,13 @@ Notes:
   - Enables a realistic single-agent, multi-step loop (LLM decides tool use, runs tool, then finalizes)
   - Works with `Ollama (Local)`, `Anthropic`, and `OpenAI` via the same provider abstraction
 - `Multi-Agent Mode` toggle:
-  - Placeholder (disabled in UI for now)
-  - Planned for later (orchestrator + specialist agents)
+  - Enables a realistic multi-agent pipeline:
+    - `orchestrator` (planning)
+    - `researcher` (can use tools/MCP)
+    - `reviewer` (quality/risk/gaps review)
+    - `finalizer` (user-facing answer)
+  - Works with `Ollama (Local)`, `Anthropic`, and `OpenAI` via the same provider abstraction
+  - Mutually exclusive with `Agentic Mode` in the UI (turning one ON turns the other OFF)
 - `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
 - `Proxy Mode` toggle (disabled until `Zscaler AI Guard` is ON):
   - OFF: DAS/API Mode (`IN`/`OUT` checks via resolve-policy endpoint)
@@ -140,7 +146,13 @@ When `Agentic Mode` is enabled:
 2. Agent loop runs (selected provider, optional tools if `Tools (MCP)` is ON)
 3. `OUT` check runs on the final agent response
 
-The current demo does **not** apply guardrails to each intermediate tool input/output yet (only user input and final output). This is intentional for a clear baseline and easy future comparison when adding deeper tool-loop guardrail coverage.
+When `Multi-Agent Mode` is enabled:
+
+1. `IN` check runs on the latest user message
+2. Multi-agent pipeline runs (orchestrator -> researcher -> reviewer -> finalizer)
+3. `OUT` check runs on the finalizer response
+
+The current demo does **not** apply guardrails to each intermediate tool input/output or intermediate agent handoff yet (only user input and final output). This is intentional for a clear baseline and easy future comparison when adding deeper tool-loop guardrail coverage.
 
 ### DAS/API Mode vs Proxy Mode
 
@@ -212,12 +224,13 @@ In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode
 - `BRAVE_SEARCH_BASE_URL` (default: `https://api.search.brave.com`)
 - `BRAVE_SEARCH_MAX_RESULTS` (default: `5`)
 - `AGENTIC_MAX_STEPS` (default: `3`)
+- `MULTI_AGENT_MAX_SPECIALIST_ROUNDS` (default: `1`)
 - `MCP_SERVER_COMMAND` (optional; shell command used to start an MCP server over `stdio`)
 - `MCP_TIMEOUT_SECONDS` (default: `15`)
 - `MCP_PROTOCOL_VERSION` (default: `2024-11-05`)
 - `APP_DEMO_NAME` (default: `AI App Demo`)
 
-## Tools (Agentic Mode)
+## Tools (Agentic / Multi-Agent Mode)
 
 Built-in tools currently available when `Tools (MCP)` is enabled:
 
@@ -241,6 +254,8 @@ Built-in tools currently available when `Tools (MCP)` is enabled:
 
 They are different and often complementary in agentic workflows.
 
+In `Multi-Agent Mode`, tools are primarily used by the `researcher` agent.
+
 ### Example Tool Prompts
 
 - `Use the weather tool to get tomorrow's weather for Franklin, TN 37064 and tell me if I should bring a jacket.`
@@ -251,6 +266,48 @@ They are different and often complementary in agentic workflows.
 - `Use url_codec to encode "Franklin TN 37064 coffee shops".`
 - `Use text_stats on this text: "one two three\nfour".`
 - `Generate 3 UUIDs using uuid_generate.`
+
+## Multi-Agent Mode (How To Use)
+
+This demo includes a realistic v1 multi-agent flow that runs multiple specialist agents in sequence.
+
+Pipeline:
+
+1. `orchestrator`
+   - Reads the user request and creates a plan (goal, research focus, whether tools are useful)
+2. `researcher`
+   - Gathers facts and drafts a working answer
+   - Can use tools/MCP if `Tools (MCP)` is ON
+3. `reviewer`
+   - Reviews the research output for gaps/risks/clarity
+4. `finalizer`
+   - Produces the final user-facing response
+
+How to demo it:
+
+1. Select a strong remote provider (recommended: `Anthropic` or `OpenAI`)
+2. Turn `Multi-Agent Mode` ON
+3. Optionally turn `Tools (MCP)` ON for richer traces
+4. Send a prompt that benefits from decomposition (research + recommendation)
+5. Open `Agent / Tool Trace` and show the handoffs plus specialist outputs
+
+Good expectations:
+
+- You should see multiple LLM calls in `Agent / Tool Trace` with agent names (`orchestrator`, `researcher`, `reviewer`, `finalizer`)
+- If `Tools (MCP)` is ON, the `researcher` agent may call tools and you will see tool/MCP trace entries
+- Final answer is produced by the `finalizer` agent and returned in the normal chat response area
+
+Important limitations (current v1):
+
+- Specialist agents run sequentially (not parallel) for trace clarity and reliability
+- The `researcher` agent uses the existing single-agent tool loop under the hood (realistic foundation, easy to extend)
+- Guardrails are applied to the latest user input and final output, not each intermediate handoff/tool payload yet
+
+Recommended multi-agent demo prompts:
+
+- `Research two good coffee shop options in Franklin, TN 37064 for a morning meeting and recommend one with a short rationale.`
+- `Compare two approaches for storing API keys in a local demo app, then recommend the safer option for a team demo.`
+- `Create a short demo plan for testing AI Guard with secrets, prompt injection, and PII examples, and explain the order to run them.`
 
 ## MCP Status (Important)
 

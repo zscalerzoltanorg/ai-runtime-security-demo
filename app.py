@@ -4,6 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import agentic
+import multi_agent
 import providers
 
 
@@ -559,8 +560,8 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Agentic Mode</span>
             </label>
-            <label class="toggle-wrap disabled" for="multiAgentToggle" title="Planned: orchestrator + specialist agents (not implemented yet).">
-              <input id="multiAgentToggle" type="checkbox" role="switch" aria-label="Toggle multi-agent mode" disabled />
+            <label class="toggle-wrap" for="multiAgentToggle" title="Orchestrator + specialist agents (researcher, reviewer, finalizer). Uses the selected provider and optional tools.">
+              <input id="multiAgentToggle" type="checkbox" role="switch" aria-label="Toggle multi-agent mode" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Multi-Agent Mode</span>
             </label>
@@ -713,6 +714,9 @@ HTML = f"""<!doctype html>
       }}
 
       function providerWaitingText() {{
+        if (multiAgentToggleEl.checked) {{
+          return "Multi-agent mode: orchestrating specialist agents...";
+        }}
         if (agenticToggleEl.checked) {{
           return "Agentic mode: planning and executing steps...";
         }}
@@ -736,13 +740,13 @@ HTML = f"""<!doctype html>
       }}
 
       function syncToolsToggleState() {{
-        const agenticOn = !!agenticToggleEl.checked;
-        toolsToggleEl.disabled = !agenticOn;
-        toolsToggleWrapEl.classList.toggle("disabled", !agenticOn);
-        toolsToggleWrapEl.title = agenticOn
-          ? "Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP)."
-          : "Tools requires Agentic Mode. Enable Agentic Mode first.";
-        if (!agenticOn) {{
+        const toolsEligible = !!agenticToggleEl.checked || !!multiAgentToggleEl.checked;
+        toolsToggleEl.disabled = !toolsEligible;
+        toolsToggleWrapEl.classList.toggle("disabled", !toolsEligible);
+        toolsToggleWrapEl.title = toolsEligible
+          ? "Tools runtime for agentic or multi-agent mode. MCP transport integration is supported for the bundled/local MCP server."
+          : "Tools requires Agentic Mode or Multi-Agent Mode. Enable one first.";
+        if (!toolsEligible) {{
           toolsToggleEl.checked = false;
         }}
       }}
@@ -903,16 +907,19 @@ HTML = f"""<!doctype html>
         }}
         agentTraceListEl.innerHTML = items.map((item, idx) => {{
           const kind = String(item.kind || "").toLowerCase();
+          const agentLabel = item.agent ? ` (${{escapeHtml(String(item.agent))}})` : "";
           let badge = '<span class="badge badge-ai">Agent Step</span>';
-          let title = `Step ${{item.step || (idx + 1)}} LLM Decision`;
+          let title = `Step ${{item.step || (idx + 1)}} LLM Decision${{agentLabel}}`;
           let detail = pretty({{
+            agent: item.agent,
             trace_step: item.trace_step,
             raw_output: item.raw_output
           }});
           if (kind === "tool") {{
             badge = '<span class="badge badge-agent">Tool</span>';
-            title = `Step ${{item.step || (idx + 1)}} Tool: ${{escapeHtml(item.tool || "unknown")}}`;
+            title = `Step ${{item.step || (idx + 1)}} Tool: ${{escapeHtml(item.tool || "unknown")}}${{agentLabel}}`;
             detail = pretty({{
+              agent: item.agent,
               tool: item.tool,
               input: item.input,
               output: item.output,
@@ -920,7 +927,11 @@ HTML = f"""<!doctype html>
             }});
           }} else if (kind === "mcp") {{
             badge = '<span class="badge badge-ollama">MCP</span>';
-            title = `MCP: ${{escapeHtml(item.event || "event")}}`;
+            title = `MCP: ${{escapeHtml(item.event || "event")}}${{agentLabel}}`;
+            detail = pretty(item);
+          }} else if (kind === "multi_agent") {{
+            badge = '<span class="badge badge-agent">Multi-Agent</span>';
+            title = `Multi-Agent: ${{escapeHtml(item.event || "event")}}${{agentLabel}}`;
             detail = pretty(item);
           }}
           return `
@@ -1281,8 +1292,20 @@ HTML = f"""<!doctype html>
         // Valid state: tools OFF while agentic ON (agent will avoid tool execution).
       }});
       agenticToggleEl.addEventListener("change", () => {{
+        if (agenticToggleEl.checked) {{
+          multiAgentToggleEl.checked = false;
+        }}
         syncToolsToggleState();
-        if (!agenticToggleEl.checked) {{
+        if (!agenticToggleEl.checked && !multiAgentToggleEl.checked) {{
+          resetAgentTrace();
+        }}
+      }});
+      multiAgentToggleEl.addEventListener("change", () => {{
+        if (multiAgentToggleEl.checked) {{
+          agenticToggleEl.checked = false;
+        }}
+        syncToolsToggleState();
+        if (!multiAgentToggleEl.checked && !agenticToggleEl.checked) {{
           resetAgentTrace();
         }}
       }});
@@ -1403,6 +1426,11 @@ PRESET_PROMPTS = [
                 "name": "Multi-turn Context",
                 "hint": "Use after setting Multi-turn ON (turn 2 style prompt)",
                 "prompt": "What will the weather be and should I bring a jacket? Use a weather tool if available.",
+            },
+            {
+                "name": "Multi-Agent Research Demo",
+                "hint": "Turn ON Multi-Agent Mode (and Tools for richer traces)",
+                "prompt": "Research two good coffee shop options in Franklin, TN 37064 for a morning meeting and recommend one with a short rationale.",
             },
         ],
     },
@@ -1804,19 +1832,6 @@ class Handler(BaseHTTPRequestHandler):
         if not prompt:
             self._send_json({"error": "Prompt is required."}, status=400)
             return
-        if multi_agent_enabled:
-            self._send_json(
-                {
-                    "response": (
-                        "Multi-Agent Mode is not implemented yet in this demo baseline. "
-                        "Use Agentic Mode for a realistic single-agent tool loop today."
-                    ),
-                    "multi_agent": {"enabled": True, "implemented": False},
-                    "trace": {"steps": []},
-                    "agent_trace": [],
-                }
-            )
-            return
 
         if chat_mode == "multi":
             messages_for_provider = _normalize_client_messages(data.get("messages"))
@@ -1840,6 +1855,148 @@ class Handler(BaseHTTPRequestHandler):
                 zscaler_proxy_mode=zscaler_proxy_mode,
                 conversation_id=conversation_id,
             )
+
+        if multi_agent_enabled:
+            if guardrails_enabled and zscaler_proxy_mode:
+                payload, status = multi_agent.run_multi_agent_turn(
+                    conversation_messages=messages_for_provider,
+                    provider_messages_call=_provider_messages_call,
+                    tools_enabled=tools_enabled,
+                )
+                payload["guardrails"] = {
+                    "enabled": True,
+                    "mode": "proxy",
+                    "proxy_base_url": ZS_PROXY_BASE_URL,
+                }
+                if chat_mode == "multi" and status == 200 and payload.get("response"):
+                    payload["conversation"] = messages_for_provider + [
+                        {
+                            "role": "assistant",
+                            "content": str(payload.get("response") or ""),
+                            "ts": _hhmmss_now(),
+                        }
+                    ]
+                self._send_json(payload, status=status)
+                return
+
+            if guardrails_enabled:
+                try:
+                    import guardrails
+                except Exception as exc:
+                    self._send_json(
+                        {"error": "Guardrails module failed.", "details": str(exc)},
+                        status=500,
+                    )
+                    return
+
+                trace_steps: list[dict] = []
+                in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
+                    "IN", prompt, conversation_id=conversation_id
+                )
+                trace_steps.append(in_meta.get("trace_step", {}))
+                if in_meta.get("error"):
+                    self._send_json(
+                        {
+                            "error": in_meta["error"],
+                            "details": in_meta.get("details"),
+                            "trace": {"steps": trace_steps},
+                            "agent_trace": [],
+                        },
+                        status=int(in_meta.get("status_code", 502)),
+                    )
+                    return
+                if in_blocked:
+                    in_block_body = (
+                        (in_meta.get("trace_step") or {}).get("response", {}).get("body")
+                    )
+                    payload = {
+                        "response": guardrails._block_message("Prompt", in_block_body),  # noqa: SLF001
+                        "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
+                        "trace": {"steps": trace_steps},
+                        "agent_trace": [],
+                        "multi_agent": {"enabled": True, "implemented": True},
+                    }
+                    if chat_mode == "multi":
+                        payload["conversation"] = messages_for_provider + [
+                            {
+                                "role": "assistant",
+                                "content": str(payload.get("response") or ""),
+                                "ts": _hhmmss_now(),
+                            }
+                        ]
+                    self._send_json(payload)
+                    return
+
+                payload, status = multi_agent.run_multi_agent_turn(
+                    conversation_messages=messages_for_provider,
+                    provider_messages_call=_provider_messages_call,
+                    tools_enabled=tools_enabled,
+                )
+                agent_trace = payload.get("agent_trace", [])
+                payload_trace_steps = []
+                if isinstance(payload.get("trace"), dict):
+                    steps = payload.get("trace", {}).get("steps")
+                    if isinstance(steps, list):
+                        payload_trace_steps = steps
+                trace_steps.extend(payload_trace_steps)
+                payload["trace"] = {"steps": trace_steps}
+                payload["guardrails"] = {"enabled": True, "blocked": False}
+
+                if status != 200:
+                    self._send_json(payload, status=status)
+                    return
+
+                final_text = str(payload.get("response") or "").strip()
+                out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
+                    "OUT", final_text, conversation_id=conversation_id
+                )
+                trace_steps.append(out_meta.get("trace_step", {}))
+                payload["trace"] = {"steps": trace_steps}
+                if out_meta.get("error"):
+                    self._send_json(
+                        {
+                            "error": out_meta["error"],
+                            "details": out_meta.get("details"),
+                            "trace": {"steps": trace_steps},
+                            "agent_trace": agent_trace,
+                            "multi_agent": payload.get("multi_agent", {"enabled": True, "implemented": True}),
+                        },
+                        status=int(out_meta.get("status_code", 502)),
+                    )
+                    return
+                if out_blocked:
+                    out_block_body = (
+                        (out_meta.get("trace_step") or {}).get("response", {}).get("body")
+                    )
+                    payload["response"] = guardrails._block_message("Response", out_block_body)  # noqa: SLF001
+                    payload["guardrails"] = {"enabled": True, "blocked": True, "stage": "OUT"}
+
+                if chat_mode == "multi" and status == 200 and payload.get("response"):
+                    payload["conversation"] = messages_for_provider + [
+                        {
+                            "role": "assistant",
+                            "content": str(payload.get("response") or ""),
+                            "ts": _hhmmss_now(),
+                        }
+                    ]
+                self._send_json(payload, status=status)
+                return
+
+            payload, status = multi_agent.run_multi_agent_turn(
+                conversation_messages=messages_for_provider,
+                provider_messages_call=_provider_messages_call,
+                tools_enabled=tools_enabled,
+            )
+            if chat_mode == "multi" and status == 200 and payload.get("response"):
+                payload["conversation"] = messages_for_provider + [
+                    {
+                        "role": "assistant",
+                        "content": str(payload.get("response") or ""),
+                        "ts": _hhmmss_now(),
+                    }
+                ]
+            self._send_json(payload, status=status)
+            return
 
         if agentic_enabled:
             if guardrails_enabled and zscaler_proxy_mode:
