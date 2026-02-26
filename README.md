@@ -10,6 +10,7 @@ Very small demo app for local testing and live demos.
 - Agentic Mode toggle (provider-agnostic single-agent tool loop)
 - Tools (MCP) toggle for agent tool execution (MCP-friendly architecture; see note below)
 - Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
+- Zscaler AI Guard mode toggle: DAS/API Mode vs Proxy Mode (Proxy Mode supported for remote providers)
 - HTTP trace sidebar showing request/response payloads (including upstream calls)
 - Code Path Viewer (before/after guardrails, auto follows toggle/provider)
 - Agent / Tool Trace panel (LLM decisions + tool calls)
@@ -87,6 +88,10 @@ Notes:
   - Placeholder (disabled in UI for now)
   - Planned for later (orchestrator + specialist agents)
 - `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
+- `Proxy Mode` toggle (disabled until `Zscaler AI Guard` is ON):
+  - OFF: DAS/API Mode (`IN`/`OUT` checks via resolve-policy endpoint)
+  - ON: Proxy Mode (provider SDK request sent to Zscaler proxy)
+  - Current support: `Anthropic`, `OpenAI` (not `Ollama (Local)`)
 - `HTTP Trace` panel:
   - Client request to `/chat`
   - Client response from the app
@@ -137,6 +142,24 @@ When `Agentic Mode` is enabled:
 
 The current demo does **not** apply guardrails to each intermediate tool input/output yet (only user input and final output). This is intentional for a clear baseline and easy future comparison when adding deeper tool-loop guardrail coverage.
 
+### DAS/API Mode vs Proxy Mode
+
+When `Zscaler AI Guard` is ON, you can choose between:
+
+- `Proxy Mode` OFF (default): DAS/API Mode
+  - App performs AI Guard `IN` and `OUT` checks directly against the resolve-policy endpoint
+- `Proxy Mode` ON: Zscaler Proxy Mode
+  - App sends the provider SDK request to Zscaler proxy (`ZS_PROXY_BASE_URL`)
+  - This is currently supported for remote SDK providers:
+    - `Anthropic`
+    - `OpenAI`
+  - `Ollama (Local)` remains DAS/API-only in this demo
+
+Notes:
+
+- Proxy Mode uses a **different Zscaler AI Guard proxy key** than DAS/API mode
+- In Proxy Mode, this demo does not perform separate `IN`/`OUT` API checks (the proxy path is the enforcement path)
+
 This demo app is configured to use the Zscaler Resolve Policy endpoint (not a specific Policy ID in the request payload):
 
 - `https://api.zseclipse.net/v1/detection/resolve-and-execute-policy`
@@ -147,12 +170,21 @@ This demo app is configured to use the Zscaler Resolve Policy endpoint (not a sp
 - `ZS_GUARDRAILS_URL` (default: `https://api.zseclipse.net/v1/detection/resolve-and-execute-policy`)
 - `ZS_GUARDRAILS_TIMEOUT_SECONDS` (default: `15`)
 - `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME` (optional; if set, the app forwards a per-conversation ID to AI Guard in this header)
+- `ZS_PROXY_API_KEY` (required when using `Proxy Mode` ON)
+- `ANTHROPIC_ZS_PROXY_API_KEY` / `ANTHROPIC_ZS_PROXY_KEY` (optional provider-specific proxy key; overrides `ZS_PROXY_API_KEY`)
+- `OPENAI_ZS_PROXY_API_KEY` / `OPENAI_ZS_PROXY_KEY` (optional provider-specific proxy key; overrides `ZS_PROXY_API_KEY`)
+- `ZS_PROXY_BASE_URL` (default: `https://proxy.zseclipse.net`)
+- `ZS_PROXY_API_KEY_HEADER_NAME` (default: `X-ApiKey`)
 
 Example (zsh/bash):
 
 - `export ZS_GUARDRAILS_API_KEY='your_local_key_here'`
 - `export ZS_GUARDRAILS_URL='https://api.zseclipse.net/v1/detection/resolve-and-execute-policy'` (optional; default shown)
 - `export ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME='conversationIdHeaderName'` (optional example)
+- `export ZS_PROXY_API_KEY='your_proxy_mode_key_here'` (only needed for Proxy Mode)
+- `export ANTHROPIC_ZS_PROXY_API_KEY='your_anthropic_proxy_key_here'` (optional provider-specific override)
+- `export OPENAI_ZS_PROXY_API_KEY='your_openai_proxy_key_here'` (optional provider-specific override)
+- `export ZS_PROXY_BASE_URL='https://proxy.zseclipse.net'` (optional; default shown)
 - `python app.py`
 
 If the API key is not set and `Guardrails` is ON, the app will return a clear error and show the attempted Zscaler request in the HTTP trace panel.

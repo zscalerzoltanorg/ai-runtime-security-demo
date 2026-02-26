@@ -13,6 +13,7 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = os.getenv("APP_DEMO_NAME", "AI App Demo")
 
 
@@ -573,6 +574,12 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Zscaler AI Guard</span>
             </label>
+            <label id="zscalerProxyModeWrap" class="toggle-wrap disabled" for="zscalerProxyModeToggle" title="Enable Zscaler Proxy Mode (supported for remote providers like Anthropic/OpenAI). Requires Zscaler AI Guard to be ON.">
+              <span class="toggle-label" style="color: var(--muted);">API/DAS</span>
+              <input id="zscalerProxyModeToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler Proxy Mode" disabled />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Proxy Mode</span>
+            </label>
             <span id="status" class="status">Idle</span>
           </div>
           <div id="presetPanel" class="preset-panel" aria-live="polite">
@@ -663,6 +670,8 @@ HTML = f"""<!doctype html>
       const presetGroupsEl = document.getElementById("presetGroups");
       const logListEl = document.getElementById("logList");
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
+      const zscalerProxyModeWrapEl = document.getElementById("zscalerProxyModeWrap");
+      const zscalerProxyModeToggleEl = document.getElementById("zscalerProxyModeToggle");
       const providerSelectEl = document.getElementById("providerSelect");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
@@ -735,6 +744,25 @@ HTML = f"""<!doctype html>
           : "Tools requires Agentic Mode. Enable Agentic Mode first.";
         if (!agenticOn) {{
           toolsToggleEl.checked = false;
+        }}
+      }}
+
+      function syncZscalerProxyModeState() {{
+        const guardrailsOn = !!guardrailsToggleEl.checked;
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        const supportsProxyMode = provider === "anthropic" || provider === "openai";
+        const enabled = guardrailsOn && supportsProxyMode;
+        zscalerProxyModeToggleEl.disabled = !enabled;
+        zscalerProxyModeWrapEl.classList.toggle("disabled", !enabled);
+        if (!enabled) {{
+          zscalerProxyModeToggleEl.checked = false;
+        }}
+        if (!guardrailsOn) {{
+          zscalerProxyModeWrapEl.title = "Enable Zscaler AI Guard first, then choose DAS/API Mode or Proxy Mode.";
+        }} else if (!supportsProxyMode) {{
+          zscalerProxyModeWrapEl.title = "Proxy Mode is supported for remote providers (Anthropic/OpenAI). Ollama (Local) uses DAS/API mode only.";
+        }} else {{
+          zscalerProxyModeWrapEl.title = "Send provider SDK requests through Zscaler AI Guard Proxy Mode (instead of DAS/API IN/OUT checks).";
         }}
       }}
 
@@ -994,6 +1022,8 @@ HTML = f"""<!doctype html>
             agentic_enabled: !!entry.agenticEnabled,
             tools_enabled: !!entry.toolsEnabled,
             multi_agent_enabled: !!entry.multiAgentEnabled
+            ,
+            zscaler_proxy_mode: !!entry.zscalerProxyMode
           }}
         }};
         if (entry.chatMode === "multi" && Array.isArray(entry.messages)) {{
@@ -1138,6 +1168,7 @@ HTML = f"""<!doctype html>
               messages: pendingMessages || undefined,
               conversation_id: clientConversationId,
               guardrails_enabled: guardrailsToggleEl.checked,
+              zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
               agentic_enabled: agenticToggleEl.checked,
               tools_enabled: toolsToggleEl.checked,
               multi_agent_enabled: multiAgentToggleEl.checked
@@ -1152,6 +1183,7 @@ HTML = f"""<!doctype html>
             messages: pendingMessages,
             conversationId: clientConversationId,
             guardrailsEnabled: guardrailsToggleEl.checked,
+            zscalerProxyMode: zscalerProxyModeToggleEl.checked,
             agenticEnabled: agenticToggleEl.checked,
             toolsEnabled: toolsToggleEl.checked,
             multiAgentEnabled: multiAgentToggleEl.checked,
@@ -1225,13 +1257,20 @@ HTML = f"""<!doctype html>
         applyPreset(gi, pi);
       }});
       guardrailsToggleEl.addEventListener("change", () => {{
+        syncZscalerProxyModeState();
         if (codeViewMode === "auto") {{
           renderCodeViewer();
         }}
       }});
       providerSelectEl.addEventListener("change", () => {{
         lastSelectedProvider = providerSelectEl.value || "ollama";
+        syncZscalerProxyModeState();
         renderCodeViewer();
+      }});
+      zscalerProxyModeToggleEl.addEventListener("change", () => {{
+        if (!guardrailsToggleEl.checked) {{
+          zscalerProxyModeToggleEl.checked = false;
+        }}
       }});
       multiTurnToggleEl.addEventListener("change", () => {{
         lastChatMode = currentChatMode();
@@ -1268,6 +1307,7 @@ HTML = f"""<!doctype html>
       renderConversation();
       updateChatModeUI();
       syncToolsToggleState();
+      syncZscalerProxyModeState();
       setHttpTraceCount(0);
       setAgentTraceCount(0);
       syncTracePanels();
@@ -1757,6 +1797,7 @@ class Handler(BaseHTTPRequestHandler):
         chat_mode = "multi" if str(data.get("chat_mode") or "").lower() == "multi" else "single"
         conversation_id = str(data.get("conversation_id") or "").strip()
         guardrails_enabled = bool(data.get("guardrails_enabled"))
+        zscaler_proxy_mode = bool(data.get("zscaler_proxy_mode")) and guardrails_enabled
         tools_enabled = bool(data.get("tools_enabled"))
         agentic_enabled = bool(data.get("agentic_enabled"))
         multi_agent_enabled = bool(data.get("multi_agent_enabled"))
@@ -1796,9 +1837,33 @@ class Handler(BaseHTTPRequestHandler):
                 ollama_model=OLLAMA_MODEL,
                 anthropic_model=ANTHROPIC_MODEL,
                 openai_model=OPENAI_MODEL,
+                zscaler_proxy_mode=zscaler_proxy_mode,
+                conversation_id=conversation_id,
             )
 
         if agentic_enabled:
+            if guardrails_enabled and zscaler_proxy_mode:
+                payload, status = agentic.run_agentic_turn(
+                    conversation_messages=messages_for_provider,
+                    provider_messages_call=_provider_messages_call,
+                    tools_enabled=tools_enabled,
+                )
+                payload["guardrails"] = {
+                    "enabled": True,
+                    "mode": "proxy",
+                    "proxy_base_url": ZS_PROXY_BASE_URL,
+                }
+                if chat_mode == "multi" and status == 200 and payload.get("response"):
+                    payload["conversation"] = messages_for_provider + [
+                        {
+                            "role": "assistant",
+                            "content": str(payload.get("response") or ""),
+                            "ts": _hhmmss_now(),
+                        }
+                    ]
+                self._send_json(payload, status=status)
+                return
+
             if guardrails_enabled:
                 try:
                     import guardrails
@@ -1917,6 +1982,40 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if guardrails_enabled:
+            if zscaler_proxy_mode:
+                text, meta = _provider_messages_call(messages_for_provider)
+                if text is None:
+                    self._send_json(
+                        {
+                            "error": meta.get("error", "Provider request failed."),
+                            "details": meta.get("details"),
+                            "guardrails": {
+                                "enabled": True,
+                                "mode": "proxy",
+                                "proxy_base_url": ZS_PROXY_BASE_URL,
+                            },
+                            "trace": {"steps": [meta.get("trace_step", {})]},
+                        },
+                        status=int(meta.get("status_code", 502)),
+                    )
+                    return
+
+                payload = {
+                    "response": text,
+                    "guardrails": {
+                        "enabled": True,
+                        "mode": "proxy",
+                        "proxy_base_url": ZS_PROXY_BASE_URL,
+                    },
+                    "trace": {"steps": [meta["trace_step"]]},
+                }
+                if chat_mode == "multi":
+                    payload["conversation"] = messages_for_provider + [
+                        {"role": "assistant", "content": str(text or ""), "ts": _hhmmss_now()}
+                    ]
+                self._send_json(payload)
+                return
+
             try:
                 import guardrails
                 payload, status = guardrails.guarded_chat(
