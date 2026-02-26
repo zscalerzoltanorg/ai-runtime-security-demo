@@ -6,12 +6,14 @@ import json
 
 
 DEFAULT_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
 def available_providers() -> list[dict[str, str]]:
     return [
         {"id": "ollama", "label": "Ollama (Local)"},
         {"id": "anthropic", "label": "Anthropic"},
+        {"id": "openai", "label": "OpenAI"},
     ]
 
 
@@ -337,6 +339,95 @@ def _anthropic_chat_messages(messages: list[dict], anthropic_model: str) -> tupl
     }
 
 
+def _openai_chat_messages(messages: list[dict], openai_model: str) -> tuple[str | None, dict]:
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    normalized = _normalize_messages(messages)
+    request_payload = {
+        "model": openai_model,
+        "messages": normalized,
+        "temperature": 0.2,
+    }
+    trace_request = {
+        "method": "SDK",
+        "url": "OpenAI SDK (chat.completions.create)",
+        "headers": {"Authorization": "Bearer ***redacted***" if api_key else "***missing***"},
+        "payload": request_payload,
+    }
+
+    if not api_key:
+        return None, {
+            "error": "OPENAI_API_KEY is not set.",
+            "status_code": 500,
+            "trace_step": {
+                "name": "OpenAI",
+                "request": trace_request,
+                "response": {"status": 500, "body": {"error": "Missing OPENAI_API_KEY"}},
+            },
+        }
+
+    try:
+        from openai import OpenAI
+    except Exception as exc:
+        return None, {
+            "error": "OpenAI SDK is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {
+                "name": "OpenAI",
+                "request": trace_request,
+                "response": {
+                    "status": 500,
+                    "body": {"error": "Install with `pip install openai`", "details": str(exc)},
+                },
+            },
+        }
+
+    try:
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(**request_payload)
+        choice0 = (getattr(resp, "choices", None) or [None])[0]
+        message_obj = getattr(choice0, "message", None)
+        text = str(getattr(message_obj, "content", "") or "").strip()
+        usage_obj = getattr(resp, "usage", None)
+        response_body: dict[str, Any] = {
+            "id": getattr(resp, "id", None),
+            "model": getattr(resp, "model", openai_model),
+            "object": getattr(resp, "object", None),
+            "choices": [
+                {
+                    "index": getattr(choice0, "index", 0),
+                    "finish_reason": getattr(choice0, "finish_reason", None),
+                    "message": {
+                        "role": getattr(message_obj, "role", None),
+                        "content": text,
+                    },
+                }
+            ]
+            if choice0 is not None
+            else [],
+            "usage": usage_obj.model_dump() if hasattr(usage_obj, "model_dump") else None,
+        }
+    except Exception as exc:
+        return None, {
+            "error": "OpenAI request failed.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {
+                "name": "OpenAI",
+                "request": trace_request,
+                "response": {"status": 502, "body": {"error": str(exc)}},
+            },
+        }
+
+    return text, {
+        "trace_step": {
+            "name": "OpenAI",
+            "request": trace_request,
+            "response": {"status": 200, "body": response_body},
+        }
+    }
+
+
 def call_provider_messages(
     provider_id: str,
     messages: list[dict],
@@ -344,10 +435,13 @@ def call_provider_messages(
     ollama_url: str,
     ollama_model: str,
     anthropic_model: str | None = None,
+    openai_model: str | None = None,
 ) -> tuple[str | None, dict]:
     provider = (provider_id or "ollama").strip().lower()
     if provider == "anthropic":
         return _anthropic_chat_messages(messages, anthropic_model or DEFAULT_ANTHROPIC_MODEL)
+    if provider == "openai":
+        return _openai_chat_messages(messages, openai_model or DEFAULT_OPENAI_MODEL)
     if provider != "ollama":
         return None, {
             "error": f"Unsupported provider: {provider_id}",
@@ -368,6 +462,7 @@ def call_provider(
     ollama_url: str,
     ollama_model: str,
     anthropic_model: str | None = None,
+    openai_model: str | None = None,
 ) -> tuple[str | None, dict]:
     return call_provider_messages(
         provider_id,
@@ -375,4 +470,5 @@ def call_provider(
         ollama_url=ollama_url,
         ollama_model=ollama_model,
         anthropic_model=anthropic_model,
+        openai_model=openai_model,
     )

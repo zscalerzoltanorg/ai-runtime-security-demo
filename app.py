@@ -12,6 +12,7 @@ PORT = int(os.getenv("PORT", "5000"))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 APP_DEMO_NAME = os.getenv("APP_DEMO_NAME", "AI App Demo")
 
 
@@ -43,12 +44,20 @@ HTML = f"""<!doctype html>
         color: var(--ink);
       }}
       .wrap {{
-        width: min(96vw, 1680px);
-        margin: 32px auto;
-        padding: 0 12px;
+        width: min(99vw, 1960px);
+        margin: 20px auto;
+        padding: 0 6px;
       }}
       .layout {{
-        display: block;
+        display: grid;
+        grid-template-columns: minmax(720px, 1.45fr) minmax(360px, 0.85fr);
+        gap: 16px;
+        align-items: start;
+      }}
+      .right-stack {{
+        display: grid;
+        gap: 16px;
+        align-content: start;
       }}
       .card {{
         background: var(--panel);
@@ -146,7 +155,44 @@ HTML = f"""<!doctype html>
       }}
       button:hover {{ background: var(--accent-2); }}
       button:disabled {{ opacity: 0.6; cursor: wait; }}
+      button.secondary {{
+        background: #e7e5e4;
+        color: #1f2937;
+      }}
+      button.secondary:hover {{
+        background: #d6d3d1;
+      }}
+      button.outline-accent {{
+        background: #fff;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+      }}
+      button.outline-accent:hover {{
+        background: #f0fdfa;
+        color: var(--accent-2);
+        border-color: var(--accent-2);
+      }}
       .status {{ color: var(--muted); font-size: 0.9rem; }}
+      .status-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
+      .status-dot {{
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #9ca3af;
+      }}
+      .status-dot.ok {{ background: #16a34a; }}
+      .status-dot.bad {{ background: #dc2626; }}
+      .status-dot.warn {{ background: #f59e0b; }}
       .toggle-wrap {{
         display: inline-flex;
         align-items: center;
@@ -314,13 +360,6 @@ HTML = f"""<!doctype html>
       .code-toolbar button {{
         padding: 8px 12px;
       }}
-      .code-toolbar button.secondary {{
-        background: #e7e5e4;
-        color: #1f2937;
-      }}
-      .code-toolbar button.secondary:hover {{
-        background: #d6d3d1;
-      }}
       .code-status {{
         color: var(--muted);
         font-size: 0.9rem;
@@ -395,6 +434,44 @@ HTML = f"""<!doctype html>
       .agent-trace-card {{
         margin-top: 20px;
       }}
+      .trace-card .sub {{
+        margin-bottom: 10px;
+      }}
+      .trace-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+      }}
+      .trace-head h1 {{
+        margin: 0;
+      }}
+      .trace-meta {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }}
+      .trace-count {{
+        color: var(--muted);
+        font-size: 0.8rem;
+      }}
+      .collapsible-content {{
+        display: none;
+      }}
+      .collapsible-content.open {{
+        display: block;
+      }}
+      .log-list {{
+        max-height: 44vh;
+        overflow: auto;
+        padding-right: 4px;
+      }}
+      .agent-trace-list {{
+        max-height: 52vh;
+        overflow: auto;
+        padding-right: 4px;
+      }}
       .agent-trace-list {{
         display: grid;
         gap: 10px;
@@ -441,8 +518,8 @@ HTML = f"""<!doctype html>
           grid-template-columns: 1fr;
         }}
         .wrap {{
-          width: min(96vw, 900px);
-          margin: 20px auto;
+          width: min(98vw, 900px);
+          margin: 14px auto;
         }}
       }}
     </style>
@@ -452,7 +529,7 @@ HTML = f"""<!doctype html>
       <div class="layout">
         <section class="card">
           <h1>{APP_DEMO_NAME}</h1>
-          <p class="sub">Local default: <strong>{OLLAMA_MODEL}</strong> (Ollama). Anthropic env model: <strong>{ANTHROPIC_MODEL}</strong></p>
+          <p class="sub">Local default: <strong>{OLLAMA_MODEL}</strong> (Ollama). Anthropic env model: <strong>{ANTHROPIC_MODEL}</strong>. OpenAI env model: <strong>{OPENAI_MODEL}</strong></p>
 
           <label for="prompt" class="sub">Prompt</label>
           <textarea id="prompt" placeholder="Type a prompt, then click Send..."></textarea>
@@ -465,12 +542,17 @@ HTML = f"""<!doctype html>
             <select id="providerSelect" style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;font:inherit;">
               <option value="ollama">Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
             </select>
             <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP).">
               <input id="toolsToggle" type="checkbox" role="switch" aria-label="Toggle tools runtime (MCP planned)" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Tools (MCP)</span>
             </label>
+            <span id="mcpStatusPill" class="status-pill" title="MCP server status (auto-refreshes every minute)">
+              <span id="mcpStatusDot" class="status-dot" aria-hidden="true"></span>
+              <span id="mcpStatusText">MCP: checking...</span>
+            </span>
             <label class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
               <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -502,16 +584,50 @@ HTML = f"""<!doctype html>
           <div id="conversationView" class="conversation"></div>
         </section>
 
-        <aside class="card sidebar">
-          <h1>HTTP Trace</h1>
-          <p class="sub">Shows each `/chat` request and response for demo visibility.</p>
-          <div id="logList" class="log-list">
-            <div class="log-item">
-              <div class="log-title">No requests yet</div>
-              <pre>Send a prompt to capture request/response details.</pre>
+        <div class="right-stack">
+          <aside class="card sidebar trace-card">
+            <div class="trace-head">
+              <h1>HTTP Trace</h1>
+              <div class="trace-meta">
+                <span id="httpTraceCount" class="trace-count">0</span>
+                <button id="httpTraceToggleBtn" class="secondary" type="button" title="Expand/collapse HTTP Trace">Expand</button>
+              </div>
             </div>
-          </div>
-        </aside>
+            <p class="sub">Shows each `/chat` request and response for demo visibility.</p>
+            <div id="httpTraceContent" class="collapsible-content">
+              <div style="display:flex;justify-content:flex-end;margin:0 0 10px;">
+                <button id="copyTraceBtn" class="outline-accent" type="button" title="Copy visible HTTP trace text">Copy Trace</button>
+              </div>
+              <div id="logList" class="log-list">
+                <div class="log-item">
+                  <div class="log-title">No requests yet</div>
+                  <pre>Send a prompt to capture request/response details.</pre>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section class="card agent-trace-card trace-card" style="margin-top:0;">
+            <div class="trace-head">
+              <h1>Agent / Tool Trace</h1>
+              <div class="trace-meta">
+                <span id="agentTraceCount" class="trace-count">0</span>
+                <button id="agentTraceToggleBtn" class="secondary" type="button" title="Expand/collapse Agent / Tool Trace">Expand</button>
+              </div>
+            </div>
+            <p class="sub">Shows agent decisions and tool calls when Agentic Mode is enabled.</p>
+            <div id="agentTraceContent" class="collapsible-content">
+              <div id="agentTraceList" class="agent-trace-list">
+                <div class="agent-step">
+                  <div class="agent-step-head">
+                    <div class="agent-step-title">No agent steps yet</div>
+                  </div>
+                  <pre>Enable Agentic Mode and send a prompt to capture LLM decision steps and tool activity.</pre>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
       <section class="card code-path-card">
@@ -527,18 +643,6 @@ HTML = f"""<!doctype html>
         <div class="code-note">Tip: In Auto mode, the viewer switches based on the Guardrails checkbox and the last sent request path.</div>
       </section>
 
-      <section class="card agent-trace-card">
-        <h1>Agent / Tool Trace</h1>
-        <p class="sub">Shows agent decisions and tool calls when Agentic Mode is enabled.</p>
-        <div id="agentTraceList" class="agent-trace-list">
-          <div class="agent-step">
-            <div class="agent-step-head">
-              <div class="agent-step-title">No agent steps yet</div>
-            </div>
-            <pre>Enable Agentic Mode and send a prompt to capture LLM decision steps and tool activity.</pre>
-          </div>
-        </div>
-      </section>
     </main>
 
     <script>
@@ -550,6 +654,10 @@ HTML = f"""<!doctype html>
       const conversationViewEl = document.getElementById("conversationView");
       const statusEl = document.getElementById("status");
       const clearBtn = document.getElementById("clearBtn");
+      const copyTraceBtn = document.getElementById("copyTraceBtn");
+      const httpTraceToggleBtn = document.getElementById("httpTraceToggleBtn");
+      const httpTraceContentEl = document.getElementById("httpTraceContent");
+      const httpTraceCountEl = document.getElementById("httpTraceCount");
       const presetToggleBtn = document.getElementById("presetToggleBtn");
       const presetPanelEl = document.getElementById("presetPanel");
       const presetGroupsEl = document.getElementById("presetGroups");
@@ -559,6 +667,8 @@ HTML = f"""<!doctype html>
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
+      const mcpStatusDotEl = document.getElementById("mcpStatusDot");
+      const mcpStatusTextEl = document.getElementById("mcpStatusText");
       const agenticToggleEl = document.getElementById("agenticToggle");
       const multiAgentToggleEl = document.getElementById("multiAgentToggle");
       const codeAutoBtn = document.getElementById("codeAutoBtn");
@@ -567,6 +677,9 @@ HTML = f"""<!doctype html>
       const codeStatusEl = document.getElementById("codeStatus");
       const codePanelsEl = document.getElementById("codePanels");
       const agentTraceListEl = document.getElementById("agentTraceList");
+      const agentTraceToggleBtn = document.getElementById("agentTraceToggleBtn");
+      const agentTraceContentEl = document.getElementById("agentTraceContent");
+      const agentTraceCountEl = document.getElementById("agentTraceCount");
 
       let traceCount = 0;
       let codeViewMode = "auto";
@@ -578,6 +691,9 @@ HTML = f"""<!doctype html>
       let clientConversationId = (window.crypto && window.crypto.randomUUID)
         ? window.crypto.randomUUID()
         : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
+      let mcpStatusTimer = null;
+      let httpTraceExpanded = false;
+      let agentTraceExpanded = false;
 
       function pretty(obj) {{
         try {{
@@ -619,6 +735,54 @@ HTML = f"""<!doctype html>
           : "Tools requires Agentic Mode. Enable Agentic Mode first.";
         if (!agenticOn) {{
           toolsToggleEl.checked = false;
+        }}
+      }}
+
+      function setMcpStatus(kind, text) {{
+        mcpStatusDotEl.classList.remove("ok", "bad", "warn");
+        if (kind) {{
+          mcpStatusDotEl.classList.add(kind);
+        }}
+        mcpStatusTextEl.textContent = text;
+      }}
+
+      function syncTracePanels() {{
+        httpTraceContentEl.classList.toggle("open", !!httpTraceExpanded);
+        agentTraceContentEl.classList.toggle("open", !!agentTraceExpanded);
+        httpTraceToggleBtn.textContent = httpTraceExpanded ? "Collapse" : "Expand";
+        agentTraceToggleBtn.textContent = agentTraceExpanded ? "Collapse" : "Expand";
+      }}
+
+      function setHttpTraceCount(count) {{
+        httpTraceCountEl.textContent = String(count || 0);
+      }}
+
+      function setAgentTraceCount(count) {{
+        agentTraceCountEl.textContent = String(count || 0);
+      }}
+
+      async function refreshMcpStatus() {{
+        try {{
+          const res = await fetch("/mcp-status");
+          const data = await res.json();
+          if (!res.ok) {{
+            setMcpStatus("bad", "MCP: error");
+            return;
+          }}
+          const source = data.source === "custom" ? "custom" : "bundled";
+          if (data.ok) {{
+            setMcpStatus("ok", `MCP: ${{
+              source
+            }} (${{
+              typeof data.tool_count === "number" ? data.tool_count : "?"
+            }} tools)`);
+          }} else {{
+            setMcpStatus("bad", `MCP: ${{
+              source
+            }} unavailable`);
+          }}
+        }} catch {{
+          setMcpStatus("bad", "MCP: unreachable");
         }}
       }}
 
@@ -690,6 +854,7 @@ HTML = f"""<!doctype html>
 
       function resetAgentTrace() {{
         lastAgentTrace = [];
+        setAgentTraceCount(0);
         agentTraceListEl.innerHTML = `
           <div class="agent-step">
             <div class="agent-step-head">
@@ -703,29 +868,33 @@ HTML = f"""<!doctype html>
       function renderAgentTrace(traceItems) {{
         const items = Array.isArray(traceItems) ? traceItems : [];
         lastAgentTrace = items;
+        setAgentTraceCount(items.length);
         if (!items.length) {{
           resetAgentTrace();
           return;
         }}
         agentTraceListEl.innerHTML = items.map((item, idx) => {{
           const kind = String(item.kind || "").toLowerCase();
-          const badge = kind === "tool"
-            ? '<span class="badge badge-agent">Tool</span>'
-            : '<span class="badge badge-ai">Agent Step</span>';
-          const title = kind === "tool"
-            ? `Step ${{item.step || (idx + 1)}} Tool: ${{escapeHtml(item.tool || "unknown")}}`
-            : `Step ${{item.step || (idx + 1)}} LLM Decision`;
-          const detail = kind === "tool"
-            ? pretty({{
-                tool: item.tool,
-                input: item.input,
-                output: item.output,
-                tool_trace: item.tool_trace
-              }})
-            : pretty({{
-                trace_step: item.trace_step,
-                raw_output: item.raw_output
-              }});
+          let badge = '<span class="badge badge-ai">Agent Step</span>';
+          let title = `Step ${{item.step || (idx + 1)}} LLM Decision`;
+          let detail = pretty({{
+            trace_step: item.trace_step,
+            raw_output: item.raw_output
+          }});
+          if (kind === "tool") {{
+            badge = '<span class="badge badge-agent">Tool</span>';
+            title = `Step ${{item.step || (idx + 1)}} Tool: ${{escapeHtml(item.tool || "unknown")}}`;
+            detail = pretty({{
+              tool: item.tool,
+              input: item.input,
+              output: item.output,
+              tool_trace: item.tool_trace
+            }});
+          }} else if (kind === "mcp") {{
+            badge = '<span class="badge badge-ollama">MCP</span>';
+            title = `MCP: ${{escapeHtml(item.event || "event")}}`;
+            detail = pretty(item);
+          }}
           return `
             <div class="agent-step">
               <div class="agent-step-head">
@@ -758,7 +927,8 @@ HTML = f"""<!doctype html>
       }}
 
       function effectiveCodeMode() {{
-        const provider = providerSelectEl.value || lastSelectedProvider || "ollama";
+        const selectedProvider = providerSelectEl.value || lastSelectedProvider || "ollama";
+        const provider = selectedProvider === "ollama" ? "ollama" : "anthropic";
         if (codeViewMode === "before" || codeViewMode === "after") {{
           return `${{codeViewMode}}_${{provider}}`;
         }}
@@ -780,13 +950,15 @@ HTML = f"""<!doctype html>
           ? `Auto mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
             }} for ${{
-              (providerSelectEl.value || "ollama") === "ollama" ? "Ollama (Local)" : "Anthropic"
+              (providerSelectEl.value || "ollama") === "ollama"
+                ? "Ollama (Local)"
+                : ((providerSelectEl.value || "ollama") === "openai" ? "OpenAI" : "Anthropic")
             }} in ${{
               currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
             }} mode (Zscaler AI Guard toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
           : `Manual mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
-            }} for ${{mode.endsWith("_anthropic") ? "Anthropic" : "Ollama (Local)"}} in ${{
+            }} for ${{mode.endsWith("_ollama") ? "Ollama (Local)" : "Remote Provider (Anthropic/OpenAI)"}} in ${{
               currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
             }} mode`;
 
@@ -800,6 +972,7 @@ HTML = f"""<!doctype html>
 
       function addTrace(entry) {{
         traceCount += 1;
+        setHttpTraceCount(traceCount);
         if (traceCount === 1) {{
           logListEl.innerHTML = "";
         }}
@@ -899,6 +1072,7 @@ HTML = f"""<!doctype html>
 
       function resetTrace() {{
         traceCount = 0;
+        setHttpTraceCount(0);
         logListEl.innerHTML = `
           <div class="log-item">
             <div class="log-title">No requests yet</div>
@@ -919,8 +1093,11 @@ HTML = f"""<!doctype html>
         clientConversationId = (window.crypto && window.crypto.randomUUID)
           ? window.crypto.randomUUID()
           : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
+        httpTraceExpanded = false;
+        agentTraceExpanded = false;
         resetTrace();
         resetAgentTrace();
+        syncTracePanels();
         renderConversation();
         updateChatModeUI();
         renderCodeViewer();
@@ -1015,6 +1192,26 @@ HTML = f"""<!doctype html>
 
       sendBtn.addEventListener("click", sendPrompt);
       clearBtn.addEventListener("click", clearViews);
+      httpTraceToggleBtn.addEventListener("click", () => {{
+        httpTraceExpanded = !httpTraceExpanded;
+        syncTracePanels();
+      }});
+      agentTraceToggleBtn.addEventListener("click", () => {{
+        agentTraceExpanded = !agentTraceExpanded;
+        syncTracePanels();
+      }});
+      copyTraceBtn.addEventListener("click", async () => {{
+        const text = logListEl.innerText || "";
+        try {{
+          await navigator.clipboard.writeText(text);
+          statusEl.textContent = "Trace copied";
+          setTimeout(() => {{
+            if (statusEl.textContent === "Trace copied") statusEl.textContent = "Idle";
+          }}, 1200);
+        }} catch {{
+          statusEl.textContent = "Copy failed";
+        }}
+      }});
       presetToggleBtn.addEventListener("click", () => {{
         const isOpen = presetPanelEl.classList.toggle("open");
         presetToggleBtn.textContent = isOpen ? "Hide Presets" : "Prompt Presets";
@@ -1071,6 +1268,11 @@ HTML = f"""<!doctype html>
       renderConversation();
       updateChatModeUI();
       syncToolsToggleState();
+      setHttpTraceCount(0);
+      setAgentTraceCount(0);
+      syncTracePanels();
+      refreshMcpStatus();
+      mcpStatusTimer = setInterval(refreshMcpStatus, 60000);
       resetAgentTrace();
       renderCodeViewer();
     </script>
@@ -1484,6 +1686,49 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/mcp-status":
+            try:
+                from mcp_client import mcp_client_from_env
+
+                client = mcp_client_from_env()
+                source = "custom" if os.getenv("MCP_SERVER_COMMAND", "").strip() else "bundled"
+                if client is None:
+                    self._send_json(
+                        {
+                            "ok": False,
+                            "source": source,
+                            "error": "MCP client is not configured.",
+                        },
+                        status=503,
+                    )
+                    return
+                try:
+                    client.start()
+                    tools = client.tools_list()
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "source": source,
+                            "tool_count": len(tools),
+                            "server_info": getattr(client, "server_info", None),
+                        }
+                    )
+                    return
+                finally:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+            except Exception as exc:
+                self._send_json(
+                    {
+                        "ok": False,
+                        "source": "custom" if os.getenv("MCP_SERVER_COMMAND", "").strip() else "bundled",
+                        "error": str(exc),
+                    },
+                    status=503,
+                )
+                return
         if self.path == "/":
             self._send_html(
                 HTML.replace("__CODE_SNIPPETS_JSON__", _script_safe_json(CODE_SNIPPETS)).replace(
@@ -1550,6 +1795,7 @@ class Handler(BaseHTTPRequestHandler):
                 ollama_url=OLLAMA_URL,
                 ollama_model=OLLAMA_MODEL,
                 anthropic_model=ANTHROPIC_MODEL,
+                openai_model=OPENAI_MODEL,
             )
 
         if agentic_enabled:
@@ -1728,6 +1974,7 @@ def main() -> None:
     print(f"Using Ollama model: {OLLAMA_MODEL}")
     print(f"Ollama base URL: {OLLAMA_URL}")
     print(f"Anthropic model (env default): {ANTHROPIC_MODEL}")
+    print(f"OpenAI model (env default): {OPENAI_MODEL}")
     print("Guardrails toggle default: OFF (per-request in UI)")
     server.serve_forever()
 

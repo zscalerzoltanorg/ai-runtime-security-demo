@@ -1,11 +1,11 @@
-# Local LLM Demo (Ollama Local / Anthropic + Optional Zscaler AI Guard)
+# Local LLM Demo (Ollama Local / Anthropic / OpenAI + Optional Zscaler AI Guard)
 
 Very small demo app for local testing and live demos.
 
 ## What this demo shows
 
 - Local web chat UI (`python app.py`)
-- Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic`)
+- Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic` and `OpenAI`)
 - Single-turn / Multi-turn chat mode toggle (provider-agnostic)
 - Agentic Mode toggle (provider-agnostic single-agent tool loop)
 - Tools (MCP) toggle for agent tool execution (MCP-friendly architecture; see note below)
@@ -25,25 +25,28 @@ Very small demo app for local testing and live demos.
 4. Open:
    - `http://127.0.0.1:5000`
 
-## Optional Anthropic Provider (SDK)
+## Optional Remote Providers (SDK)
 
-The app supports `Anthropic` as a selectable LLM provider in the UI.
+The app supports `Anthropic` and `OpenAI` as selectable LLM providers in the UI.
 
 Requirements:
 
 - Install the SDK in your environment:
   - `pip install anthropic`
+  - `pip install openai`
 - Set your API key:
   - `export ANTHROPIC_API_KEY='your_key_here'`
+  - `export OPENAI_API_KEY='your_key_here'`
 
 Optional:
 
 - `export ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'`
+- `export OPENAI_MODEL='gpt-4o-mini'`
 
 Notes:
 
 - `Ollama (Local)` remains the default provider
-- If Anthropic SDK or API key is missing and you select `Anthropic`, the app returns a clear error and shows the provider trace in `HTTP Trace`
+- If a provider SDK or API key is missing and you select `Anthropic` or `OpenAI`, the app returns a clear error and shows the provider trace in `HTTP Trace`
 
 ### Optional: Local Corporate TLS / ZIA (Anthropic + AI Guard)
 
@@ -69,17 +72,17 @@ Notes:
 - `Send`: submits prompt to `/chat`
 - `Prompt Presets`: opens a grouped list of curated demo prompts (fills the prompt box only)
 - `Clear`: clears prompt, response, status, HTTP trace, code path viewer state, multi-turn conversation transcript, and `Agent / Tool Trace` (but keeps the selected LLM provider)
-- `LLM` dropdown: choose `Ollama (Local)` or `Anthropic`
+- `LLM` dropdown: choose `Ollama (Local)`, `Anthropic`, or `OpenAI`
 - `Multi-turn Chat` toggle:
   - OFF (default): single-turn prompt/response
   - ON: chat transcript mode with conversation history sent to the selected provider
 - `Tools (MCP)` toggle:
   - Enables tool execution for agentic runs
-  - Includes a larger built-in tool set (weather, web/search, diagnostics, text/encoding, hashing, time)
-  - The architecture is MCP-friendly, but this version does not yet connect to an external MCP server transport (`stdio`/`sse`)
+  - Uses a bundled local MCP server (`stdio`) by default
+  - Can be redirected to another MCP server via `MCP_SERVER_COMMAND`
 - `Agentic Mode` toggle:
   - Enables a realistic single-agent, multi-step loop (LLM decides tool use, runs tool, then finalizes)
-  - Works with both `Ollama (Local)` and `Anthropic` via the same provider abstraction
+  - Works with `Ollama (Local)`, `Anthropic`, and `OpenAI` via the same provider abstraction
 - `Multi-Agent Mode` toggle:
   - Placeholder (disabled in UI for now)
   - Planned for later (orchestrator + specialist agents)
@@ -115,7 +118,7 @@ If not set, the app defaults to:
 The app includes a `Zscaler AI Guard` toggle (default: OFF). When enabled, each chat request uses this flow:
 
 1. Zscaler AI Guard `IN` check (prompt)
-2. Selected LLM provider generation (`Ollama (Local)` or `Anthropic`)
+2. Selected LLM provider generation (`Ollama (Local)`, `Anthropic`, or `OpenAI`)
 3. Zscaler AI Guard `OUT` check (response)
 
 If Zscaler blocks the prompt or response, the app returns a blocked message.
@@ -171,10 +174,15 @@ In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode
 - `OLLAMA_URL` (default: `http://127.0.0.1:11434`)
 - `ANTHROPIC_API_KEY` (required only when `Anthropic` provider is selected)
 - `ANTHROPIC_MODEL` (default: `claude-sonnet-4-5-20250929`)
+- `OPENAI_API_KEY` (required only when `OpenAI` provider is selected)
+- `OPENAI_MODEL` (default: `gpt-4o-mini`)
 - `BRAVE_SEARCH_API_KEY` (required only if using the `brave_search` tool)
 - `BRAVE_SEARCH_BASE_URL` (default: `https://api.search.brave.com`)
 - `BRAVE_SEARCH_MAX_RESULTS` (default: `5`)
 - `AGENTIC_MAX_STEPS` (default: `3`)
+- `MCP_SERVER_COMMAND` (optional; shell command used to start an MCP server over `stdio`)
+- `MCP_TIMEOUT_SECONDS` (default: `15`)
+- `MCP_PROTOCOL_VERSION` (default: `2024-11-05`)
 - `APP_DEMO_NAME` (default: `AI App Demo`)
 
 ## Tools (Agentic Mode)
@@ -214,16 +222,37 @@ They are different and often complementary in agentic workflows.
 
 ## MCP Status (Important)
 
-This build uses a provider-agnostic tool runtime and trace model designed to support MCP cleanly later, but it is **not yet** a full MCP client integration.
+This build now supports a **real MCP client path over `stdio`** and includes a bundled local MCP tool server for easy local demos.
 
-What is in place now:
+Current MCP behavior:
 
-- `Tools (MCP)` UI toggle
-- Tool registry + execution layer
-- Agent/tool tracing suitable for guardrail demos
+- If `MCP_SERVER_COMMAND` is **not** set:
+  - The app auto-starts the bundled local MCP server (`mcp_tool_server.py`)
+  - Your existing built-in tools (weather, brave search, calculator, etc.) are exposed via MCP
+- If `MCP_SERVER_COMMAND` **is** set:
+  - The app starts the MCP server process
+  - Calls `initialize`
+  - Sends `notifications/initialized`
+  - Calls `tools/list`
+  - Exposes MCP tools to the agent alongside local built-in tools
+  - Calls `tools/call` when the agent selects an MCP tool name
 
-What is planned next for “true MCP”:
+Notes:
 
-- MCP client transport integration (for example `stdio`)
-- External MCP server/tool discovery and invocation
-- MCP-specific tracing (server, tool schema, request/response envelopes)
+- Your existing tools do **not** disappear; they are now available through the bundled local MCP server by default
+- If a custom MCP server does not expose a tool name, the app still falls back to local built-in tools for that tool
+- MCP server startup / tool list events are shown in `Agent / Tool Trace`
+- MCP tool call request/response envelopes are included in tool traces
+
+### Example MCP setup (stdio)
+
+By default, no setup is required (the bundled local MCP server is auto-launched).
+
+To use a different MCP server, set the command before starting the app:
+
+- `export MCP_SERVER_COMMAND='python /path/to/your_mcp_server.py'`
+
+Then start the app normally and enable:
+
+- `Agentic Mode` = ON
+- `Tools (MCP)` = ON

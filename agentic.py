@@ -10,6 +10,8 @@ from typing import Callable
 from urllib import error, parse, request
 from zoneinfo import ZoneInfo
 
+from mcp_client import mcp_client_from_env
+
 
 BRAVE_SEARCH_BASE_URL = os.getenv("BRAVE_SEARCH_BASE_URL", "https://api.search.brave.com")
 BRAVE_SEARCH_MAX_RESULTS = int(os.getenv("BRAVE_SEARCH_MAX_RESULTS", "5"))
@@ -68,10 +70,19 @@ TOOLS = {
 }
 
 
-def _tool_catalog_text() -> str:
+def _tool_catalog_text(extra_tools: list[dict] | None = None) -> str:
     rows = []
     for name, meta in TOOLS.items():
         rows.append(f"- {name}: {meta['description']} input={json.dumps(meta['input_schema'])}")
+    for tool in extra_tools or []:
+        if not isinstance(tool, dict):
+            continue
+        name = str(tool.get("name") or "").strip()
+        if not name or name in TOOLS:
+            continue
+        desc = str(tool.get("description") or "MCP tool")
+        input_schema = tool.get("inputSchema")
+        rows.append(f"- {name}: {desc} input={json.dumps(input_schema if input_schema is not None else {})}")
     return "\n".join(rows)
 
 
@@ -79,6 +90,87 @@ def _extract_json(text: str) -> dict | None:
     text = (text or "").strip()
     if not text:
         return None
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _normalize_agent_decision(
+    decision: dict | None, known_tools: set[str]
+) -> dict | None:
+    if not isinstance(decision, dict):
+        return None
+
+    dtype = str(decision.get("type") or "").strip().lower()
+    tool_name = str(decision.get("tool") or "").strip()
+    response = decision.get("response")
+    tool_input = decision.get("input") if isinstance(decision.get("input"), dict) else {}
+    inferred_args = {
+        str(k): v
+        for k, v in decision.items()
+        if str(k) not in {"type", "tool", "input", "response"}
+    }
+
+    # Happy path
+    if dtype in {"final", "tool"}:
+        normalized_response = response
+        if dtype == "final" and (not isinstance(normalized_response, str) or not normalized_response.strip()):
+            if "output" in decision:
+                normalized_response = str(decision.get("output") or "")
+        return {
+            "type": dtype,
+            "tool": tool_name,
+            "input": tool_input,
+            "response": normalized_response,
+        }
+
+    # Some smaller models return {"tool":"name","input":{...}} without type.
+    if not dtype and tool_name:
+        return {
+            "type": "tool",
+            "tool": tool_name,
+            "input": tool_input,
+            "response": response,
+        }
+
+    # Some smaller models incorrectly put the tool name in "type".
+    if dtype in known_tools:
+        # If no usable input is provided but a response exists, degrade gracefully to final.
+        if not tool_input and isinstance(response, str) and response.strip():
+            return {
+                "type": "final",
+                "tool": "",
+                "input": {},
+                "response": response,
+            }
+        return {
+            "type": "tool",
+            "tool": dtype,
+            "input": tool_input or inferred_args,
+            "response": response,
+        }
+
+    # Graceful final fallback when response field exists.
+    if isinstance(response, str) and response.strip():
+        return {
+            "type": "final",
+            "tool": "",
+            "input": {},
+            "response": response,
+        }
+
+    return None
     try:
         parsed = json.loads(text)
         return parsed if isinstance(parsed, dict) else None
@@ -391,7 +483,45 @@ def _tool_base64_codec(args: dict) -> tuple[str, dict]:
     return json.dumps(payload), {"tool": "base64_codec", "input": args, "response": payload}
 
 
-def run_tool(tool_name: str, tool_input: dict) -> tuple[str, dict]:
+def _tool_mcp_call(tool_name: str, tool_input: dict, mcp_client) -> tuple[str, dict]:
+    try:
+        result = mcp_client.tools_call(tool_name, tool_input or {})
+    except Exception as exc:
+        return f"Error: MCP tool `{tool_name}` failed: {exc}", {
+            "tool": tool_name,
+            "input": tool_input,
+            "source": "mcp",
+            "error": str(exc),
+        }
+
+    content = result.get("content")
+    is_error = bool(result.get("isError"))
+    parts: list[str] = []
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                parts.append(str(item.get("text") or ""))
+            else:
+                parts.append(json.dumps(item))
+    elif content is not None:
+        parts.append(json.dumps(content) if not isinstance(content, str) else content)
+    else:
+        parts.append(json.dumps(result))
+    text = "\n".join([p for p in parts if p]).strip() or "(empty MCP tool result)"
+    if is_error:
+        text = f"Error: MCP tool `{tool_name}` returned isError=true. {text}"
+    return text, {
+        "tool": tool_name,
+        "input": tool_input,
+        "source": "mcp",
+        "request": {"method": "tools/call", "params": {"name": tool_name, "arguments": tool_input or {}}},
+        "response": result,
+    }
+
+
+def run_tool(tool_name: str, tool_input: dict, mcp_client=None) -> tuple[str, dict]:
     tool = (tool_name or "").strip()
     if tool == "calculator":
         return _tool_calculator(tool_input)
@@ -417,6 +547,8 @@ def run_tool(tool_name: str, tool_input: dict) -> tuple[str, dict]:
         return _tool_uuid_generate(tool_input)
     if tool == "base64_codec":
         return _tool_base64_codec(tool_input)
+    if mcp_client is not None:
+        return _tool_mcp_call(tool, tool_input, mcp_client)
     return (
         f"Error: unknown tool `{tool}`",
         {"tool": tool, "input": tool_input, "error": "unknown tool"},
@@ -431,6 +563,48 @@ def run_agentic_turn(
 ) -> tuple[dict, int]:
     agent_trace: list[dict] = []
     work_messages = list(conversation_messages)
+    seen_tool_signatures: set[str] = set()
+    tool_outputs_by_signature: dict[str, str] = {}
+    mcp_client = None
+    mcp_tools: list[dict] = []
+
+    if tools_enabled:
+        mcp_client = mcp_client_from_env()
+        if mcp_client is not None:
+            try:
+                mcp_client.start()
+                mcp_tools = mcp_client.tools_list()
+                agent_trace.append(
+                    {
+                        "kind": "mcp",
+                        "step": 0,
+                        "event": "tools_list",
+                        "tool_count": len(mcp_tools),
+                        "server_info": getattr(mcp_client, "server_info", None),
+                        "tools": [
+                            {
+                                "name": t.get("name"),
+                                "description": t.get("description"),
+                            }
+                            for t in mcp_tools
+                            if isinstance(t, dict)
+                        ],
+                    }
+                )
+            except Exception as exc:
+                agent_trace.append(
+                    {
+                        "kind": "mcp",
+                        "step": 0,
+                        "event": "startup_error",
+                        "error": str(exc),
+                    }
+                )
+                try:
+                    mcp_client.close()
+                except Exception:
+                    pass
+                mcp_client = None
 
     system_prompt = (
         "You are a helpful agent. "
@@ -438,124 +612,159 @@ def run_agentic_turn(
         "Return ONLY JSON in one of these shapes:\n"
         '{"type":"final","response":"..."}\n'
         '{"type":"tool","tool":"calculator","input":{"expression":"2+2"}}\n'
+        'IMPORTANT: "type" must be exactly "final" or "tool". Put the tool name in the "tool" field, not in "type".\n'
         "Available tools:\n"
-        + _tool_catalog_text()
+        + _tool_catalog_text(mcp_tools)
         + "\nIf tools are disabled, always return type=final."
     )
 
     llm_messages = [{"role": "system", "content": system_prompt}, *work_messages]
 
-    for step in range(1, AGENTIC_MAX_STEPS + 1):
-        llm_text, llm_meta = provider_messages_call(llm_messages)
-        agent_trace.append(
-            {
-                "kind": "llm",
-                "step": step,
-                "trace_step": llm_meta.get("trace_step"),
-                "raw_output": llm_text,
-            }
-        )
-
-        if llm_text is None:
-            return (
+    try:
+        for step in range(1, AGENTIC_MAX_STEPS + 1):
+            llm_text, llm_meta = provider_messages_call(llm_messages)
+            agent_trace.append(
                 {
-                    "error": llm_meta.get("error", "Agent LLM call failed."),
-                    "details": llm_meta.get("details"),
-                    "agent_trace": agent_trace,
-                    "trace": {"steps": [llm_meta.get("trace_step", {})]},
-                },
-                int(llm_meta.get("status_code", 502)),
+                    "kind": "llm",
+                    "step": step,
+                    "trace_step": llm_meta.get("trace_step"),
+                    "raw_output": llm_text,
+                }
             )
 
-        decision = _extract_json(llm_text)
-        if not isinstance(decision, dict):
-            # Fallback: treat raw model text as final response.
-            return (
-                {
-                    "response": llm_text.strip(),
-                    "agent_trace": agent_trace,
-                    "agentic": {"enabled": True, "tool_calls": 0, "final_mode": "raw_text_fallback"},
-                    "trace": {"steps": [llm_meta["trace_step"]]},
-                },
-                200,
-            )
-
-        dtype = str(decision.get("type") or "").strip().lower()
-        if dtype == "final":
-            final_text = str(decision.get("response") or "").strip() or "(Empty response)"
-            return (
-                {
-                    "response": final_text,
-                    "agent_trace": agent_trace,
-                    "agentic": {
-                        "enabled": True,
-                        "tool_calls": sum(1 for e in agent_trace if e.get("kind") == "tool"),
-                        "final_mode": "json_final",
-                    },
-                    "trace": {"steps": [llm_meta["trace_step"]]},
-                },
-                200,
-            )
-
-        if dtype == "tool":
-            tool_name = str(decision.get("tool") or "").strip()
-            tool_input = decision.get("input") if isinstance(decision.get("input"), dict) else {}
-            if not tools_enabled:
+            if llm_text is None:
                 return (
                     {
-                        "response": "Agent requested a tool, but Tools (MCP) is disabled. Enable it to allow tool execution.",
+                        "error": llm_meta.get("error", "Agent LLM call failed."),
+                        "details": llm_meta.get("details"),
                         "agent_trace": agent_trace,
-                        "agentic": {"enabled": True, "tool_calls": 0, "blocked_reason": "tools_disabled"},
+                        "trace": {"steps": [llm_meta.get("trace_step", {})]},
+                    },
+                    int(llm_meta.get("status_code", 502)),
+                )
+
+            decision = _normalize_agent_decision(
+                _extract_json(llm_text),
+                known_tools=set(TOOLS.keys()) | {str((t or {}).get("name") or "").strip() for t in mcp_tools if isinstance(t, dict)},
+            )
+            if not isinstance(decision, dict):
+                # Fallback: treat raw model text as final response.
+                return (
+                    {
+                        "response": llm_text.strip(),
+                        "agent_trace": agent_trace,
+                        "agentic": {"enabled": True, "tool_calls": 0, "final_mode": "raw_text_fallback"},
                         "trace": {"steps": [llm_meta["trace_step"]]},
                     },
                     200,
                 )
 
-            tool_output, tool_meta = run_tool(tool_name, tool_input)
-            agent_trace.append(
-                {
-                    "kind": "tool",
-                    "step": step,
-                    "tool": tool_name,
-                    "input": tool_input,
-                    "output": tool_output,
-                    "tool_trace": tool_meta,
-                }
-            )
-            llm_messages.extend(
-                [
-                    {"role": "assistant", "content": llm_text},
+            dtype = str(decision.get("type") or "").strip().lower()
+            if dtype == "final":
+                final_text = str(decision.get("response") or "").strip() or "(Empty response)"
+                return (
                     {
-                        "role": "user",
-                        "content": (
-                            "TOOL_RESULT\n"
-                            + json.dumps(
-                                {
-                                    "tool": tool_name,
-                                    "input": tool_input,
-                                    "output": tool_output,
-                                }
-                            )
-                        ),
+                        "response": final_text,
+                        "agent_trace": agent_trace,
+                        "agentic": {
+                            "enabled": True,
+                            "tool_calls": sum(1 for e in agent_trace if e.get("kind") == "tool"),
+                            "final_mode": "json_final",
+                        },
+                        "trace": {"steps": [llm_meta["trace_step"]]},
                     },
-                ]
+                    200,
+                )
+
+            if dtype == "tool":
+                tool_name = str(decision.get("tool") or "").strip()
+                tool_input = decision.get("input") if isinstance(decision.get("input"), dict) else {}
+                if not tools_enabled:
+                    return (
+                        {
+                            "response": "Agent requested a tool, but Tools (MCP) is disabled. Enable it to allow tool execution.",
+                            "agent_trace": agent_trace,
+                            "agentic": {"enabled": True, "tool_calls": 0, "blocked_reason": "tools_disabled"},
+                            "trace": {"steps": [llm_meta["trace_step"]]},
+                        },
+                        200,
+                    )
+
+                tool_signature = json.dumps(
+                    {"tool": tool_name, "input": tool_input}, sort_keys=True
+                )
+                if tool_signature in seen_tool_signatures:
+                    prior_output = tool_outputs_by_signature.get(tool_signature, "")
+                    return (
+                        {
+                            "response": (
+                                "Agent repeated the same tool call. Returning the previous tool result to avoid a loop.\n\n"
+                                + (prior_output or json.dumps({"tool": tool_name, "input": tool_input}))
+                            ),
+                            "agent_trace": agent_trace,
+                            "agentic": {
+                                "enabled": True,
+                                "tool_calls": sum(1 for e in agent_trace if e.get("kind") == "tool"),
+                                "final_mode": "repeated_tool_loop_break",
+                            },
+                            "trace": {"steps": [llm_meta["trace_step"]]},
+                        },
+                        200,
+                    )
+
+                tool_output, tool_meta = run_tool(tool_name, tool_input, mcp_client=mcp_client)
+                seen_tool_signatures.add(tool_signature)
+                tool_outputs_by_signature[tool_signature] = str(tool_output)
+                agent_trace.append(
+                    {
+                        "kind": "tool",
+                        "step": step,
+                        "tool": tool_name,
+                        "input": tool_input,
+                        "output": tool_output,
+                        "tool_trace": tool_meta,
+                    }
+                )
+                llm_messages.extend(
+                    [
+                        {"role": "assistant", "content": llm_text},
+                        {
+                            "role": "user",
+                            "content": (
+                                "TOOL_RESULT\n"
+                                + json.dumps(
+                                    {
+                                        "tool": tool_name,
+                                        "input": tool_input,
+                                        "output": tool_output,
+                                    }
+                                )
+                            ),
+                        },
+                    ]
+                )
+                continue
+
+            return (
+                {
+                    "response": "Agent produced an unsupported decision type. Returning raw model output.",
+                    "agent_trace": agent_trace,
+                    "trace": {"steps": [llm_meta["trace_step"]]},
+                },
+                200,
             )
-            continue
 
         return (
             {
-                "response": "Agent produced an unsupported decision type. Returning raw model output.",
+                "response": "Agent reached the max number of steps without producing a final answer.",
                 "agent_trace": agent_trace,
-                "trace": {"steps": [llm_meta["trace_step"]]},
+                "agentic": {"enabled": True, "max_steps": AGENTIC_MAX_STEPS, "timed_out": True},
             },
             200,
         )
-
-    return (
-        {
-            "response": "Agent reached the max number of steps without producing a final answer.",
-            "agent_trace": agent_trace,
-            "agentic": {"enabled": True, "max_steps": AGENTIC_MAX_STEPS, "timed_out": True},
-        },
-        200,
-    )
+    finally:
+        if mcp_client is not None:
+            try:
+                mcp_client.close()
+            except Exception:
+                pass
