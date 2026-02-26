@@ -1,11 +1,11 @@
-# Local LLM Demo (Ollama Local / Anthropic / OpenAI + Optional Zscaler AI Guard)
+# Local LLM Demo (Multi-Provider + Optional Zscaler AI Guard)
 
 Very small demo app for local testing and live demos.
 
 ## What this demo shows
 
 - Local web chat UI (`python app.py`)
-- Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic` and `OpenAI`)
+- Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic`, `Azure AI Foundry`, `AWS Bedrock`, `AWS Bedrock Agent`, `Google Gemini`, `Google Vertex`, `LiteLLM`, `OpenAI`, `Perplexity`, and `xAI (Grok)`)
 - Single-turn / Multi-turn chat mode toggle (provider-agnostic)
 - Agentic Mode toggle (provider-agnostic single-agent tool loop)
 - Multi-Agent Mode toggle (orchestrator + specialist agents)
@@ -28,28 +28,50 @@ Very small demo app for local testing and live demos.
 4. Open:
    - `http://127.0.0.1:5000`
 
-## Optional Remote Providers (SDK)
+## Optional Additional Providers
 
-The app supports `Anthropic` and `OpenAI` as selectable LLM providers in the UI.
+The app supports multiple remote providers in the UI. Some use SDKs, some use HTTP APIs.
 
 Requirements:
 
-- Install the SDK in your environment:
+- Install SDKs you plan to use:
   - `pip install anthropic`
   - `pip install openai`
+  - `pip install boto3` (for Bedrock Invoke + Bedrock Agent)
 - Set your API key:
   - `export ANTHROPIC_API_KEY='your_key_here'`
   - `export OPENAI_API_KEY='your_key_here'`
+  - `export PERPLEXITY_API_KEY='your_key_here'`
+  - `export XAI_API_KEY='your_key_here'`
+  - `export GEMINI_API_KEY='your_key_here'`
+  - For Google Vertex, use Google ADC credentials (service account / gcloud auth) and set `VERTEX_PROJECT_ID`
+  - `export AZURE_AI_FOUNDRY_API_KEY='your_key_here'` (for Azure AI Foundry model inference endpoint)
+  - For AWS Bedrock, use normal AWS credentials (`aws configure`, env vars, SSO, etc.)
 
 Optional:
 
 - `export ANTHROPIC_MODEL='claude-sonnet-4-5-20250929'`
 - `export OPENAI_MODEL='gpt-4o-mini'`
+- `export AWS_REGION='us-east-1'`
+- `export BEDROCK_INVOKE_MODEL='amazon.nova-lite-v1:0'`
+- `export BEDROCK_AGENT_ID='your_agent_id'`
+- `export BEDROCK_AGENT_ALIAS_ID='your_alias_id'`
+- `export PERPLEXITY_MODEL='sonar'`
+- `export XAI_MODEL='grok-2-latest'`
+- `export GEMINI_MODEL='gemini-1.5-flash'`
+- `export VERTEX_PROJECT_ID='your-gcp-project-id'`
+- `export VERTEX_LOCATION='us-central1'`
+  - `export VERTEX_MODEL='gemini-1.5-flash'`
+  - `export LITELLM_API_KEY='your_litellm_virtual_key'`
+  - `export LITELLM_BASE_URL='http://<your-litellm-host>/v1'`
+  - `export LITELLM_MODEL='claude-3-haiku-20240307'` (or another LiteLLM-routed model)
+  - `export AZURE_AI_FOUNDRY_BASE_URL='https://<your-endpoint>.inference.ai.azure.com/v1'`
+- `export AZURE_AI_FOUNDRY_MODEL='gpt-4o-mini'` (or your deployed model id)
 
 Notes:
 
 - `Ollama (Local)` remains the default provider
-- If a provider SDK or API key is missing and you select `Anthropic` or `OpenAI`, the app returns a clear error and shows the provider trace in `HTTP Trace`
+- If a provider SDK/API key/config is missing, the app returns a clear error and shows the provider trace in `HTTP Trace`
 
 ### Optional: Local Corporate TLS / ZIA (Anthropic + AI Guard)
 
@@ -75,7 +97,7 @@ Notes:
 - `Send`: submits prompt to `/chat`
 - `Prompt Presets`: opens a grouped list of curated demo prompts (fills the prompt box only)
 - `Clear`: clears prompt, response, status, HTTP trace, code path viewer state, multi-turn conversation transcript, and `Agent / Tool Trace` (but keeps the selected LLM provider)
-- `LLM` dropdown: choose `Ollama (Local)`, `Anthropic`, or `OpenAI`
+- `LLM` dropdown: choose any configured provider (local or remote)
 - `Multi-turn Chat` toggle:
   - OFF (default): single-turn prompt/response
   - ON: chat transcript mode with conversation history sent to the selected provider
@@ -85,14 +107,14 @@ Notes:
   - Can be redirected to another MCP server via `MCP_SERVER_COMMAND`
 - `Agentic Mode` toggle:
   - Enables a realistic single-agent, multi-step loop (LLM decides tool use, runs tool, then finalizes)
-  - Works with `Ollama (Local)`, `Anthropic`, and `OpenAI` via the same provider abstraction
+  - Works with all configured providers via the same provider abstraction (quality/tool reliability varies by model)
 - `Multi-Agent Mode` toggle:
   - Enables a realistic multi-agent pipeline:
     - `orchestrator` (planning)
     - `researcher` (can use tools/MCP)
     - `reviewer` (quality/risk/gaps review)
     - `finalizer` (user-facing answer)
-  - Works with `Ollama (Local)`, `Anthropic`, and `OpenAI` via the same provider abstraction
+  - Works with all configured providers via the same provider abstraction (quality/tool reliability varies by model)
   - Mutually exclusive with `Agentic Mode` in the UI (turning one ON turns the other OFF)
 - `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
 - `Proxy Mode` toggle (disabled until `Zscaler AI Guard` is ON):
@@ -221,10 +243,32 @@ In Zscaler AI Guard, make sure you have done the following while in DAS/API Mode
 
 - `OLLAMA_MODEL` (default: `llama3.2:1b`)
 - `OLLAMA_URL` (default: `http://127.0.0.1:11434`)
+- `AWS_REGION` (default: `us-east-1`; used by Bedrock Invoke + Bedrock Agent)
+- `BEDROCK_INVOKE_MODEL` (default: `amazon.nova-lite-v1:0`)
+- `BEDROCK_AGENT_ID` (required when `AWS Bedrock Agent` provider is selected)
+- `BEDROCK_AGENT_ALIAS_ID` (required when `AWS Bedrock Agent` provider is selected)
 - `ANTHROPIC_API_KEY` (required only when `Anthropic` provider is selected)
 - `ANTHROPIC_MODEL` (default: `claude-sonnet-4-5-20250929`)
 - `OPENAI_API_KEY` (required only when `OpenAI` provider is selected)
 - `OPENAI_MODEL` (default: `gpt-4o-mini`)
+- `PERPLEXITY_API_KEY` (required only when `Perplexity` provider is selected)
+- `PERPLEXITY_MODEL` (default: `sonar`)
+- `PERPLEXITY_BASE_URL` (optional override for Perplexity OpenAI-compatible endpoint)
+- `XAI_API_KEY` (required only when `xAI (Grok)` provider is selected)
+- `XAI_MODEL` (default: `grok-2-latest`)
+- `XAI_BASE_URL` (optional override; default uses `https://api.x.ai/v1`)
+- `GEMINI_API_KEY` (required only when `Google Gemini` provider is selected)
+- `GEMINI_MODEL` (default: `gemini-1.5-flash`)
+- `GEMINI_BASE_URL` (optional override; default `https://generativelanguage.googleapis.com`)
+- `VERTEX_PROJECT_ID` (required when `Google Vertex` provider is selected)
+- `VERTEX_LOCATION` (default: `us-central1`)
+- `VERTEX_MODEL` (default: `gemini-1.5-flash`)
+- `LITELLM_API_KEY` (required when `LiteLLM` provider is selected; LiteLLM virtual key)
+- `LITELLM_BASE_URL` (default: `http://127.0.0.1:4000/v1`; set to your LiteLLM gateway `/v1` base)
+- `LITELLM_MODEL` (default: `claude-3-haiku-20240307`; can be any LiteLLM-routed model)
+- `AZURE_AI_FOUNDRY_API_KEY` (required when `Azure AI Foundry` provider is selected)
+- `AZURE_AI_FOUNDRY_BASE_URL` (required; your Azure AI Foundry/OpenAI-compatible inference base URL)
+- `AZURE_AI_FOUNDRY_MODEL` (default: `gpt-4o-mini`)
 - `BRAVE_SEARCH_API_KEY` (required only if using the `brave_search` tool)
 - `BRAVE_SEARCH_BASE_URL` (default: `https://api.search.brave.com`)
 - `BRAVE_SEARCH_MAX_RESULTS` (default: `5`)

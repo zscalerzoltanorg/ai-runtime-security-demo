@@ -8,6 +8,15 @@ import json
 
 DEFAULT_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+DEFAULT_BEDROCK_INVOKE_MODEL = os.getenv("BEDROCK_INVOKE_MODEL", "amazon.nova-lite-v1:0")
+DEFAULT_PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar")
+DEFAULT_XAI_MODEL = os.getenv("XAI_MODEL", "grok-2-latest")
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+DEFAULT_LITELLM_MODEL = os.getenv("LITELLM_MODEL", "claude-3-haiku-20240307")
+DEFAULT_VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
+DEFAULT_VERTEX_MODEL = os.getenv("VERTEX_MODEL", "gemini-1.5-flash")
+DEFAULT_AZURE_AI_FOUNDRY_MODEL = os.getenv("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini")
 DEFAULT_ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = os.getenv("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
 
@@ -64,6 +73,14 @@ def available_providers() -> list[dict[str, str]]:
         {"id": "ollama", "label": "Ollama (Local)"},
         {"id": "anthropic", "label": "Anthropic"},
         {"id": "openai", "label": "OpenAI"},
+        {"id": "bedrock_invoke", "label": "AWS Bedrock"},
+        {"id": "bedrock_agent", "label": "AWS Bedrock Agent"},
+        {"id": "perplexity", "label": "Perplexity"},
+        {"id": "xai", "label": "xAI (Grok)"},
+        {"id": "gemini", "label": "Google Gemini"},
+        {"id": "vertex", "label": "Google Vertex"},
+        {"id": "litellm", "label": "LiteLLM"},
+        {"id": "azure_foundry", "label": "Azure AI Foundry"},
     ]
 
 
@@ -128,6 +145,122 @@ def _openai_proxy_base_url(base_url: str) -> str:
     if cleaned.lower().endswith("/v1"):
         return cleaned
     return f"{cleaned}/v1"
+
+
+def _openai_compatible_chat_messages(
+    *,
+    provider_name: str,
+    api_key_env: str,
+    model: str,
+    default_base_url: str,
+    base_url_env: str,
+    messages: list[dict],
+    conversation_id: str | None = None,
+) -> tuple[str | None, dict]:
+    api_key = os.getenv(api_key_env, "").strip()
+    base_url = os.getenv(base_url_env, "").strip() or default_base_url
+    normalized = _normalize_messages(messages)
+    request_payload = {
+        "model": model,
+        "messages": normalized,
+        "temperature": 0.2,
+    }
+    trace_request = {
+        "method": "SDK",
+        "url": f"{base_url.rstrip('/')}/chat/completions ({provider_name} via OpenAI-compatible SDK)",
+        "headers": {
+            "Authorization": "Bearer ***redacted***" if api_key else "***missing***",
+            **(
+                {os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip(): conversation_id}
+                if os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip() and conversation_id
+                else {}
+            ),
+        },
+        "payload": request_payload,
+    }
+
+    if not api_key:
+        return None, {
+            "error": f"{api_key_env} is not set.",
+            "status_code": 500,
+            "trace_step": {
+                "name": provider_name,
+                "request": trace_request,
+                "response": {"status": 500, "body": {"error": f"Missing {api_key_env}"}},
+            },
+        }
+
+    try:
+        from openai import OpenAI
+    except Exception as exc:
+        return None, {
+            "error": "OpenAI-compatible SDK is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {
+                "name": provider_name,
+                "request": trace_request,
+                "response": {"status": 500, "body": {"error": "Install with `pip install openai`", "details": str(exc)}},
+            },
+        }
+
+    default_headers = {}
+    conv_header_name = os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip()
+    if conv_header_name and conversation_id:
+        default_headers[conv_header_name] = str(conversation_id)
+
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url, default_headers=default_headers or None)
+        resp = client.chat.completions.create(**request_payload)
+        choice0 = (getattr(resp, "choices", None) or [None])[0]
+        message_obj = getattr(choice0, "message", None)
+        text = str(getattr(message_obj, "content", "") or "").strip()
+        usage_obj = getattr(resp, "usage", None)
+        response_body: dict[str, Any] = {
+            "id": getattr(resp, "id", None),
+            "model": getattr(resp, "model", model),
+            "object": getattr(resp, "object", None),
+            "choices": [
+                {
+                    "index": getattr(choice0, "index", 0),
+                    "finish_reason": getattr(choice0, "finish_reason", None),
+                    "message": {"role": getattr(message_obj, "role", None), "content": text},
+                }
+            ] if choice0 is not None else [],
+            "usage": usage_obj.model_dump() if hasattr(usage_obj, "model_dump") else None,
+        }
+        return text, {
+            "trace_step": {
+                "name": provider_name,
+                "request": trace_request,
+                "response": {"status": 200, "body": response_body},
+            }
+        }
+    except Exception as exc:
+        err_status = getattr(exc, "status_code", None)
+        err_response = getattr(exc, "response", None)
+        err_body: Any = None
+        if err_response is not None:
+            try:
+                if hasattr(err_response, "json"):
+                    err_body = err_response.json()
+            except Exception:
+                err_body = None
+            if err_body is None:
+                err_body = getattr(err_response, "text", None)
+        return None, {
+            "error": f"{provider_name} request failed.",
+            "status_code": int(err_status or 502),
+            "details": str(exc),
+            "trace_step": {
+                "name": provider_name,
+                "request": trace_request,
+                "response": {
+                    "status": int(err_status or 502),
+                    "body": {"error": str(exc), "status_code": err_status, "response_body": err_body},
+                },
+            },
+        }
 
 
 def _ollama_generate(prompt: str, ollama_url: str, ollama_model: str) -> tuple[str | None, dict]:
@@ -733,6 +866,312 @@ def _openai_chat_messages(
     }
 
 
+def _bedrock_invoke_chat_messages(
+    messages: list[dict],
+    model_id: str,
+    *,
+    region: str,
+) -> tuple[str | None, dict]:
+    normalized = _normalize_messages(messages)
+    system_blocks = [m["content"] for m in normalized if m["role"] == "system" and m["content"].strip()]
+    request_payload = {
+        "modelId": model_id,
+        "messages": [
+            {"role": m["role"], "content": [{"text": m["content"]}]}
+            for m in normalized
+            if m["role"] in {"user", "assistant"}
+        ],
+        "inferenceConfig": {"maxTokens": 400, "temperature": 0.2},
+    }
+    if system_blocks:
+        request_payload["system"] = [{"text": "\n\n".join(system_blocks)}]
+    trace_request = {
+        "method": "SDK",
+        "url": f"AWS Bedrock Runtime (converse) [{region}]",
+        "headers": {"Authorization": "AWS SigV4 (ambient credentials)"},
+        "payload": request_payload,
+    }
+    try:
+        import boto3
+    except Exception as exc:
+        return None, {
+            "error": "boto3 is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {"name": "AWS Bedrock (Nova Lite)", "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install boto3`", "details": str(exc)}}},
+        }
+    try:
+        client = boto3.client("bedrock-runtime", region_name=region)
+        resp = client.converse(**request_payload)
+        text = "".join(
+            part.get("text", "")
+            for part in (((resp.get("output") or {}).get("message") or {}).get("content") or [])
+            if isinstance(part, dict) and "text" in part
+        ).strip()
+        return text, {
+            "trace_step": {
+                "name": "AWS Bedrock (Nova Lite)",
+                "request": trace_request,
+                "response": {"status": 200, "body": {
+                    "modelId": model_id,
+                    "text": text,
+                    "usage": resp.get("usage"),
+                    "stopReason": resp.get("stopReason"),
+                }},
+            }
+        }
+    except Exception as exc:
+        return None, {
+            "error": "Bedrock invoke request failed.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {"name": "AWS Bedrock (Nova Lite)", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+        }
+
+
+def _bedrock_agent_chat_messages(
+    messages: list[dict],
+    *,
+    region: str,
+    conversation_id: str | None = None,
+) -> tuple[str | None, dict]:
+    agent_id = os.getenv("BEDROCK_AGENT_ID", "").strip()
+    alias_id = os.getenv("BEDROCK_AGENT_ALIAS_ID", "").strip()
+    normalized = _normalize_messages(messages)
+    latest_user = ""
+    for m in reversed(normalized):
+        if m.get("role") == "user":
+            latest_user = str(m.get("content") or "")
+            break
+    if not latest_user:
+        latest_user = str((normalized[-1].get("content") if normalized else "") or "")
+    session_id = (conversation_id or os.getenv("BEDROCK_AGENT_SESSION_ID") or "local-llm-demo-session").strip()
+    request_payload = {
+        "agentId": agent_id,
+        "agentAliasId": alias_id,
+        "sessionId": session_id,
+        "inputText": latest_user,
+    }
+    trace_request = {
+        "method": "SDK",
+        "url": f"AWS Bedrock Agent Runtime (invoke_agent) [{region}]",
+        "headers": {"Authorization": "AWS SigV4 (ambient credentials)"},
+        "payload": request_payload,
+    }
+    if not agent_id or not alias_id:
+        return None, {
+            "error": "BEDROCK_AGENT_ID and BEDROCK_AGENT_ALIAS_ID are required.",
+            "status_code": 500,
+            "trace_step": {"name": "AWS Bedrock Agent", "request": trace_request, "response": {"status": 500, "body": {"error": "Missing BEDROCK_AGENT_ID/BEDROCK_AGENT_ALIAS_ID"}}},
+        }
+    try:
+        import boto3
+    except Exception as exc:
+        return None, {
+            "error": "boto3 is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {"name": "AWS Bedrock Agent", "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install boto3`", "details": str(exc)}}},
+        }
+    try:
+        client = boto3.client("bedrock-agent-runtime", region_name=region)
+        resp = client.invoke_agent(**request_payload)
+        chunks: list[str] = []
+        completion = resp.get("completion")
+        if completion is not None:
+            for event in completion:
+                if not isinstance(event, dict):
+                    continue
+                chunk = event.get("chunk")
+                if isinstance(chunk, dict):
+                    b = chunk.get("bytes")
+                    if isinstance(b, (bytes, bytearray)):
+                        chunks.append(b.decode("utf-8", errors="replace"))
+                    elif isinstance(b, str):
+                        chunks.append(b)
+        text = "".join(chunks).strip()
+        return text, {
+            "trace_step": {
+                "name": "AWS Bedrock Agent",
+                "request": trace_request,
+                "response": {"status": 200, "body": {"sessionId": session_id, "text": text}},
+            }
+        }
+    except Exception as exc:
+        return None, {
+            "error": "Bedrock agent request failed.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {"name": "AWS Bedrock Agent", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+        }
+
+
+def _gemini_chat_messages(
+    messages: list[dict],
+    model: str,
+) -> tuple[str | None, dict]:
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
+    normalized = _normalize_messages(messages)
+    contents = []
+    system_parts = []
+    for m in normalized:
+        role = m.get("role")
+        content = str(m.get("content") or "")
+        if role == "system":
+            if content.strip():
+                system_parts.append(content)
+            continue
+        gem_role = "user" if role == "user" else "model"
+        contents.append({"role": gem_role, "parts": [{"text": content}]})
+    payload: dict[str, Any] = {"contents": contents}
+    if system_parts:
+        payload["system_instruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+    url = f"{base_url}/v1beta/models/{model}:generateContent?key={api_key if api_key else '***missing***'}"
+    trace_request = {
+        "method": "POST",
+        "url": f"{base_url}/v1beta/models/{model}:generateContent",
+        "headers": {"x-goog-api-key": "***redacted***" if api_key else "***missing***", "Content-Type": "application/json"},
+        "payload": payload,
+    }
+    if not api_key:
+        return None, {
+            "error": "GEMINI_API_KEY is not set.",
+            "status_code": 500,
+            "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": 500, "body": {"error": "Missing GEMINI_API_KEY"}}},
+        }
+    try:
+        status, body = _post_json(
+            f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
+            payload=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=120,
+        )
+        text = ""
+        if isinstance(body, dict):
+            for cand in body.get("candidates") or []:
+                content = cand.get("content") or {}
+                for part in content.get("parts") or []:
+                    if isinstance(part, dict) and "text" in part:
+                        text += str(part.get("text") or "")
+        return text.strip(), {
+            "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": status, "body": body}}
+        }
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        parsed = None
+        try:
+            parsed = json.loads(detail)
+        except Exception:
+            parsed = detail
+        return None, {
+            "error": "Gemini request failed.",
+            "status_code": 502,
+            "details": detail,
+            "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": exc.code, "body": parsed}},
+        }
+    except Exception as exc:
+        return None, {
+            "error": "Gemini request failed.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+        }
+
+
+def _vertex_chat_messages(
+    messages: list[dict],
+    model: str,
+    *,
+    project_id: str,
+    location: str,
+) -> tuple[str | None, dict]:
+    normalized = _normalize_messages(messages)
+    contents = []
+    system_parts = []
+    for m in normalized:
+        role = m.get("role")
+        content = str(m.get("content") or "")
+        if role == "system":
+            if content.strip():
+                system_parts.append(content)
+            continue
+        vertex_role = "user" if role == "user" else "model"
+        contents.append({"role": vertex_role, "parts": [{"text": content}]})
+    payload: dict[str, Any] = {"contents": contents}
+    if system_parts:
+        payload["system_instruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+    endpoint = (
+        f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}"
+        f"/publishers/google/models/{model}:generateContent"
+    )
+    trace_request = {
+        "method": "POST",
+        "url": endpoint,
+        "headers": {
+            "Authorization": "Bearer ***redacted***",
+            "Content-Type": "application/json",
+        },
+        "payload": payload,
+    }
+    if not project_id:
+        return None, {
+            "error": "VERTEX_PROJECT_ID is not set.",
+            "status_code": 500,
+            "trace_step": {"name": "Google Vertex", "request": trace_request, "response": {"status": 500, "body": {"error": "Missing VERTEX_PROJECT_ID"}}},
+        }
+    try:
+        import google.auth  # type: ignore
+        from google.auth.transport.requests import Request as GoogleAuthRequest  # type: ignore
+    except Exception as exc:
+        return None, {
+            "error": "google-auth is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {"name": "Google Vertex", "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install google-auth requests`", "details": str(exc)}}},
+        }
+    try:
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        if not credentials.valid:
+            credentials.refresh(GoogleAuthRequest())
+        token = credentials.token
+        status, body = _post_json(
+            endpoint,
+            payload=payload,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            timeout=120,
+        )
+        text = ""
+        if isinstance(body, dict):
+            for cand in body.get("candidates") or []:
+                content = cand.get("content") or {}
+                for part in content.get("parts") or []:
+                    if isinstance(part, dict) and "text" in part:
+                        text += str(part.get("text") or "")
+        return text.strip(), {
+            "trace_step": {"name": "Google Vertex", "request": trace_request, "response": {"status": status, "body": body}}
+        }
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+        except Exception:
+            parsed = detail
+        return None, {
+            "error": "Google Vertex request failed.",
+            "status_code": 502,
+            "details": detail,
+            "trace_step": {"name": "Google Vertex", "request": trace_request, "response": {"status": exc.code, "body": parsed}},
+        }
+    except Exception as exc:
+        return None, {
+            "error": "Google Vertex request failed.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {"name": "Google Vertex", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+        }
+
+
 def call_provider_messages(
     provider_id: str,
     messages: list[dict],
@@ -745,6 +1184,17 @@ def call_provider_messages(
     conversation_id: str | None = None,
 ) -> tuple[str | None, dict]:
     provider = (provider_id or "ollama").strip().lower()
+    aws_region = os.getenv("AWS_REGION", DEFAULT_AWS_REGION).strip() or DEFAULT_AWS_REGION
+    if zscaler_proxy_mode and provider not in {"anthropic", "openai"}:
+        return None, {
+            "error": "Zscaler Proxy Mode is currently supported only for Anthropic and OpenAI in this demo. Use DAS/API mode for the selected provider.",
+            "status_code": 400,
+            "trace_step": {
+                "name": "Provider Selection",
+                "request": {"provider": provider_id, "zscaler_proxy_mode": True},
+                "response": {"status": 400, "body": {"error": "Unsupported provider for proxy mode"}},
+            },
+        }
     if provider == "anthropic":
         return _anthropic_chat_messages(
             messages,
@@ -759,16 +1209,70 @@ def call_provider_messages(
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
         )
-    if zscaler_proxy_mode and provider == "ollama":
-        return None, {
-            "error": "Zscaler Proxy Mode is not supported for Ollama (Local). Select a remote provider (Anthropic/OpenAI) or use DAS/API mode.",
-            "status_code": 400,
-            "trace_step": {
-                "name": "Provider Selection",
-                "request": {"provider": provider_id, "zscaler_proxy_mode": True},
-                "response": {"status": 400, "body": {"error": "Unsupported provider for proxy mode"}},
-            },
-        }
+    if provider == "bedrock_invoke":
+        return _bedrock_invoke_chat_messages(
+            messages,
+            os.getenv("BEDROCK_INVOKE_MODEL", DEFAULT_BEDROCK_INVOKE_MODEL).strip() or DEFAULT_BEDROCK_INVOKE_MODEL,
+            region=aws_region,
+        )
+    if provider == "bedrock_agent":
+        return _bedrock_agent_chat_messages(
+            messages,
+            region=aws_region,
+            conversation_id=conversation_id,
+        )
+    if provider == "perplexity":
+        return _openai_compatible_chat_messages(
+            provider_name="Perplexity",
+            api_key_env="PERPLEXITY_API_KEY",
+            model=os.getenv("PERPLEXITY_MODEL", DEFAULT_PERPLEXITY_MODEL).strip() or DEFAULT_PERPLEXITY_MODEL,
+            default_base_url=os.getenv("PERPLEXITY_BASE_URL", "https://api.perplexity.ai").strip() or "https://api.perplexity.ai",
+            base_url_env="PERPLEXITY_BASE_URL",
+            messages=messages,
+            conversation_id=conversation_id,
+        )
+    if provider == "xai":
+        return _openai_compatible_chat_messages(
+            provider_name="xAI (Grok)",
+            api_key_env="XAI_API_KEY",
+            model=os.getenv("XAI_MODEL", DEFAULT_XAI_MODEL).strip() or DEFAULT_XAI_MODEL,
+            default_base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").strip() or "https://api.x.ai/v1",
+            base_url_env="XAI_BASE_URL",
+            messages=messages,
+            conversation_id=conversation_id,
+        )
+    if provider == "gemini":
+        return _gemini_chat_messages(
+            messages,
+            os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL,
+        )
+    if provider == "vertex":
+        return _vertex_chat_messages(
+            messages,
+            os.getenv("VERTEX_MODEL", DEFAULT_VERTEX_MODEL).strip() or DEFAULT_VERTEX_MODEL,
+            project_id=os.getenv("VERTEX_PROJECT_ID", "").strip(),
+            location=os.getenv("VERTEX_LOCATION", DEFAULT_VERTEX_LOCATION).strip() or DEFAULT_VERTEX_LOCATION,
+        )
+    if provider == "litellm":
+        return _openai_compatible_chat_messages(
+            provider_name="LiteLLM",
+            api_key_env="LITELLM_API_KEY",
+            model=os.getenv("LITELLM_MODEL", DEFAULT_LITELLM_MODEL).strip() or DEFAULT_LITELLM_MODEL,
+            default_base_url=os.getenv("LITELLM_BASE_URL", "http://127.0.0.1:4000/v1").strip() or "http://127.0.0.1:4000/v1",
+            base_url_env="LITELLM_BASE_URL",
+            messages=messages,
+            conversation_id=conversation_id,
+        )
+    if provider == "azure_foundry":
+        return _openai_compatible_chat_messages(
+            provider_name="Azure AI Foundry",
+            api_key_env="AZURE_AI_FOUNDRY_API_KEY",
+            model=os.getenv("AZURE_AI_FOUNDRY_MODEL", DEFAULT_AZURE_AI_FOUNDRY_MODEL).strip() or DEFAULT_AZURE_AI_FOUNDRY_MODEL,
+            default_base_url=os.getenv("AZURE_AI_FOUNDRY_BASE_URL", "").strip() or "https://example.inference.ai.azure.com/v1",
+            base_url_env="AZURE_AI_FOUNDRY_BASE_URL",
+            messages=messages,
+            conversation_id=conversation_id,
+        )
     if provider != "ollama":
         return None, {
             "error": f"Unsupported provider: {provider_id}",

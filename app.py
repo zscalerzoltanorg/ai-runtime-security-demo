@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib import error as urlerror, request as urlrequest
 
 import agentic
 import multi_agent
@@ -726,9 +727,17 @@ HTML = f"""<!doctype html>
             <button id="presetToggleBtn" class="secondary" type="button" title="Show curated demo prompts for guardrails, agentic mode, and tools">Prompt Presets</button>
             <label class="status" for="providerSelect">LLM</label>
             <select id="providerSelect" style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;font:inherit;">
-              <option value="ollama">Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
+              <option value="azure_foundry">Azure AI Foundry</option>
+              <option value="bedrock_invoke">AWS Bedrock</option>
+              <option value="bedrock_agent">AWS Bedrock Agent</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="vertex">Google Vertex</option>
+              <option value="litellm">LiteLLM</option>
+              <option value="ollama">Ollama (Local)</option>
               <option value="openai">OpenAI</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="xai">xAI (Grok)</option>
             </select>
             <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP).">
               <input id="toolsToggle" type="checkbox" role="switch" aria-label="Toggle tools runtime (MCP planned)" />
@@ -738,6 +747,10 @@ HTML = f"""<!doctype html>
             <span id="mcpStatusPill" class="status-pill" title="MCP server status (auto-refreshes every minute)">
               <span id="mcpStatusDot" class="status-dot" aria-hidden="true"></span>
               <span id="mcpStatusText">MCP: checking...</span>
+            </span>
+            <span id="liteLlmStatusPill" class="status-pill" style="display:none;" title="LiteLLM gateway status (checks only when LiteLLM provider is selected)">
+              <span id="liteLlmStatusDot" class="status-dot" aria-hidden="true"></span>
+              <span id="liteLlmStatusText">LiteLLM: hidden</span>
             </span>
             <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
               <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
@@ -889,8 +902,12 @@ HTML = f"""<!doctype html>
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
+      const mcpStatusPillEl = document.getElementById("mcpStatusPill");
       const mcpStatusDotEl = document.getElementById("mcpStatusDot");
       const mcpStatusTextEl = document.getElementById("mcpStatusText");
+      const liteLlmStatusPillEl = document.getElementById("liteLlmStatusPill");
+      const liteLlmStatusDotEl = document.getElementById("liteLlmStatusDot");
+      const liteLlmStatusTextEl = document.getElementById("liteLlmStatusText");
       const agenticToggleWrapEl = document.getElementById("agenticToggleWrap");
       const agenticToggleEl = document.getElementById("agenticToggle");
       const multiAgentToggleWrapEl = document.getElementById("multiAgentToggleWrap");
@@ -925,6 +942,7 @@ HTML = f"""<!doctype html>
         ? window.crypto.randomUUID()
         : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
       let mcpStatusTimer = null;
+      let liteLlmStatusTimer = null;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
       let flowGraphState = null;
@@ -1023,6 +1041,14 @@ HTML = f"""<!doctype html>
         mcpStatusTextEl.textContent = text;
       }}
 
+      function setLiteLlmStatus(kind, text) {{
+        liteLlmStatusDotEl.classList.remove("ok", "bad", "warn");
+        if (kind) {{
+          liteLlmStatusDotEl.classList.add(kind);
+        }}
+        liteLlmStatusTextEl.textContent = text;
+      }}
+
       function syncTracePanels() {{
         httpTraceContentEl.classList.toggle("open", !!httpTraceExpanded);
         agentTraceContentEl.classList.toggle("open", !!agentTraceExpanded);
@@ -1044,6 +1070,7 @@ HTML = f"""<!doctype html>
           const data = await res.json();
           if (!res.ok) {{
             setMcpStatus("bad", "MCP: error");
+            mcpStatusPillEl.title = "MCP server status (auto-refreshes every minute)";
             return;
           }}
           const source = data.source === "custom" ? "custom" : "bundled";
@@ -1053,13 +1080,57 @@ HTML = f"""<!doctype html>
             }} (${{
               typeof data.tool_count === "number" ? data.tool_count : "?"
             }} tools)`);
+            const names = Array.isArray(data.tool_names) ? data.tool_names.filter(Boolean) : [];
+            mcpStatusPillEl.title = names.length
+              ? `MCP server status (auto-refreshes every minute)\\n\\nTools (${{
+                  names.length
+                }}):\\n- ${{
+                  names.join("\\n- ")
+                }}`
+              : "MCP server status (auto-refreshes every minute)";
           }} else {{
             setMcpStatus("bad", `MCP: ${{
               source
             }} unavailable`);
+            mcpStatusPillEl.title = "MCP server status (auto-refreshes every minute)";
           }}
         }} catch {{
           setMcpStatus("bad", "MCP: unreachable");
+          mcpStatusPillEl.title = "MCP server status (auto-refreshes every minute)";
+        }}
+      }}
+
+      function syncLiteLlmStatusVisibility() {{
+        const isLiteLlm = (providerSelectEl.value || "").toLowerCase() === "litellm";
+        liteLlmStatusPillEl.style.display = isLiteLlm ? "inline-flex" : "none";
+        if (!isLiteLlm) {{
+          setLiteLlmStatus("", "LiteLLM: hidden");
+        }}
+        return isLiteLlm;
+      }}
+
+      async function refreshLiteLlmStatus() {{
+        if (!syncLiteLlmStatusVisibility()) return;
+        try {{
+          const res = await fetch("/litellm-status");
+          const data = await res.json();
+          if (!res.ok) {{
+            if (data && data.configured === false) {{
+              setLiteLlmStatus("warn", "LiteLLM: not configured");
+            }} else {{
+              setLiteLlmStatus("bad", "LiteLLM: error");
+            }}
+            return;
+          }}
+          if (data.ok) {{
+            setLiteLlmStatus("ok", "LiteLLM: reachable");
+          }} else if (data.configured === false) {{
+            setLiteLlmStatus("warn", "LiteLLM: not configured");
+          }} else {{
+            setLiteLlmStatus("bad", "LiteLLM: unreachable");
+          }}
+        }} catch {{
+          setLiteLlmStatus("bad", "LiteLLM: unreachable");
         }}
       }}
 
@@ -1239,8 +1310,18 @@ HTML = f"""<!doctype html>
       }}
 
       function _providerLabel(providerId) {{
-        return providerId === "ollama" ? "Ollama (Local)"
-          : (providerId === "anthropic" ? "Anthropic" : (providerId === "openai" ? "OpenAI" : providerId));
+        if (providerId === "ollama") return "Ollama (Local)";
+        if (providerId === "anthropic") return "Anthropic";
+        if (providerId === "openai") return "OpenAI";
+        if (providerId === "bedrock_invoke") return "AWS Bedrock";
+        if (providerId === "bedrock_agent") return "AWS Bedrock Agent";
+        if (providerId === "perplexity") return "Perplexity";
+        if (providerId === "xai") return "xAI (Grok)";
+        if (providerId === "gemini") return "Google Gemini";
+        if (providerId === "vertex") return "Google Vertex";
+        if (providerId === "litellm") return "LiteLLM";
+        if (providerId === "azure_foundry") return "Azure AI Foundry";
+        return providerId;
       }}
 
       function makeFlowGraph(entry) {{
@@ -1959,7 +2040,7 @@ HTML = f"""<!doctype html>
         }}
 
         const providerId = providerSelectEl.value || "ollama";
-        const providerLabel = providerId === "ollama" ? "Ollama (Local)" : (providerId === "openai" ? "OpenAI" : "Anthropic");
+        const providerLabel = _providerLabel(providerId);
         const zMode = guardrailsToggleEl.checked
           ? (zscalerProxyModeToggleEl.checked ? "Proxy Mode" : "API/DAS Mode")
           : "OFF";
@@ -2266,6 +2347,8 @@ HTML = f"""<!doctype html>
       providerSelectEl.addEventListener("change", () => {{
         lastSelectedProvider = providerSelectEl.value || "ollama";
         syncZscalerProxyModeState();
+        syncLiteLlmStatusVisibility();
+        refreshLiteLlmStatus();
         renderCodeViewer();
       }});
       zscalerProxyModeToggleEl.addEventListener("change", () => {{
@@ -2329,6 +2412,9 @@ HTML = f"""<!doctype html>
       syncTracePanels();
       refreshMcpStatus();
       mcpStatusTimer = setInterval(refreshMcpStatus, 60000);
+      syncLiteLlmStatusVisibility();
+      refreshLiteLlmStatus();
+      liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
       resetAgentTrace();
       resetFlowGraph();
       renderCodeViewer();
@@ -2873,6 +2959,11 @@ class Handler(BaseHTTPRequestHandler):
                             "ok": True,
                             "source": source,
                             "tool_count": len(tools),
+                            "tool_names": [
+                                str(t.get("name") or "")
+                                for t in (tools or [])
+                                if isinstance(t, dict)
+                            ],
                             "server_info": getattr(client, "server_info", None),
                         }
                     )
@@ -2890,6 +2981,73 @@ class Handler(BaseHTTPRequestHandler):
                         "error": str(exc),
                     },
                     status=503,
+                )
+                return
+        if self.path == "/litellm-status":
+            base_url = os.getenv("LITELLM_BASE_URL", "").strip()
+            api_key = os.getenv("LITELLM_API_KEY", "").strip()
+            if not base_url or not api_key:
+                self._send_json(
+                    {
+                        "ok": False,
+                        "configured": False,
+                        "error": "LITELLM_BASE_URL and/or LITELLM_API_KEY not set",
+                    },
+                    status=200,
+                )
+                return
+            models_url = f"{base_url.rstrip('/')}/models"
+            req = urlrequest.Request(
+                models_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="GET",
+            )
+            try:
+                with urlrequest.urlopen(req, timeout=8) as resp:
+                    body_text = resp.read().decode("utf-8", errors="replace")
+                    parsed: object = {}
+                    if body_text:
+                        try:
+                            parsed = json.loads(body_text)
+                        except Exception:
+                            parsed = body_text[:500]
+                    self._send_json(
+                        {
+                            "ok": 200 <= int(resp.status) < 300,
+                            "configured": True,
+                            "status": int(resp.status),
+                            "url": models_url,
+                            "models_count": len(parsed.get("data") or []) if isinstance(parsed, dict) else None,
+                        },
+                        status=200,
+                    )
+                    return
+            except urlerror.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(
+                    {
+                        "ok": False,
+                        "configured": True,
+                        "status": int(exc.code),
+                        "url": models_url,
+                        "error": "LiteLLM HTTP error",
+                        "details": detail[:500],
+                    },
+                    status=200,
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    {
+                        "ok": False,
+                        "configured": True,
+                        "url": models_url,
+                        "error": str(exc),
+                    },
+                    status=200,
                 )
                 return
         if self.path == "/":
