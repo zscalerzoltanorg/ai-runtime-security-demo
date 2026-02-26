@@ -156,6 +156,35 @@ HTML = f"""<!doctype html>
         white-space: pre-wrap;
         line-height: 1.4;
       }}
+      .conversation {{
+        margin-top: 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        background: #fff;
+        min-height: 120px;
+        max-height: 420px;
+        overflow: auto;
+        display: none;
+      }}
+      .msg {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        white-space: pre-wrap;
+      }}
+      .msg:last-child {{ margin-bottom: 0; }}
+      .msg-user {{ background: #f0fdfa; border-color: #99f6e4; }}
+      .msg-assistant {{ background: #f8fafc; border-color: #e5e7eb; }}
+      .msg-role {{
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 6px;
+      }}
       .error {{ color: #b91c1c; }}
       .sidebar {{
         background: var(--sidebar);
@@ -340,6 +369,11 @@ HTML = f"""<!doctype html>
               <option value="ollama">Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
             </select>
+            <label class="toggle-wrap" for="multiTurnToggle">
+              <input id="multiTurnToggle" type="checkbox" role="switch" aria-label="Toggle multi-turn chat mode" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Multi-turn Chat</span>
+            </label>
             <label class="toggle-wrap" for="guardrailsToggle">
               <input id="guardrailsToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler AI Guard" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -349,6 +383,7 @@ HTML = f"""<!doctype html>
           </div>
 
           <div id="response" class="response">Response will appear here.</div>
+          <div id="conversationView" class="conversation"></div>
         </section>
 
         <aside class="card sidebar">
@@ -382,11 +417,13 @@ HTML = f"""<!doctype html>
       const sendBtn = document.getElementById("sendBtn");
       const promptEl = document.getElementById("prompt");
       const responseEl = document.getElementById("response");
+      const conversationViewEl = document.getElementById("conversationView");
       const statusEl = document.getElementById("status");
       const clearBtn = document.getElementById("clearBtn");
       const logListEl = document.getElementById("logList");
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
       const providerSelectEl = document.getElementById("providerSelect");
+      const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const codeAutoBtn = document.getElementById("codeAutoBtn");
       const codeBeforeBtn = document.getElementById("codeBeforeBtn");
       const codeAfterBtn = document.getElementById("codeAfterBtn");
@@ -397,6 +434,8 @@ HTML = f"""<!doctype html>
       let codeViewMode = "auto";
       let lastSentGuardrailsEnabled = false;
       let lastSelectedProvider = "ollama";
+      let lastChatMode = "single";
+      let conversation = [];
 
       function pretty(obj) {{
         try {{
@@ -413,11 +452,38 @@ HTML = f"""<!doctype html>
           : "Waiting for remote model response...";
       }}
 
+      function currentChatMode() {{
+        return multiTurnToggleEl.checked ? "multi" : "single";
+      }}
+
       function escapeHtml(value) {{
         return String(value)
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;");
+      }}
+
+      function renderConversation() {{
+        if (!conversation.length) {{
+          conversationViewEl.innerHTML = '<div class="msg msg-assistant"><div class="msg-role">Conversation</div>No messages yet. Enable Multi-turn Chat and send a prompt.</div>';
+          return;
+        }}
+        conversationViewEl.innerHTML = conversation.map((m) => {{
+          const role = (m.role || "assistant").toLowerCase();
+          const label = role === "user" ? "User" : "Assistant";
+          const cls = role === "user" ? "msg-user" : "msg-assistant";
+          return `<div class="msg ${{cls}}"><div class="msg-role">${{label}}</div>${{escapeHtml(m.content || "")}}</div>`;
+        }}).join("");
+        conversationViewEl.scrollTop = conversationViewEl.scrollHeight;
+      }}
+
+      function updateChatModeUI() {{
+        const multi = currentChatMode() === "multi";
+        responseEl.style.display = multi ? "none" : "block";
+        conversationViewEl.style.display = multi ? "block" : "none";
+        if (multi) {{
+          renderConversation();
+        }}
       }}
 
       function renderCodeBlock(section) {{
@@ -452,6 +518,7 @@ HTML = f"""<!doctype html>
       function renderCodeViewer() {{
         const mode = effectiveCodeMode();
         const spec = codeSnippets[mode];
+        const chatModeSpec = (codeSnippets.chat_mode || {{}})[currentChatMode()] || {{ sections: [] }};
         if (!spec) {{
           codePanelsEl.innerHTML = "<div class='code-panel'><div class='code-panel-head'><div class='code-panel-title'>No code snippets available</div></div></div>";
           return;
@@ -462,16 +529,21 @@ HTML = f"""<!doctype html>
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
             }} for ${{
               (providerSelectEl.value || "ollama") === "ollama" ? "Ollama (Local)" : "Anthropic"
-            }} (Zscaler AI Guard toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
+            }} in ${{
+              currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
+            }} mode (Zscaler AI Guard toggle is ${{guardrailsToggleEl.checked ? "ON" : "OFF"}})`
           : `Manual mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
-            }} for ${{mode.endsWith("_anthropic") ? "Anthropic" : "Ollama (Local)"}}`;
+            }} for ${{mode.endsWith("_anthropic") ? "Anthropic" : "Ollama (Local)"}} in ${{
+              currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
+            }} mode`;
 
         codeAutoBtn.classList.toggle("secondary", codeViewMode !== "auto");
         codeBeforeBtn.classList.toggle("secondary", codeViewMode !== "before");
         codeAfterBtn.classList.toggle("secondary", codeViewMode !== "after");
 
-        codePanelsEl.innerHTML = (spec.sections || []).map(renderCodeBlock).join("");
+        const allSections = [...(spec.sections || []), ...(chatModeSpec.sections || [])];
+        codePanelsEl.innerHTML = allSections.map(renderCodeBlock).join("");
       }}
 
       function addTrace(entry) {{
@@ -491,9 +563,13 @@ HTML = f"""<!doctype html>
           payload: {{
             prompt: entry.prompt,
             provider: entry.provider || "ollama",
+            chat_mode: entry.chatMode || "single",
             guardrails_enabled: !!entry.guardrailsEnabled
           }}
         }};
+        if (entry.chatMode === "multi" && Array.isArray(entry.messages)) {{
+          clientReq.payload.messages = entry.messages;
+        }}
         const responseBodyForDisplay = entry.body && typeof entry.body === "object"
           ? JSON.parse(JSON.stringify(entry.body))
           : entry.body;
@@ -577,7 +653,11 @@ HTML = f"""<!doctype html>
         statusEl.textContent = "Idle";
         lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
         lastSelectedProvider = providerSelectEl.value || "ollama";
+        lastChatMode = currentChatMode();
+        conversation = [];
         resetTrace();
+        renderConversation();
+        updateChatModeUI();
         renderCodeViewer();
       }}
 
@@ -597,13 +677,23 @@ HTML = f"""<!doctype html>
         try {{
           lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
           lastSelectedProvider = providerSelectEl.value || "ollama";
+          lastChatMode = currentChatMode();
           renderCodeViewer();
+          const multi = currentChatMode() === "multi";
+          const pendingMessages = multi
+            ? [...conversation, {{ role: "user", content: prompt }}]
+            : null;
+          if (multi) {{
+            renderConversation();
+          }}
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{
               prompt,
               provider: providerSelectEl.value,
+              chat_mode: currentChatMode(),
+              messages: pendingMessages || undefined,
               guardrails_enabled: guardrailsToggleEl.checked
             }})
           }});
@@ -611,6 +701,8 @@ HTML = f"""<!doctype html>
           addTrace({{
             prompt,
             provider: providerSelectEl.value,
+            chatMode: currentChatMode(),
+            messages: pendingMessages,
             guardrailsEnabled: guardrailsToggleEl.checked,
             status: res.status,
             body: data
@@ -618,13 +710,25 @@ HTML = f"""<!doctype html>
           if (!res.ok) {{
             throw new Error(data.error || "Request failed");
           }}
-          responseEl.textContent = data.response || "(Empty response)";
+          if (multi) {{
+            if (Array.isArray(data.conversation)) {{
+              conversation = data.conversation;
+            }} else {{
+              conversation = [...(pendingMessages || []), {{ role: "assistant", content: data.response || "(Empty response)" }}];
+            }}
+            promptEl.value = "";
+            renderConversation();
+          }} else {{
+            responseEl.textContent = data.response || "(Empty response)";
+          }}
           statusEl.textContent = "Done";
+          updateChatModeUI();
           renderCodeViewer();
         }} catch (err) {{
           responseEl.textContent = err.message || String(err);
           responseEl.classList.add("error");
           statusEl.textContent = "Error";
+          updateChatModeUI();
           renderCodeViewer();
         }} finally {{
           sendBtn.disabled = false;
@@ -640,6 +744,11 @@ HTML = f"""<!doctype html>
       }});
       providerSelectEl.addEventListener("change", () => {{
         lastSelectedProvider = providerSelectEl.value || "ollama";
+        renderCodeViewer();
+      }});
+      multiTurnToggleEl.addEventListener("change", () => {{
+        lastChatMode = currentChatMode();
+        updateChatModeUI();
         renderCodeViewer();
       }});
       codeAutoBtn.addEventListener("click", () => {{
@@ -659,6 +768,8 @@ HTML = f"""<!doctype html>
           sendPrompt();
         }}
       }});
+      renderConversation();
+      updateChatModeUI();
       renderCodeViewer();
     </script>
   </body>
@@ -820,11 +931,75 @@ text, meta = providers.call_provider(
             },
         ]
     },
+    "chat_mode": {
+        "single": {
+            "sections": [
+                {
+                    "title": "app.py: Single-turn Mode Request Shape",
+                    "file": "app.py",
+                    "code": """# Client sends one prompt per request
+{
+  \"prompt\": prompt,
+  \"provider\": selectedProvider,
+  \"chat_mode\": \"single\",
+  \"guardrails_enabled\": toggleState
+}
+
+# Server builds one-message context:
+messages_for_provider = [{\"role\": \"user\", \"content\": prompt}]""",
+                }
+            ]
+        },
+        "multi": {
+            "sections": [
+                {
+                    "title": "app.py: Multi-turn Mode (Provider-Agnostic Conversation State)",
+                    "file": "app.py",
+                    "code": """# Browser keeps conversation state (in-memory UI state)
+pendingMessages = [...conversation, {\"role\": \"user\", \"content\": prompt}]
+
+# Request includes normalized message history
+{
+  \"prompt\": prompt,           # latest user turn (for guardrails IN)
+  \"provider\": selectedProvider,
+  \"chat_mode\": \"multi\",
+  \"messages\": pendingMessages,
+  \"guardrails_enabled\": toggleState
+}""",
+                },
+                {
+                    "title": "app.py / providers.py: Multi-turn Provider Dispatch",
+                    "file": "app.py + providers.py",
+                    "code": """# app.py routes by provider without provider-specific UI logic
+text, meta = providers.call_provider_messages(provider_id, messages_for_provider, ...)
+
+# providers.py implements per-provider message formatting:
+# - Ollama (Local): /api/chat with messages[]
+# - Anthropic SDK: messages.create(messages=[...])
+# Future providers (Bedrock, LiteLLM proxy, etc.) can plug into the same interface.""",
+                },
+            ]
+        },
+    },
 }
 
 
 def _script_safe_json(value: object) -> str:
     return json.dumps(value).replace("</", "<\\/")
+
+
+def _normalize_client_messages(messages: object) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    if not isinstance(messages, list):
+        return normalized
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("role") or "").strip().lower()
+        content = str(msg.get("content") or "")
+        if role in {"user", "assistant"}:
+            normalized.append({"role": role, "content": content})
+    return normalized
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -868,19 +1043,31 @@ class Handler(BaseHTTPRequestHandler):
 
         prompt = (data.get("prompt") or "").strip()
         provider_id = (data.get("provider") or "ollama").strip().lower()
+        chat_mode = "multi" if str(data.get("chat_mode") or "").lower() == "multi" else "single"
         guardrails_enabled = bool(data.get("guardrails_enabled"))
         if not prompt:
             self._send_json({"error": "Prompt is required."}, status=400)
             return
+
+        if chat_mode == "multi":
+            messages_for_provider = _normalize_client_messages(data.get("messages"))
+            if (
+                not messages_for_provider
+                or messages_for_provider[-1].get("role") != "user"
+                or messages_for_provider[-1].get("content") != prompt
+            ):
+                messages_for_provider.append({"role": "user", "content": prompt})
+        else:
+            messages_for_provider = [{"role": "user", "content": prompt}]
 
         if guardrails_enabled:
             try:
                 import guardrails
                 payload, status = guardrails.guarded_chat(
                     prompt=prompt,
-                    llm_call=lambda p: providers.call_provider(
+                    llm_call=lambda p: providers.call_provider_messages(
                         provider_id,
-                        p,
+                        messages_for_provider,
                         ollama_url=OLLAMA_URL,
                         ollama_model=OLLAMA_MODEL,
                         anthropic_model=ANTHROPIC_MODEL,
@@ -896,12 +1083,16 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            if chat_mode == "multi" and status == 200 and payload.get("response"):
+                payload["conversation"] = messages_for_provider + [
+                    {"role": "assistant", "content": str(payload.get("response") or "")}
+                ]
             self._send_json(payload, status=status)
             return
 
-        text, meta = providers.call_provider(
+        text, meta = providers.call_provider_messages(
             provider_id,
-            prompt,
+            messages_for_provider,
             ollama_url=OLLAMA_URL,
             ollama_model=OLLAMA_MODEL,
             anthropic_model=ANTHROPIC_MODEL,
@@ -917,7 +1108,12 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_json({"response": text, "trace": {"steps": [meta["trace_step"]]}})
+        payload = {"response": text, "trace": {"steps": [meta["trace_step"]]}}
+        if chat_mode == "multi":
+            payload["conversation"] = messages_for_provider + [
+                {"role": "assistant", "content": str(text or "")}
+            ]
+        self._send_json(payload)
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return

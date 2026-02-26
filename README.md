@@ -6,6 +6,7 @@ Very small demo app for local testing and live demos.
 
 - Local web chat UI (`python app.py`)
 - Multi-provider LLM selector (`Ollama (Local)` default, plus `Anthropic`)
+- Single-turn / Multi-turn chat mode toggle (provider-agnostic)
 - Optional Zscaler AI Guard checks with a UI toggle (`Guardrails` ON/OFF)
 - HTTP trace sidebar showing request/response payloads (including upstream calls)
 - Code Path Viewer (before/after guardrails, auto follows toggle/provider)
@@ -65,6 +66,9 @@ Notes:
 - `Send`: submits prompt to `/chat`
 - `Clear`: clears prompt, response, status, HTTP trace, and code path viewer state (but keeps the selected LLM provider)
 - `LLM` dropdown: choose `Ollama (Local)` or `Anthropic`
+- `Multi-turn Chat` toggle:
+  - OFF (default): single-turn prompt/response
+  - ON: chat transcript mode with conversation history sent to the selected provider
 - `Zscaler AI Guard` toggle (default OFF): enables/disables Zscaler AI Guard flow per request
 - `HTTP Trace` panel:
   - Client request to `/chat`
@@ -72,7 +76,7 @@ Notes:
   - Upstream calls (selected provider and, when enabled, Zscaler AI Guard IN/OUT checks)
 - `Code Path Viewer`:
   - Shows provider-aware before/after code paths
-  - Auto mode follows selected provider and Zscaler AI Guard toggle state
+  - Auto mode follows selected provider, chat mode, and Zscaler AI Guard toggle state
 
 ## App Name (optional)
 
@@ -93,6 +97,12 @@ The app includes a `Zscaler AI Guard` toggle (default: OFF). When enabled, each 
 3. Zscaler AI Guard `OUT` check (response)
 
 If Zscaler blocks the prompt or response, the app returns a blocked message.
+
+In multi-turn mode, the guardrails flow remains the same but is applied per turn:
+
+1. `IN` check on the latest user message
+2. Selected provider is called with conversation history (`messages`)
+3. `OUT` check on the generated assistant response
 
 This demo app is configured to use the Zscaler Resolve Policy endpoint (not a specific Policy ID in the request payload):
 
