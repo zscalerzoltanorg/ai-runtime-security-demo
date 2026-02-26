@@ -555,12 +555,12 @@ HTML = f"""<!doctype html>
               <span id="mcpStatusDot" class="status-dot" aria-hidden="true"></span>
               <span id="mcpStatusText">MCP: checking...</span>
             </span>
-            <label class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
+            <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
               <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Agentic Mode</span>
             </label>
-            <label class="toggle-wrap" for="multiAgentToggle" title="Orchestrator + specialist agents (researcher, reviewer, finalizer). Uses the selected provider and optional tools.">
+            <label id="multiAgentToggleWrap" class="toggle-wrap" for="multiAgentToggle" title="Orchestrator + specialist agents (researcher, reviewer, finalizer). Uses the selected provider and optional tools.">
               <input id="multiAgentToggle" type="checkbox" role="switch" aria-label="Toggle multi-agent mode" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Multi-Agent Mode</span>
@@ -679,7 +679,9 @@ HTML = f"""<!doctype html>
       const toolsToggleEl = document.getElementById("toolsToggle");
       const mcpStatusDotEl = document.getElementById("mcpStatusDot");
       const mcpStatusTextEl = document.getElementById("mcpStatusText");
+      const agenticToggleWrapEl = document.getElementById("agenticToggleWrap");
       const agenticToggleEl = document.getElementById("agenticToggle");
+      const multiAgentToggleWrapEl = document.getElementById("multiAgentToggleWrap");
       const multiAgentToggleEl = document.getElementById("multiAgentToggle");
       const codeAutoBtn = document.getElementById("codeAutoBtn");
       const codeBeforeBtn = document.getElementById("codeBeforeBtn");
@@ -749,6 +751,26 @@ HTML = f"""<!doctype html>
         if (!toolsEligible) {{
           toolsToggleEl.checked = false;
         }}
+      }}
+
+      function syncAgentModeExclusivityState() {{
+        const agenticOn = !!agenticToggleEl.checked;
+        const multiAgentOn = !!multiAgentToggleEl.checked;
+
+        const disableMultiAgent = agenticOn;
+        const disableAgentic = multiAgentOn;
+
+        multiAgentToggleEl.disabled = disableMultiAgent;
+        multiAgentToggleWrapEl.classList.toggle("disabled", disableMultiAgent);
+        multiAgentToggleWrapEl.title = disableMultiAgent
+          ? "Disable Agentic Mode to enable Multi-Agent Mode."
+          : "Orchestrator + specialist agents (researcher, reviewer, finalizer). Uses the selected provider and optional tools.";
+
+        agenticToggleEl.disabled = disableAgentic;
+        agenticToggleWrapEl.classList.toggle("disabled", disableAgentic);
+        agenticToggleWrapEl.title = disableAgentic
+          ? "Disable Multi-Agent Mode to enable Agentic Mode."
+          : "Single-agent multi-step loop that can call tools and then finalize a response.";
       }}
 
       function syncZscalerProxyModeState() {{
@@ -1295,6 +1317,7 @@ HTML = f"""<!doctype html>
         if (agenticToggleEl.checked) {{
           multiAgentToggleEl.checked = false;
         }}
+        syncAgentModeExclusivityState();
         syncToolsToggleState();
         if (!agenticToggleEl.checked && !multiAgentToggleEl.checked) {{
           resetAgentTrace();
@@ -1304,6 +1327,7 @@ HTML = f"""<!doctype html>
         if (multiAgentToggleEl.checked) {{
           agenticToggleEl.checked = false;
         }}
+        syncAgentModeExclusivityState();
         syncToolsToggleState();
         if (!multiAgentToggleEl.checked && !agenticToggleEl.checked) {{
           resetAgentTrace();
@@ -1329,6 +1353,7 @@ HTML = f"""<!doctype html>
       renderPresetCatalog();
       renderConversation();
       updateChatModeUI();
+      syncAgentModeExclusivityState();
       syncToolsToggleState();
       syncZscalerProxyModeState();
       setHttpTraceCount(0);
