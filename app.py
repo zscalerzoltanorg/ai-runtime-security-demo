@@ -1786,6 +1786,66 @@ HTML = f"""<!doctype html>
         return meta;
       }}
 
+      function _safeUrlForParsing(value) {{
+        const raw = String(value || "").trim();
+        if (!raw) return "";
+        const cutIdx = raw.search(/[\\s(]/);
+        return cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
+      }}
+
+      function _portForUrl(u) {{
+        if (!u) return "";
+        if (u.port) return u.port;
+        if (u.protocol === "https:") return "443";
+        if (u.protocol === "http:") return "80";
+        if (u.protocol === "ws:") return "80";
+        if (u.protocol === "wss:") return "443";
+        return "";
+      }}
+
+      function _transportMetaFromUrl(urlLike, fallback = {{}}) {{
+        const urlText = _safeUrlForParsing(urlLike);
+        if (!urlText) {{
+          return {{
+            "Transport Type": fallback.transportType || "Not visible to client",
+            ...(fallback.note ? {{ "Transport Note": fallback.note }} : {{}})
+          }};
+        }}
+        try {{
+          const u = new URL(urlText);
+          const isHttpish = ["http:", "https:", "ws:", "wss:"].includes(u.protocol);
+          const scheme = u.protocol.replace(":", "").toUpperCase();
+          const port = _portForUrl(u);
+          const meta = {{
+            "Transport Type": isHttpish
+              ? `${{scheme}} (app-visible URL)`
+              : `${{scheme}} (app-visible URL)`,
+            "Protocol / Scheme": scheme,
+            "Host": u.hostname || "",
+            "Port": port || "",
+          }};
+          if (isHttpish) {{
+            meta["Traffic Class"] = (u.protocol === "ws:" || u.protocol === "wss:")
+              ? "WebSocket (inferred from URL scheme)"
+              : "HTTP(S) JSON/API (inferred from traced URL)";
+            meta["HTTP Wire Version"] = "Not exposed to app trace (could be HTTP/1.1 or HTTP/2)";
+          }}
+          if (u.pathname) {{
+            meta["Path"] = u.pathname;
+          }}
+          if (fallback.note) {{
+            meta["Transport Note"] = fallback.note;
+          }}
+          return meta;
+        }} catch {{
+          return {{
+            "Transport Type": fallback.transportType || "Not parseable from trace",
+            ...(urlText ? {{ "URL (raw)": urlText }} : {{}}),
+            ...(fallback.note ? {{ "Transport Note": fallback.note }} : {{}})
+          }};
+        }}
+      }}
+
       function makeFlowGraph(entry) {{
         const nodes = [];
         const edges = [];
@@ -1841,11 +1901,17 @@ HTML = f"""<!doctype html>
           "Agentic": !!entry.agenticEnabled,
           "Multi-Agent": !!entry.multiAgentEnabled,
           "Tools": !!entry.toolsEnabled,
+          ..._transportMetaFromUrl(`${{window.location.origin}}/chat`, {{
+            note: "Browser -> local demo app request"
+          }}),
         }});
         addNode("app", "Demo App /chat", "app", 1, 2, {{
           "Status": entry.status,
           "Conversation ID": entry.conversationId || "",
           "Response Preview": _short(body.response || body.error || ""),
+          ..._transportMetaFromUrl(`${{window.location.origin}}/chat`, {{
+            note: "Local web app server endpoint handling /chat"
+          }}),
         }});
         addEdge("client", "app", "request", {{ style: "solid" }});
 
@@ -1863,6 +1929,9 @@ HTML = f"""<!doctype html>
               "Policy": respBody.policyName || "",
               "Policy ID": respBody.policyId || "",
               "Severity": respBody.severity || "",
+              ..._transportMetaFromUrl((step.request || {{}}).url || "", {{
+                note: "DAS/API mode side-call from app to Zscaler AI Guard"
+              }}),
             }});
             addEdge("app", "aiguard_in", "request");
             addEdge("aiguard_in", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "IN" }});
@@ -1874,6 +1943,9 @@ HTML = f"""<!doctype html>
             "Mode": "Proxy",
             "Base URL": String(guardrails.proxy_base_url || ""),
             "Provider": providerLabel,
+            ..._transportMetaFromUrl(String(guardrails.proxy_base_url || ""), {{
+              note: "Proxy mode inline hop between app and provider"
+            }}),
           }});
           addEdge(currentNodeId, "aiguard_proxy", "request");
           currentNodeId = "aiguard_proxy";
@@ -1886,26 +1958,34 @@ HTML = f"""<!doctype html>
             "Role": "Planner",
             "What it does": "Creates the multi-agent plan and routes work to specialist agents.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
-            "Tool execution": "No direct tool execution (delegates to researcher)"
+            "Tool execution": "No direct tool execution (delegates to researcher)",
+            "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
+            "Network Protocol": "Not applicable (in-process orchestration)"
           }});
           addNode("researcher", "Researcher", "agent", nextCol + 1, 0, {{
             "Role": "Research / tools",
             "Uses Tools": !!pipelineStart.tools_enabled,
             "What it does": "Gathers information, can call tools/MCP when enabled, then returns findings.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
-            "Tool execution": pipelineStart.tools_enabled ? "Yes (tool/MCP calls may happen here)" : "No (tools disabled)"
+            "Tool execution": pipelineStart.tools_enabled ? "Yes (tool/MCP calls may happen here)" : "No (tools disabled)",
+            "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
+            "Network Protocol": "Not applicable (in-process orchestration)"
           }});
-          addNode("reviewer", "Reviewer", "agent", nextCol + 2, 2, {{
+          addNode("reviewer", "Reviewer", "agent", nextCol + 2, 1, {{
             "Role": "Quality/risk review",
             "What it does": "Reviews the researcher output for clarity, gaps, and issues before final response.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
-            "Tool execution": "Typically no"
+            "Tool execution": "Typically no",
+            "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
+            "Network Protocol": "Not applicable (in-process orchestration)"
           }});
-          addNode("finalizer", "Finalizer", "agent", nextCol + 3, 3, {{
+          addNode("finalizer", "Finalizer", "agent", nextCol + 3, 0, {{
             "Role": "User-facing answer",
             "What it does": "Produces the final response shown in chat using prior agent outputs.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
-            "Tool execution": "Typically no"
+            "Tool execution": "Typically no",
+            "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
+            "Network Protocol": "Not applicable (in-process orchestration)"
           }});
           addEdge(currentNodeId, "orchestrator", "request");
           addEdge("orchestrator", "researcher", "request");
@@ -1923,7 +2003,9 @@ HTML = f"""<!doctype html>
             "Steps": agentTrace.length || 0,
             "What it does": "Single agent plans, optionally calls tools/MCP, and then finalizes the answer.",
             "LLM calls": "Yes (multiple provider calls possible)",
-            "Tool execution": entry.toolsEnabled ? "Allowed when model requests it" : "Disabled"
+            "Tool execution": entry.toolsEnabled ? "Allowed when model requests it" : "Disabled",
+            "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
+            "Network Protocol": "Not applicable (in-process orchestration)"
           }});
           addEdge(currentNodeId, "agent", "request");
           currentNodeId = "agent";
@@ -1936,6 +2018,9 @@ HTML = f"""<!doctype html>
           "URL": ((providerStep.request || {{}}).url || ""),
           "Model": (((providerStep.request || {{}}).payload || {{}}).model || ""),
           "Status": ((providerStep.response || {{}}).status ?? ""),
+          ..._transportMetaFromUrl(((providerStep.request || {{}}).url || ""), {{
+            note: "Provider request as observed by the demo app trace"
+          }}),
           ..._extractGatewayDownstreamMeta(providerId, providerStep),
         }} : {{
           "Provider": providerLabel,
@@ -1957,6 +2042,10 @@ HTML = f"""<!doctype html>
             "Server": (toolsListEvent.server_info || {{}}).name || "bundled/local",
             "Tool Count": toolsListEvent.tool_count ?? "",
             "Event": toolsListEvent.event || "",
+            "Transport Type": "MCP over stdio (local process)",
+            "Traffic Class": "Local IPC / stdio (not HTTP)",
+            "Port": "N/A",
+            "Protocol / Scheme": "stdio",
           }});
           addEdge(toolAnchor, "mcp", "request");
           addEdge("mcp", toolAnchor, "response");
@@ -1977,6 +2066,20 @@ HTML = f"""<!doctype html>
             "Input": _jsonPreview(item.input),
             "Output": outputPreview,
             "Source": ((item.tool_trace || {{}}).source || "local"),
+            ...(() => {{
+              const tReq = ((item.tool_trace || {{}}).request || {{}}).url || "";
+              if (tReq) {{
+                return _transportMetaFromUrl(tReq, {{
+                  note: "Tool network call (if the tool made an HTTP request)"
+                }});
+              }}
+              return {{
+                "Transport Type": "Local function execution",
+                "Traffic Class": "In-process tool call",
+                "Port": "N/A",
+                "Protocol / Scheme": "N/A",
+              }};
+            }})(),
           }});
           const sourceNode = mcpEvents.length ? "mcp" : toolAnchor;
           addEdge(sourceNode, id, "request");
@@ -1998,6 +2101,9 @@ HTML = f"""<!doctype html>
             "Policy": respBody.policyName || "",
             "Policy ID": respBody.policyId || "",
             "Severity": respBody.severity || "",
+            ..._transportMetaFromUrl((step.request || {{}}).url || "", {{
+              note: "DAS/API mode side-call from app to Zscaler AI Guard"
+            }}),
           }});
           addEdge("app", "aiguard_out", "request");
           addEdge("aiguard_out", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
