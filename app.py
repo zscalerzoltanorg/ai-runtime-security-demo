@@ -91,12 +91,131 @@ HTML = f"""<!doctype html>
         font: inherit;
         background: #fff;
       }}
+      .chat-meta-row {{
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }}
+      .chat-meta-info {{
+        display: grid;
+        gap: 6px;
+        min-width: 260px;
+      }}
+      .meta-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        background: #fff;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.82rem;
+        color: var(--muted);
+        width: fit-content;
+        max-width: 100%;
+      }}
+      .meta-pill-label {{
+        font-weight: 700;
+        color: #334155;
+        white-space: nowrap;
+      }}
+      .meta-pill-value {{
+        color: var(--ink);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: min(56vw, 560px);
+      }}
+      .chat-meta-controls {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }}
+      .provider-select {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 10px;
+        background: #fff;
+        font: inherit;
+      }}
+      .toggle-sections {{
+        display: grid;
+        gap: 10px;
+        margin-bottom: 12px;
+      }}
+      .toggle-section {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #fff;
+        padding: 10px 12px;
+      }}
+      .toggle-section-title {{
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 8px;
+      }}
+      .toggle-section-body {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
       .actions {{
         display: flex;
         gap: 10px;
         align-items: center;
         margin-top: 12px;
         flex-wrap: wrap;
+      }}
+      .composer-shell {{
+        margin-top: 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #fff;
+        padding: 10px;
+      }}
+      .composer-shell textarea {{
+        min-height: 90px;
+        height: 90px;
+        max-height: 140px;
+        resize: none;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        background: #fcfcfd;
+        margin: 0;
+      }}
+      .composer-actions {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }}
+      .composer-actions-left {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }}
+      .composer-actions-right {{
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
+      .composer-hint {{
+        color: var(--muted);
+        font-size: 0.78rem;
       }}
       .preset-panel {{
         margin-top: 12px;
@@ -272,16 +391,63 @@ HTML = f"""<!doctype html>
         overflow: auto;
         display: none;
       }}
+      .chat-transcript {{
+        display: block;
+        margin-top: 0;
+        min-height: 340px;
+        height: 340px;
+        max-height: 340px;
+        background: linear-gradient(180deg, #ffffff 0%, #fafaf9 100%);
+      }}
       .msg {{
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 10px 12px;
         margin-bottom: 10px;
         white-space: pre-wrap;
+        max-width: 88%;
+        width: fit-content;
       }}
       .msg:last-child {{ margin-bottom: 0; }}
-      .msg-user {{ background: #f0fdfa; border-color: #99f6e4; }}
-      .msg-assistant {{ background: #f8fafc; border-color: #e5e7eb; }}
+      .msg-user {{
+        background: #f0fdfa;
+        border-color: #99f6e4;
+        margin-left: auto;
+        margin-right: 0;
+      }}
+      .msg-assistant {{
+        background: #f8fafc;
+        border-color: #e5e7eb;
+        margin-right: auto;
+        margin-left: 0;
+      }}
+      .msg-pending {{
+        border-style: dashed;
+        border-color: #cbd5e1;
+        background: #f8fafc;
+      }}
+      .msg-body {{
+        white-space: pre-wrap;
+      }}
+      .thinking-row {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }}
+      .thinking-dot {{
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #64748b;
+        opacity: 0.25;
+        animation: thinking-pulse 1.1s infinite ease-in-out;
+      }}
+      .thinking-dot:nth-child(2) {{ animation-delay: 0.15s; }}
+      .thinking-dot:nth-child(3) {{ animation-delay: 0.3s; }}
+      @keyframes thinking-pulse {{
+        0%, 80%, 100% {{ opacity: 0.2; transform: translateY(0); }}
+        40% {{ opacity: 0.9; transform: translateY(-1px); }}
+      }}
       .msg-role {{
         font-size: 0.75rem;
         font-weight: 700;
@@ -589,6 +755,10 @@ HTML = f"""<!doctype html>
         .flow-edge {{
           animation: none !important;
         }}
+        .thinking-dot {{
+          animation: none !important;
+          opacity: 0.7;
+        }}
       }}
       .flow-node {{
         cursor: grab;
@@ -708,6 +878,14 @@ HTML = f"""<!doctype html>
           width: min(98vw, 900px);
           margin: 14px auto;
         }}
+        .chat-meta-controls {{
+          justify-content: flex-start;
+        }}
+        .chat-transcript {{
+          height: 300px;
+          min-height: 300px;
+          max-height: 300px;
+        }}
       }}
     </style>
   </head>
@@ -716,17 +894,16 @@ HTML = f"""<!doctype html>
       <div class="layout">
         <section class="card">
           <h1>{APP_DEMO_NAME}</h1>
-          <p class="sub">Local default: <strong>{OLLAMA_MODEL}</strong> (Ollama). Anthropic env model: <strong>{ANTHROPIC_MODEL}</strong>. OpenAI env model: <strong>{OPENAI_MODEL}</strong></p>
-
-          <label for="prompt" class="sub">Prompt</label>
-          <textarea id="prompt" placeholder="Type a prompt, then click Send..."></textarea>
-
-          <div class="actions">
-            <button id="sendBtn" type="button">Send</button>
-            <button id="clearBtn" type="button">Clear</button>
-            <button id="presetToggleBtn" class="secondary" type="button" title="Show curated demo prompts for guardrails, agentic mode, and tools">Prompt Presets</button>
-            <label class="status" for="providerSelect">LLM</label>
-            <select id="providerSelect" style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;font:inherit;">
+          <div class="chat-meta-row">
+            <div class="chat-meta-info">
+              <div class="meta-pill">
+                <span class="meta-pill-label">Current Model</span>
+                <span id="currentModelText" class="meta-pill-value">...</span>
+              </div>
+            </div>
+            <div class="chat-meta-controls">
+              <label class="status" for="providerSelect">LLM</label>
+              <select id="providerSelect" class="provider-select">
               <option value="anthropic">Anthropic</option>
               <option value="azure_foundry">Azure AI Foundry</option>
               <option value="bedrock_invoke">AWS Bedrock</option>
@@ -738,20 +915,31 @@ HTML = f"""<!doctype html>
               <option value="openai">OpenAI</option>
               <option value="perplexity">Perplexity</option>
               <option value="xai">xAI (Grok)</option>
-            </select>
+              </select>
+              <span id="mcpStatusPill" class="status-pill" title="MCP server status (auto-refreshes every minute)">
+                <span id="mcpStatusDot" class="status-dot" aria-hidden="true"></span>
+                <span id="mcpStatusText">MCP: checking...</span>
+              </span>
+              <span id="ollamaStatusPill" class="status-pill" style="display:none;" title="Ollama runtime status (checks only when Ollama provider is selected)">
+                <span id="ollamaStatusDot" class="status-dot" aria-hidden="true"></span>
+                <span id="ollamaStatusText">Ollama: hidden</span>
+              </span>
+              <span id="liteLlmStatusPill" class="status-pill" style="display:none;" title="LiteLLM gateway status (checks only when LiteLLM provider is selected)">
+                <span id="liteLlmStatusDot" class="status-dot" aria-hidden="true"></span>
+                <span id="liteLlmStatusText">LiteLLM: hidden</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="toggle-sections">
+            <div class="toggle-section">
+              <div class="toggle-section-title">Execution</div>
+              <div class="toggle-section-body">
             <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP).">
               <input id="toolsToggle" type="checkbox" role="switch" aria-label="Toggle tools runtime (MCP planned)" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Tools (MCP)</span>
             </label>
-            <span id="mcpStatusPill" class="status-pill" title="MCP server status (auto-refreshes every minute)">
-              <span id="mcpStatusDot" class="status-dot" aria-hidden="true"></span>
-              <span id="mcpStatusText">MCP: checking...</span>
-            </span>
-            <span id="liteLlmStatusPill" class="status-pill" style="display:none;" title="LiteLLM gateway status (checks only when LiteLLM provider is selected)">
-              <span id="liteLlmStatusDot" class="status-dot" aria-hidden="true"></span>
-              <span id="liteLlmStatusText">LiteLLM: hidden</span>
-            </span>
             <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
               <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -767,6 +955,12 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Multi-turn Chat</span>
             </label>
+              </div>
+            </div>
+
+            <div class="toggle-section">
+              <div class="toggle-section-title">Security</div>
+              <div class="toggle-section-body">
             <label class="toggle-wrap" for="guardrailsToggle">
               <input id="guardrailsToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler AI Guard" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -778,15 +972,33 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Proxy Mode</span>
             </label>
-            <span id="status" class="status">Idle</span>
+                <span id="status" class="status">Idle</span>
+              </div>
+            </div>
           </div>
+
+          <div id="conversationView" class="conversation chat-transcript"></div>
+
+          <div id="response" class="response" style="display:none;">Response will appear here.</div>
+
+          <div class="composer-shell">
+            <textarea id="prompt" placeholder="Type a prompt... (Enter to send, Shift+Enter for a new line)"></textarea>
+            <div class="composer-actions">
+              <div class="composer-actions-left">
+                <button id="sendBtn" type="button">Send</button>
+                <button id="clearBtn" type="button">Clear</button>
+                <button id="presetToggleBtn" class="secondary" type="button" title="Show curated demo prompts for guardrails, agentic mode, and tools">Prompt Presets</button>
+              </div>
+              <div class="composer-actions-right">
+                <span class="composer-hint">Enter to send · Shift+Enter for newline</span>
+              </div>
+            </div>
+          </div>
+
           <div id="presetPanel" class="preset-panel" aria-live="polite">
             <div id="presetGroups" class="preset-groups"></div>
             <div class="preset-note">Click a preset to fill the prompt box. Presets do not auto-send and do not change toggles.</div>
           </div>
-
-          <div id="response" class="response">Response will appear here.</div>
-          <div id="conversationView" class="conversation"></div>
         </section>
 
         <div class="right-stack">
@@ -899,12 +1111,16 @@ HTML = f"""<!doctype html>
       const zscalerProxyModeWrapEl = document.getElementById("zscalerProxyModeWrap");
       const zscalerProxyModeToggleEl = document.getElementById("zscalerProxyModeToggle");
       const providerSelectEl = document.getElementById("providerSelect");
+      const currentModelTextEl = document.getElementById("currentModelText");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
       const mcpStatusPillEl = document.getElementById("mcpStatusPill");
       const mcpStatusDotEl = document.getElementById("mcpStatusDot");
       const mcpStatusTextEl = document.getElementById("mcpStatusText");
+      const ollamaStatusPillEl = document.getElementById("ollamaStatusPill");
+      const ollamaStatusDotEl = document.getElementById("ollamaStatusDot");
+      const ollamaStatusTextEl = document.getElementById("ollamaStatusText");
       const liteLlmStatusPillEl = document.getElementById("liteLlmStatusPill");
       const liteLlmStatusDotEl = document.getElementById("liteLlmStatusDot");
       const liteLlmStatusTextEl = document.getElementById("liteLlmStatusText");
@@ -942,11 +1158,29 @@ HTML = f"""<!doctype html>
         ? window.crypto.randomUUID()
         : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
       let mcpStatusTimer = null;
+      let ollamaStatusTimer = null;
       let liteLlmStatusTimer = null;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
       let flowGraphState = null;
       let flowGraphDragState = null;
+      let thinkingTimer = null;
+      let thinkingStartedAt = 0;
+      let pendingAssistantText = "";
+      let pendingAssistantElapsed = 0;
+      const providerModelMap = {{
+        anthropic: "{providers.DEFAULT_ANTHROPIC_MODEL}",
+        azure_foundry: "{providers.DEFAULT_AZURE_AI_FOUNDRY_MODEL}",
+        bedrock_invoke: "{providers.DEFAULT_BEDROCK_INVOKE_MODEL}",
+        bedrock_agent: "Bedrock Agent (agent + alias config)",
+        gemini: "{providers.DEFAULT_GEMINI_MODEL}",
+        vertex: "{providers.DEFAULT_VERTEX_MODEL}",
+        litellm: "{providers.DEFAULT_LITELLM_MODEL}",
+        ollama: "{OLLAMA_MODEL}",
+        openai: "{OPENAI_MODEL}",
+        perplexity: "{providers.DEFAULT_PERPLEXITY_MODEL}",
+        xai: "{providers.DEFAULT_XAI_MODEL}"
+      }};
 
       function pretty(obj) {{
         try {{
@@ -980,6 +1214,13 @@ HTML = f"""<!doctype html>
 
       function currentChatMode() {{
         return multiTurnToggleEl.checked ? "multi" : "single";
+      }}
+
+      function refreshCurrentModelText() {{
+        const providerId = (providerSelectEl.value || "ollama").toLowerCase();
+        const value = providerModelMap[providerId] || "(provider-managed)";
+        currentModelTextEl.textContent = value;
+        currentModelTextEl.title = value;
       }}
 
       function syncToolsToggleState() {{
@@ -1049,6 +1290,14 @@ HTML = f"""<!doctype html>
         liteLlmStatusTextEl.textContent = text;
       }}
 
+      function setOllamaStatus(kind, text) {{
+        ollamaStatusDotEl.classList.remove("ok", "bad", "warn");
+        if (kind) {{
+          ollamaStatusDotEl.classList.add(kind);
+        }}
+        ollamaStatusTextEl.textContent = text;
+      }}
+
       function syncTracePanels() {{
         httpTraceContentEl.classList.toggle("open", !!httpTraceExpanded);
         agentTraceContentEl.classList.toggle("open", !!agentTraceExpanded);
@@ -1107,6 +1356,40 @@ HTML = f"""<!doctype html>
           setLiteLlmStatus("", "LiteLLM: hidden");
         }}
         return isLiteLlm;
+      }}
+
+      function syncOllamaStatusVisibility() {{
+        const isOllama = (providerSelectEl.value || "").toLowerCase() === "ollama";
+        ollamaStatusPillEl.style.display = isOllama ? "inline-flex" : "none";
+        if (!isOllama) {{
+          setOllamaStatus("", "Ollama: hidden");
+          ollamaStatusPillEl.title = "Ollama runtime status (checks only when Ollama provider is selected)";
+        }}
+        return isOllama;
+      }}
+
+      async function refreshOllamaStatus() {{
+        if (!syncOllamaStatusVisibility()) return;
+        try {{
+          const res = await fetch("/ollama-status");
+          const data = await res.json();
+          if (!res.ok) {{
+            setOllamaStatus("bad", "Ollama: error");
+            return;
+          }}
+          if (data.ok) {{
+            setOllamaStatus("ok", "Ollama: reachable");
+            ollamaStatusPillEl.title = (typeof data.models_count === "number")
+              ? `Ollama runtime status\\n\\nModels loaded/available: ${{data.models_count}}\\nURL: ${{data.url || ""}}`
+              : "Ollama runtime status";
+          }} else {{
+            setOllamaStatus("bad", "Ollama: unreachable");
+            ollamaStatusPillEl.title = data.error ? `Ollama runtime status\\n\\n${{String(data.error)}}` : "Ollama runtime status";
+          }}
+        }} catch {{
+          setOllamaStatus("bad", "Ollama: unreachable");
+          ollamaStatusPillEl.title = "Ollama runtime status";
+        }}
       }}
 
       async function refreshLiteLlmStatus() {{
@@ -1177,27 +1460,127 @@ HTML = f"""<!doctype html>
       }}
 
       function renderConversation() {{
-        if (!conversation.length) {{
-          conversationViewEl.innerHTML = '<div class="msg msg-assistant"><div class="msg-role">Conversation</div>No messages yet. Enable Multi-turn Chat and send a prompt.</div>';
+        const pending = pendingAssistantText ? {{
+          role: "assistant",
+          content: pendingAssistantText,
+          ts: "",
+          pending: true
+        }} : null;
+        const convoItems = pending ? [...conversation, pending] : [...conversation];
+        if (!convoItems.length) {{
+          conversationViewEl.innerHTML = '<div class="msg msg-assistant"><div class="msg-head"><div class="msg-role">Assistant</div><div class="msg-time"></div></div>Send a prompt to start the conversation. In Single-turn mode, each send replaces the transcript. In Multi-turn mode, messages accumulate.</div>';
           return;
         }}
-        conversationViewEl.innerHTML = conversation.map((m) => {{
+        conversationViewEl.innerHTML = convoItems.map((m) => {{
           const role = (m.role || "assistant").toLowerCase();
           const label = role === "user" ? "User" : "Assistant";
           const cls = role === "user" ? "msg-user" : "msg-assistant";
+          const pendingCls = m.pending ? " msg-pending" : "";
           const ts = m.ts || "";
-          return `<div class="msg ${{cls}}"><div class="msg-head"><div class="msg-role">${{label}}</div><div class="msg-time">${{escapeHtml(ts)}}</div></div>${{escapeHtml(m.content || "")}}</div>`;
+          const bodyHtml = m.pending
+            ? `<div class="msg-body"><span class="thinking-row"><span>${{escapeHtml(m.content || "Working...")}}</span><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></span></div>`
+            : `<div class="msg-body">${{escapeHtml(m.content || "")}}</div>`;
+          return `<div class="msg ${{cls}}${{pendingCls}}"><div class="msg-head"><div class="msg-role">${{label}}</div><div class="msg-time">${{escapeHtml(ts)}}</div></div>${{bodyHtml}}</div>`;
         }}).join("");
         conversationViewEl.scrollTop = conversationViewEl.scrollHeight;
       }}
 
-      function updateChatModeUI() {{
-        const multi = currentChatMode() === "multi";
-        responseEl.style.display = multi ? "none" : "block";
-        conversationViewEl.style.display = multi ? "block" : "none";
-        if (multi) {{
+      function _providerThinkingBase() {{
+        const p = (providerSelectEl.value || "ollama").toLowerCase();
+        if (p === "ollama") return "Querying local Ollama model";
+        if (p === "litellm") return "Sending request to LiteLLM gateway";
+        if (p === "bedrock_invoke") return "Calling AWS Bedrock";
+        if (p === "bedrock_agent") return "Calling AWS Bedrock Agent";
+        if (p === "azure_foundry") return "Calling Azure AI Foundry";
+        if (p === "vertex") return "Calling Google Vertex";
+        if (p === "gemini") return "Calling Google Gemini";
+        if (p === "xai") return "Calling xAI (Grok)";
+        if (p === "perplexity") return "Calling Perplexity";
+        if (p === "openai") return "Calling OpenAI";
+        if (p === "anthropic") return "Calling Anthropic";
+        return "Calling provider";
+      }}
+
+      function thinkingPhrases() {{
+        const phrases = [];
+        const providerBase = _providerThinkingBase();
+        const guardrailsOn = !!guardrailsToggleEl.checked;
+        const proxyMode = guardrailsOn && !!zscalerProxyModeToggleEl.checked;
+
+        if (multiAgentToggleEl.checked) {{
+          phrases.push("Orchestrating specialist agents");
+          phrases.push("Planning task handoffs");
+          if (toolsToggleEl.checked) phrases.push("Research agent may call MCP tools");
+          phrases.push(providerBase);
+          phrases.push("Reviewer agent checking answer quality");
+          phrases.push("Finalizer agent preparing response");
+        }} else if (agenticToggleEl.checked) {{
+          phrases.push("Agentic mode planning next step");
+          if (toolsToggleEl.checked) {{
+            phrases.push("Evaluating whether tools are needed");
+            phrases.push("Preparing MCP/tool execution if required");
+          }}
+          phrases.push(providerBase);
+          phrases.push("Preparing final response");
+        }} else {{
+          phrases.push(providerBase);
+          phrases.push("Waiting for model response");
+        }}
+
+        if (guardrailsOn && proxyMode) {{
+          phrases.unshift("Sending through Zscaler AI Guard Proxy Mode");
+        }} else if (guardrailsOn) {{
+          phrases.unshift("Checking Zscaler AI Guard policy");
+        }}
+
+        if (currentChatMode() === "multi") {{
+          phrases.push("Maintaining multi-turn conversation context");
+        }}
+
+        return [...new Set(phrases)];
+      }}
+
+      function _thinkingStatusText(message, elapsedSec) {{
+        return elapsedSec > 0 ? `${{message}} (${{elapsedSec}}s)` : message;
+      }}
+
+      function startThinkingUI() {{
+        stopThinkingUI(false);
+        const phrases = thinkingPhrases();
+        let idx = 0;
+        thinkingStartedAt = Date.now();
+        pendingAssistantElapsed = 0;
+        pendingAssistantText = phrases[0] || "Working on your request";
+        statusEl.textContent = _thinkingStatusText(pendingAssistantText, 0);
+        renderConversation();
+        thinkingTimer = setInterval(() => {{
+          const elapsed = Math.max(0, Math.floor((Date.now() - thinkingStartedAt) / 1000));
+          pendingAssistantElapsed = elapsed;
+          if (phrases.length > 1) {{
+            idx = (idx + 1) % phrases.length;
+            pendingAssistantText = phrases[idx];
+          }}
+          statusEl.textContent = _thinkingStatusText(pendingAssistantText || "Working on your request", elapsed);
+          renderConversation();
+        }}, 1200);
+      }}
+
+      function stopThinkingUI(updateConversation = true) {{
+        if (thinkingTimer) {{
+          clearInterval(thinkingTimer);
+          thinkingTimer = null;
+        }}
+        pendingAssistantText = "";
+        pendingAssistantElapsed = 0;
+        if (updateConversation) {{
           renderConversation();
         }}
+      }}
+
+      function updateChatModeUI() {{
+        responseEl.style.display = "none";
+        conversationViewEl.style.display = "block";
+        renderConversation();
       }}
 
       function resetAgentTrace() {{
@@ -2214,8 +2597,7 @@ HTML = f"""<!doctype html>
       async function sendPrompt() {{
         const prompt = promptEl.value.trim();
         if (!prompt) {{
-          responseEl.textContent = "Please enter a prompt.";
-          responseEl.classList.add("error");
+          statusEl.textContent = "Prompt required";
           return;
         }}
 
@@ -2234,8 +2616,12 @@ HTML = f"""<!doctype html>
             ? [...conversation, {{ role: "user", content: prompt, ts: hhmmssNow() }}]
             : null;
           if (multi) {{
-            renderConversation();
+            conversation = pendingMessages || [];
+          }} else {{
+            conversation = [{{ role: "user", content: prompt, ts: hhmmssNow() }}];
           }}
+          renderConversation();
+          startThinkingUI();
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
@@ -2271,6 +2657,7 @@ HTML = f"""<!doctype html>
           if (!res.ok) {{
             throw new Error(data.error || "Request failed");
           }}
+          stopThinkingUI(false);
           if (multi) {{
             if (Array.isArray(data.conversation)) {{
               conversation = data.conversation;
@@ -2280,22 +2667,36 @@ HTML = f"""<!doctype html>
                 conversation[conversation.length - 1].ts = hhmmssNow();
               }}
             }}
-            promptEl.value = "";
-            renderConversation();
           }} else {{
+            conversation = [
+              {{ role: "user", content: prompt, ts: conversation[0]?.ts || hhmmssNow() }},
+              {{ role: "assistant", content: data.response || "(Empty response)", ts: hhmmssNow() }}
+            ];
             responseEl.textContent = data.response || "(Empty response)";
           }}
+          promptEl.value = "";
+          renderConversation();
           statusEl.textContent = "Done";
           updateChatModeUI();
           renderCodeViewer();
         }} catch (err) {{
+          stopThinkingUI(false);
           renderAgentTrace([]);
           responseEl.textContent = err.message || String(err);
           responseEl.classList.add("error");
+          if (prompt) {{
+            const userTs = (conversation[0] && conversation[0].role === "user" && conversation[0].ts) ? conversation[0].ts : hhmmssNow();
+            conversation = [
+              {{ role: "user", content: prompt, ts: userTs }},
+              {{ role: "assistant", content: err.message || String(err), ts: hhmmssNow() }}
+            ];
+            renderConversation();
+          }}
           statusEl.textContent = "Error";
           updateChatModeUI();
           renderCodeViewer();
         }} finally {{
+          stopThinkingUI(false);
           sendBtn.disabled = false;
         }}
       }}
@@ -2346,7 +2747,10 @@ HTML = f"""<!doctype html>
       }});
       providerSelectEl.addEventListener("change", () => {{
         lastSelectedProvider = providerSelectEl.value || "ollama";
+        refreshCurrentModelText();
         syncZscalerProxyModeState();
+        syncOllamaStatusVisibility();
+        refreshOllamaStatus();
         syncLiteLlmStatusVisibility();
         refreshLiteLlmStatus();
         renderCodeViewer();
@@ -2397,11 +2801,19 @@ HTML = f"""<!doctype html>
         renderCodeViewer();
       }});
       promptEl.addEventListener("keydown", (e) => {{
+        if (e.isComposing) return;
+        if (e.key === "Enter" && !e.shiftKey) {{
+          e.preventDefault();
+          if (!sendBtn.disabled) sendPrompt();
+          return;
+        }}
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {{
-          sendPrompt();
+          e.preventDefault();
+          if (!sendBtn.disabled) sendPrompt();
         }}
       }});
       renderPresetCatalog();
+      refreshCurrentModelText();
       renderConversation();
       updateChatModeUI();
       syncAgentModeExclusivityState();
@@ -2412,6 +2824,9 @@ HTML = f"""<!doctype html>
       syncTracePanels();
       refreshMcpStatus();
       mcpStatusTimer = setInterval(refreshMcpStatus, 60000);
+      syncOllamaStatusVisibility();
+      refreshOllamaStatus();
+      ollamaStatusTimer = setInterval(refreshOllamaStatus, 60000);
       syncLiteLlmStatusVisibility();
       refreshLiteLlmStatus();
       liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
@@ -3045,6 +3460,54 @@ class Handler(BaseHTTPRequestHandler):
                         "ok": False,
                         "configured": True,
                         "url": models_url,
+                        "error": str(exc),
+                    },
+                    status=200,
+                )
+                return
+        if self.path == "/ollama-status":
+            tags_url = f"{OLLAMA_URL.rstrip('/')}/api/tags"
+            req = urlrequest.Request(tags_url, headers={"Content-Type": "application/json"}, method="GET")
+            try:
+                with urlrequest.urlopen(req, timeout=5) as resp:
+                    body_text = resp.read().decode("utf-8", errors="replace")
+                    parsed: object = {}
+                    if body_text:
+                        try:
+                            parsed = json.loads(body_text)
+                        except Exception:
+                            parsed = body_text[:500]
+                    models = []
+                    if isinstance(parsed, dict):
+                        models = parsed.get("models") or []
+                    self._send_json(
+                        {
+                            "ok": 200 <= int(resp.status) < 300,
+                            "status": int(resp.status),
+                            "url": tags_url,
+                            "models_count": len(models) if isinstance(models, list) else None,
+                        },
+                        status=200,
+                    )
+                    return
+            except urlerror.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                self._send_json(
+                    {
+                        "ok": False,
+                        "url": tags_url,
+                        "status": int(exc.code),
+                        "error": "Ollama HTTP error",
+                        "details": detail[:500],
+                    },
+                    status=200,
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    {
+                        "ok": False,
+                        "url": tags_url,
                         "error": str(exc),
                     },
                     status=200,
