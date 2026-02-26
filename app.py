@@ -1,8 +1,11 @@
 import ast
 import json
 import os
+import sys
+import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib import error as urlerror, request as urlrequest
 
 import agentic
@@ -10,14 +13,47 @@ import multi_agent
 import providers
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 HOST = "127.0.0.1"
-PORT = int(os.getenv("PORT", "5000"))
+PORT = _int_env("PORT", 5000)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = os.getenv("APP_DEMO_NAME", "AI App Demo")
+DEMO_USER_HEADER_NAME = "X-Demo-User"
+ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
+_RESTART_LOCK = threading.Lock()
+_RESTART_PENDING = False
+
+
+def _schedule_self_restart(delay_seconds: float = 0.8) -> bool:
+    global _RESTART_PENDING
+    with _RESTART_LOCK:
+        if _RESTART_PENDING:
+            return False
+        _RESTART_PENDING = True
+
+    def _do_restart() -> None:
+        try:
+            threading.Event().wait(delay_seconds)
+            os.execvpe(sys.executable, [sys.executable, os.path.abspath(__file__)], os.environ)
+        except Exception:
+            os._exit(1)  # noqa: SLF001
+
+    t = threading.Thread(target=_do_restart, daemon=True)
+    t.start()
+    return True
 
 
 HTML = f"""<!doctype html>
@@ -26,6 +62,7 @@ HTML = f"""<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{APP_DEMO_NAME}</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0%25' stop-color='%2300C3A5'/%3E%3Cstop offset='100%25' stop-color='%23007EA8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M19 47c-7.2 0-13-5.7-13-12.7C6 28.4 10.4 23.4 16.4 22c1.9-7 8.5-12 16.1-12 8.8 0 16.1 6.7 16.9 15.3 4.9.9 8.6 5.1 8.6 10.1 0 5.8-4.8 10.6-10.8 10.6H19z'/%3E%3C/svg%3E" />
     <style>
       :root {{
         --bg: #f4f1ea;
@@ -136,6 +173,28 @@ HTML = f"""<!doctype html>
         gap: 8px;
         flex-wrap: wrap;
         justify-content: flex-end;
+      }}
+      .icon-btn {{
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+      }}
+      .icon-btn:hover {{
+        border-color: #99f6e4;
+        background: #f0fdfa;
+      }}
+      .icon-btn:focus-visible {{
+        outline: 2px solid #14b8a6;
+        outline-offset: 2px;
       }}
       .provider-select {{
         border: 1px solid var(--border);
@@ -855,6 +914,148 @@ HTML = f"""<!doctype html>
         color: #9a3412;
         border-color: #fdba74;
       }}
+      .settings-modal {{
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+        z-index: 60;
+      }}
+      .settings-modal.open {{
+        display: flex;
+      }}
+      .settings-dialog {{
+        width: min(1100px, 96vw);
+        max-height: 88vh;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(2, 6, 23, 0.25);
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        overflow: hidden;
+      }}
+      .settings-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 16px 10px;
+        border-bottom: 1px solid var(--border);
+      }}
+      .settings-head h2 {{
+        margin: 0;
+        font-size: 1.05rem;
+      }}
+      .settings-sub {{
+        margin: 0;
+        padding: 10px 16px;
+        font-size: 0.86rem;
+        color: var(--muted);
+        border-bottom: 1px solid var(--border);
+        background: #f8fafc;
+      }}
+      .settings-status {{
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }}
+      .settings-body {{
+        overflow: auto;
+        padding: 12px 16px 16px;
+        background: #fcfcfd;
+      }}
+      .settings-groups {{
+        display: grid;
+        gap: 14px;
+      }}
+      .settings-group {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #fff;
+        overflow: hidden;
+      }}
+      .settings-group-head {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        background: #f8fafc;
+      }}
+      .settings-group-title {{
+        font-weight: 700;
+      }}
+      .settings-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 10px;
+        padding: 12px;
+      }}
+      .settings-field {{
+        display: grid;
+        gap: 6px;
+      }}
+      .settings-field label {{
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #334155;
+      }}
+      .settings-field .hint {{
+        font-size: 0.75rem;
+        color: var(--muted);
+        min-height: 1.1em;
+      }}
+      .settings-input-wrap {{
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }}
+      .settings-input-wrap input {{
+        flex: 1;
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+        background: #fff;
+      }}
+      .settings-input-wrap input::placeholder {{
+        color: #9ca3af;
+      }}
+      .settings-mini-btn {{
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 6px 8px;
+        cursor: pointer;
+        font-size: 0.78rem;
+      }}
+      .settings-mini-btn:hover {{
+        background: #f8fafc;
+      }}
+      .settings-foot {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 16px;
+        border-top: 1px solid var(--border);
+        background: #fff;
+      }}
+      .settings-foot-note {{
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
+      .settings-actions {{
+        display: flex;
+        gap: 8px;
+      }}
       .toggle-wrap.disabled {{
         opacity: 0.55;
         cursor: not-allowed;
@@ -936,6 +1137,7 @@ HTML = f"""<!doctype html>
                 <span id="liteLlmStatusDot" class="status-dot" aria-hidden="true"></span>
                 <span id="liteLlmStatusText">LiteLLM: hidden</span>
               </span>
+              <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
           </div>
 
@@ -975,10 +1177,11 @@ HTML = f"""<!doctype html>
               <span class="toggle-label">Zscaler AI Guard</span>
             </label>
             <label id="zscalerProxyModeWrap" class="toggle-wrap disabled" for="zscalerProxyModeToggle" title="Enable Zscaler Proxy Mode (supported for remote providers like Anthropic/OpenAI). Requires Zscaler AI Guard to be ON.">
-              <span class="toggle-label" style="color: var(--muted);">API/DAS</span>
+              <span class="toggle-label" style="color: var(--muted);">Mode:</span>
+              <span id="zscalerModeLeftLabel" class="toggle-label" style="color: var(--muted); font-weight: 700;">API/DAS</span>
               <input id="zscalerProxyModeToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler Proxy Mode" disabled />
               <span class="toggle-track" aria-hidden="true"></span>
-              <span class="toggle-label">Proxy Mode</span>
+              <span id="zscalerModeRightLabel" class="toggle-label">Proxy</span>
             </label>
                 <span id="status" class="status">Idle</span>
               </div>
@@ -1052,6 +1255,27 @@ HTML = f"""<!doctype html>
               </div>
             </div>
           </section>
+
+          <section class="card trace-card" style="margin-top:0;">
+            <div class="trace-head">
+              <h1>Prompt / Instruction Inspector</h1>
+              <div class="trace-meta">
+                <span id="inspectorCount" class="trace-count">0</span>
+                <button id="inspectorToggleBtn" class="secondary" type="button" title="Expand/collapse Prompt / Instruction Inspector">Expand</button>
+              </div>
+            </div>
+            <p class="sub">Surfaces prompts/system instructions/tool inputs observed in the latest provider and agent traces.</p>
+            <div id="inspectorContent" class="collapsible-content">
+              <div id="inspectorList" class="agent-trace-list">
+                <div class="agent-step">
+                  <div class="agent-step-head">
+                    <div class="agent-step-title">No prompt or instruction details yet</div>
+                  </div>
+                  <pre>Send a prompt to inspect provider payloads, system instructions, and agent/tool prompt context.</pre>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -1096,6 +1320,32 @@ HTML = f"""<!doctype html>
         <div class="code-note">Tip: In Auto mode, the viewer switches based on the Guardrails checkbox and the last sent request path.</div>
       </section>
 
+      <div id="settingsModal" class="settings-modal" aria-hidden="true">
+        <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+          <div class="settings-head">
+            <h2 id="settingsTitle">Local Settings</h2>
+            <span id="settingsStatusText" class="settings-status">Loads/saves `.env.local` for this demo.</span>
+            <button id="settingsCloseBtn" class="icon-btn" type="button" title="Close Settings">✕</button>
+          </div>
+          <p class="settings-sub">Secrets are masked by default. Saving updates local `.env.local`. Some server-side settings may require restarting the app to fully apply.</p>
+          <div class="settings-body">
+            <div id="settingsGroups" class="settings-groups">
+              <div class="settings-group">
+                <div class="settings-group-head"><div class="settings-group-title">Loading settings...</div></div>
+                <div class="settings-grid"></div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-foot">
+            <div class="settings-foot-note" id="settingsFootNote">Local-only configuration editor for demo/lab use.</div>
+            <div class="settings-actions">
+              <button id="settingsReloadBtn" class="secondary" type="button">Reload</button>
+              <button id="settingsSaveBtn" type="button">Save Settings</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </main>
 
     <script>
@@ -1118,9 +1368,19 @@ HTML = f"""<!doctype html>
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
       const zscalerProxyModeWrapEl = document.getElementById("zscalerProxyModeWrap");
       const zscalerProxyModeToggleEl = document.getElementById("zscalerProxyModeToggle");
+      const zscalerModeLeftLabelEl = document.getElementById("zscalerModeLeftLabel");
+      const zscalerModeRightLabelEl = document.getElementById("zscalerModeRightLabel");
       const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
       const currentModelTextEl = document.getElementById("currentModelText");
+      const settingsBtnEl = document.getElementById("settingsBtn");
+      const settingsModalEl = document.getElementById("settingsModal");
+      const settingsCloseBtnEl = document.getElementById("settingsCloseBtn");
+      const settingsReloadBtnEl = document.getElementById("settingsReloadBtn");
+      const settingsSaveBtnEl = document.getElementById("settingsSaveBtn");
+      const settingsGroupsEl = document.getElementById("settingsGroups");
+      const settingsStatusTextEl = document.getElementById("settingsStatusText");
+      const settingsFootNoteEl = document.getElementById("settingsFootNote");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
@@ -1146,6 +1406,10 @@ HTML = f"""<!doctype html>
       const agentTraceToggleBtn = document.getElementById("agentTraceToggleBtn");
       const agentTraceContentEl = document.getElementById("agentTraceContent");
       const agentTraceCountEl = document.getElementById("agentTraceCount");
+      const inspectorToggleBtn = document.getElementById("inspectorToggleBtn");
+      const inspectorContentEl = document.getElementById("inspectorContent");
+      const inspectorCountEl = document.getElementById("inspectorCount");
+      const inspectorListEl = document.getElementById("inspectorList");
       const flowGraphWrapEl = document.getElementById("flowGraphWrap");
       const flowGraphViewportEl = document.getElementById("flowGraphViewport");
       const flowGraphEmptyEl = document.getElementById("flowGraphEmpty");
@@ -1171,12 +1435,16 @@ HTML = f"""<!doctype html>
       let liteLlmStatusTimer = null;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
+      let inspectorExpanded = false;
       let flowGraphState = null;
       let flowGraphDragState = null;
       let thinkingTimer = null;
       let thinkingStartedAt = 0;
       let pendingAssistantText = "";
       let pendingAssistantElapsed = 0;
+      let lastObservedModelMap = {{}};
+      let settingsSchema = [];
+      let settingsValues = {{}};
       const providerModelMap = {{
         anthropic: "{providers.DEFAULT_ANTHROPIC_MODEL}",
         azure_foundry: "{providers.DEFAULT_AZURE_AI_FOUNDRY_MODEL}",
@@ -1231,9 +1499,182 @@ HTML = f"""<!doctype html>
 
       function refreshCurrentModelText() {{
         const providerId = (providerSelectEl.value || "ollama").toLowerCase();
-        const value = providerModelMap[providerId] || "(provider-managed)";
+        const observed = String((lastObservedModelMap && lastObservedModelMap[providerId]) || "").trim();
+        const fallback = providerModelMap[providerId] || "(provider-managed)";
+        const value = observed || fallback;
         currentModelTextEl.textContent = value;
-        currentModelTextEl.title = value;
+        currentModelTextEl.title = observed
+          ? `Observed from latest provider trace (fallback: ${{fallback}})`
+          : "Configured/default model";
+      }}
+
+      function _extractObservedModelFromEntry(entry) {{
+        try {{
+          const steps = Array.isArray(entry?.body?.trace?.steps) ? entry.body.trace.steps : [];
+          const providerId = String(entry?.provider || "").toLowerCase();
+          const step = [...steps].reverse().find((s) => {{
+            const name = String(s?.name || "").toLowerCase();
+            return !!name && !name.startsWith("zscaler");
+          }});
+          const body = step?.response?.body || {{}};
+          const candidates = [
+            body.model,
+            body.modelId,
+            body.invokedModelId,
+            body.response_model,
+            body.responseModel,
+            body.model_name,
+            body.modelName,
+            body.output?.model,
+          ];
+          for (const c of candidates) {{
+            const v = String(c || "").trim();
+            if (v) return v;
+          }}
+          if (providerId === "bedrock_agent") {{
+            const agent = String(body.agentId || "").trim();
+            const alias = String(body.agentAliasId || "").trim();
+            if (agent || alias) return `Agent:${{agent || "?"}} Alias:${{alias || "?"}}`;
+          }}
+        }} catch {{}}
+        return "";
+      }}
+
+      function _escapeAttr(v) {{
+        return String(v ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }}
+
+      function _settingsFieldType(item) {{
+        return item && item.secret ? "password" : "text";
+      }}
+
+      function _renderSettingsGroups() {{
+        const grouped = new Map();
+        for (const item of (Array.isArray(settingsSchema) ? settingsSchema : [])) {{
+          const group = String(item.group || "Other");
+          if (!grouped.has(group)) grouped.set(group, []);
+          grouped.get(group).push(item);
+        }}
+        settingsGroupsEl.innerHTML = Array.from(grouped.entries()).map(([groupName, items]) => {{
+          const fields = items.map((item) => {{
+            const key = String(item.key || "");
+            const val = settingsValues[key] ?? "";
+            const revealBtn = item.secret
+              ? `<button type="button" class="settings-mini-btn" data-settings-reveal="${{_escapeAttr(key)}}">Show</button>`
+              : "";
+            return `
+              <div class="settings-field">
+                <label for="settings_${{_escapeAttr(key)}}">${{escapeHtml(item.label || key)}}</label>
+                <div class="settings-input-wrap">
+                  <input
+                    id="settings_${{_escapeAttr(key)}}"
+                    data-settings-key="${{_escapeAttr(key)}}"
+                    type="${{_settingsFieldType(item)}}"
+                    value="${{_escapeAttr(val)}}"
+                    placeholder="${{_escapeAttr(item.placeholder || "")}}"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  ${{revealBtn}}
+                </div>
+                <div class="hint">${{escapeHtml(item.desc || "")}}</div>
+              </div>
+            `;
+          }}).join("");
+          return `
+            <div class="settings-group">
+              <div class="settings-group-head">
+                <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
+                <span class="status">${{items.length}} variable${{items.length === 1 ? "" : "s"}}</span>
+              </div>
+              <div class="settings-grid">${{fields}}</div>
+            </div>
+          `;
+        }}).join("");
+      }}
+
+      async function loadSettingsModal(forceText = "") {{
+        if (forceText) settingsStatusTextEl.textContent = forceText;
+        try {{
+          const res = await fetch("/settings");
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to load settings");
+          settingsSchema = Array.isArray(data.schema) ? data.schema : [];
+          settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
+          _renderSettingsGroups();
+          settingsStatusTextEl.textContent = `Loaded from ${{data.env_file || ".env.local"}}`;
+          settingsFootNoteEl.textContent = data.note || "Save writes to local .env.local. Restart may be required for some settings.";
+        }} catch (err) {{
+          settingsStatusTextEl.textContent = "Settings load failed";
+          settingsGroupsEl.innerHTML = `<div class="settings-group"><div class="settings-group-head"><div class="settings-group-title">Settings unavailable</div></div><div class="settings-grid"><div class="settings-field"><div class="hint">${{escapeHtml(err.message || String(err))}}</div></div></div></div>`;
+        }}
+      }}
+
+      function openSettingsModal() {{
+        settingsModalEl.classList.add("open");
+        settingsModalEl.setAttribute("aria-hidden", "false");
+        loadSettingsModal("Loading settings...");
+      }}
+
+      function closeSettingsModal() {{
+        settingsModalEl.classList.remove("open");
+        settingsModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      async function saveSettingsModal() {{
+        const values = {{}};
+        settingsGroupsEl.querySelectorAll("[data-settings-key]").forEach((input) => {{
+          const key = input.getAttribute("data-settings-key");
+          if (key) values[key] = input.value ?? "";
+        }});
+        settingsSaveBtnEl.disabled = true;
+        settingsStatusTextEl.textContent = "Saving settings...";
+        try {{
+          const res = await fetch("/settings", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ values }})
+          }});
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || data.details || "Save failed");
+          settingsValues = values;
+          settingsStatusTextEl.textContent = "Saved to .env.local";
+          settingsFootNoteEl.textContent = "Saved locally. Restart app to ensure all provider credentials/base URLs are reloaded.";
+          refreshCurrentModelText();
+          refreshOllamaStatus();
+          refreshLiteLlmStatus();
+          if (data.restart_recommended) {{
+            const shouldRestart = window.confirm("Settings saved locally. Restart the demo app now to fully apply server-side changes?");
+            if (shouldRestart) {{
+              settingsStatusTextEl.textContent = "Restarting app...";
+              settingsFootNoteEl.textContent = "The app is restarting. This page will auto-refresh in a few seconds.";
+              try {{
+                const rr = await fetch("/restart", {{
+                  method: "POST",
+                  headers: {{ "Content-Type": "application/json" }},
+                  body: JSON.stringify({{ reason: "settings_saved" }})
+                }});
+                const restartData = await rr.json().catch(() => ({{}}));
+                if (!rr.ok || restartData.ok === false) {{
+                  throw new Error(restartData.error || "Restart request failed");
+                }}
+                setTimeout(() => {{
+                  window.location.reload();
+                }}, 5000);
+              }} catch (restartErr) {{
+                settingsStatusTextEl.textContent = `Restart failed: ${{restartErr.message || restartErr}}`;
+              }}
+            }}
+          }}
+        }} catch (err) {{
+          settingsStatusTextEl.textContent = `Save failed: ${{err.message || err}}`;
+        }} finally {{
+          settingsSaveBtnEl.disabled = false;
+        }}
       }}
 
       function syncToolsToggleState() {{
@@ -1285,6 +1726,13 @@ HTML = f"""<!doctype html>
         }} else {{
           zscalerProxyModeWrapEl.title = "Send provider SDK requests through Zscaler AI Guard Proxy Mode (instead of DAS/API IN/OUT checks).";
         }}
+        if (zscalerModeLeftLabelEl && zscalerModeRightLabelEl) {{
+          const proxyOn = !!zscalerProxyModeToggleEl.checked && enabled;
+          zscalerModeLeftLabelEl.style.color = proxyOn ? "var(--muted)" : "var(--ink)";
+          zscalerModeLeftLabelEl.style.fontWeight = proxyOn ? "500" : "700";
+          zscalerModeRightLabelEl.style.color = proxyOn ? "var(--ink)" : "var(--muted)";
+          zscalerModeRightLabelEl.style.fontWeight = proxyOn ? "700" : "500";
+        }}
       }}
 
       function setMcpStatus(kind, text) {{
@@ -1314,8 +1762,10 @@ HTML = f"""<!doctype html>
       function syncTracePanels() {{
         httpTraceContentEl.classList.toggle("open", !!httpTraceExpanded);
         agentTraceContentEl.classList.toggle("open", !!agentTraceExpanded);
+        inspectorContentEl.classList.toggle("open", !!inspectorExpanded);
         httpTraceToggleBtn.textContent = httpTraceExpanded ? "Collapse" : "Expand";
         agentTraceToggleBtn.textContent = agentTraceExpanded ? "Collapse" : "Expand";
+        inspectorToggleBtn.textContent = inspectorExpanded ? "Collapse" : "Expand";
       }}
 
       function setHttpTraceCount(count) {{
@@ -1324,6 +1774,10 @@ HTML = f"""<!doctype html>
 
       function setAgentTraceCount(count) {{
         agentTraceCountEl.textContent = String(count || 0);
+      }}
+
+      function setInspectorCount(count) {{
+        inspectorCountEl.textContent = String(count || 0);
       }}
 
       async function refreshMcpStatus() {{
@@ -1607,6 +2061,193 @@ HTML = f"""<!doctype html>
             <pre>Enable Agentic Mode and send a prompt to capture LLM decision steps and tool activity.</pre>
           </div>
         `;
+      }}
+
+      function resetInspector() {{
+        setInspectorCount(0);
+        inspectorListEl.innerHTML = `
+          <div class="agent-step">
+            <div class="agent-step-head">
+              <div class="agent-step-title">No prompt or instruction details yet</div>
+            </div>
+            <pre>Send a prompt to inspect provider payloads, system instructions, and agent/tool prompt context.</pre>
+          </div>
+        `;
+      }}
+
+      function _flattenTextBlocks(value) {{
+        if (value == null) return "";
+        if (typeof value === "string") return value;
+        if (Array.isArray(value)) {{
+          return value.map((v) => _flattenTextBlocks(v)).filter(Boolean).join("\\n\\n");
+        }}
+        if (typeof value === "object") {{
+          if (typeof value.text === "string") return value.text;
+          if (typeof value.content === "string") return value.content;
+          if (Array.isArray(value.content)) return _flattenTextBlocks(value.content);
+          if (Array.isArray(value.parts)) return _flattenTextBlocks(value.parts);
+        }}
+        return "";
+      }}
+
+      function _collectPromptLikeSectionsFromPayload(payload, contextTitle, extras = {{}}) {{
+        const sections = [];
+        if (!payload || typeof payload !== "object") return sections;
+        const systemText = _flattenTextBlocks(payload.system);
+        if (systemText.trim()) {{
+          sections.push({{
+            title: `${{contextTitle}}: System Instructions`,
+            kind: "system",
+            source: extras.source || "",
+            content: systemText.trim(),
+          }});
+        }}
+        if (Array.isArray(payload.messages)) {{
+          payload.messages.forEach((m, idx) => {{
+            const role = String(m?.role || "").toLowerCase() || "message";
+            const content = _flattenTextBlocks(m?.content);
+            if (!content.trim()) return;
+            sections.push({{
+              title: `${{contextTitle}}: messages[${{idx}}] (${{role}})`,
+              kind: role,
+              source: extras.source || "",
+              content: content.trim(),
+            }});
+          }});
+        }}
+        if (payload.input != null) {{
+          const inputText = _flattenTextBlocks(payload.input);
+          if (inputText.trim()) {{
+            sections.push({{
+              title: `${{contextTitle}}: Input`,
+              kind: "user",
+              source: extras.source || "",
+              content: inputText.trim(),
+            }});
+          }}
+        }}
+        if (Array.isArray(payload.contents)) {{
+          payload.contents.forEach((c, idx) => {{
+            const content = _flattenTextBlocks(c);
+            if (!content.trim()) return;
+            sections.push({{
+              title: `${{contextTitle}}: contents[${{idx}}]`,
+              kind: "user",
+              source: extras.source || "",
+              content: content.trim(),
+            }});
+          }});
+        }}
+        return sections;
+      }}
+
+      function extractInspectorSections(entry) {{
+        const sections = [];
+        const seen = new Set();
+        const body = (entry && typeof entry.body === "object") ? entry.body : {{}};
+        const traceSteps = Array.isArray(body?.trace?.steps) ? body.trace.steps : [];
+        const agentTrace = Array.isArray(body.agent_trace) ? body.agent_trace : [];
+
+        const pushSection = (s) => {{
+          if (!s || !String(s.content || "").trim()) return;
+          const key = `${{s.title}}@@${{String(s.content).trim()}}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          sections.push(s);
+        }};
+
+        if (entry?.prompt) {{
+          pushSection({{
+            title: "Client Prompt",
+            kind: "user",
+            source: "browser",
+            content: String(entry.prompt),
+          }});
+        }}
+
+        traceSteps.forEach((step, idx) => {{
+          const stepName = String(step?.name || `Step ${{idx + 1}}`);
+          const payload = (step?.request && typeof step.request === "object") ? step.request.payload : null;
+          _collectPromptLikeSectionsFromPayload(payload, stepName, {{ source: "provider_trace" }}).forEach(pushSection);
+        }});
+
+        agentTrace.forEach((item, idx) => {{
+          const kind = String(item?.kind || "").toLowerCase();
+          const agentName = String(item?.agent || "").trim();
+          if (kind === "llm") {{
+            const reqPayload = item?.trace_step?.request?.payload;
+            const base = agentName ? `Agent LLM (${{agentName}})` : `Agent LLM Step ${{idx + 1}}`;
+            _collectPromptLikeSectionsFromPayload(reqPayload, base, {{ source: "agent_trace" }}).forEach(pushSection);
+            const raw = String(item?.raw_output || "").trim();
+            if (raw) {{
+              pushSection({{
+                title: `${{base}}: Raw Model Output (Decision JSON/Text)`,
+                kind: "assistant",
+                source: "agent_trace",
+                content: raw,
+              }});
+            }}
+          }} else if (kind === "tool") {{
+            const toolName = String(item?.tool || "tool");
+            pushSection({{
+              title: `Tool Input (${{toolName}})${{agentName ? ` · ${{agentName}}` : ""}}`,
+              kind: "tool",
+              source: "agent_trace",
+              content: pretty(item?.input || {{}}),
+            }});
+            if (item?.tool_trace?.request?.payload) {{
+              pushSection({{
+                title: `Tool Request Payload (${{toolName}})`,
+                kind: "tool",
+                source: "agent_trace",
+                content: pretty(item.tool_trace.request.payload),
+              }});
+            }}
+          }} else if (kind === "multi_agent") {{
+            const evt = String(item?.event || "event");
+            const summary = {{
+              event: evt,
+              agent: item?.agent,
+              to_agent: item?.to_agent,
+              needs_tools_plan: item?.needs_tools_plan,
+              research_focus: item?.research_focus,
+            }};
+            pushSection({{
+              title: `Multi-Agent Handoff/Event (${{evt}})`,
+              kind: "agent",
+              source: "agent_trace",
+              content: pretty(summary),
+            }});
+          }}
+        }});
+
+        return sections;
+      }}
+
+      function renderInspector(entry) {{
+        const sections = extractInspectorSections(entry);
+        setInspectorCount(sections.length);
+        if (!sections.length) {{
+          resetInspector();
+          return;
+        }}
+        inspectorListEl.innerHTML = sections.map((s) => {{
+          let badge = '<span class="badge badge-ollama">Prompt</span>';
+          const kind = String(s.kind || "").toLowerCase();
+          if (kind === "system") badge = '<span class="badge badge-ai">System</span>';
+          else if (kind === "tool") badge = '<span class="badge badge-agent">Tool</span>';
+          else if (kind === "assistant") badge = '<span class="badge badge-ollama">Output</span>';
+          else if (kind === "agent") badge = '<span class="badge badge-agent">Agent</span>';
+          return `
+            <div class="agent-step">
+              <div class="agent-step-head">
+                <div class="agent-step-title">${{escapeHtml(s.title || "Inspector")}}</div>
+                <div>${{badge}}</div>
+              </div>
+              <pre>${{escapeHtml(String(s.content || ""))}}</pre>
+            </div>
+          `;
+        }}).join("");
       }}
 
       function renderAgentTrace(traceItems) {{
@@ -2718,6 +3359,11 @@ HTML = f"""<!doctype html>
         const traceSteps = entry.body && entry.body.trace && Array.isArray(entry.body.trace.steps)
           ? entry.body.trace.steps
           : [];
+        const observedModel = _extractObservedModelFromEntry(entry);
+        if (observedModel) {{
+          lastObservedModelMap[String(entry.provider || "ollama").toLowerCase()] = observedModel;
+          refreshCurrentModelText();
+        }}
 
         const traceStepsHtml = traceSteps.map((step, idx) => `
           <div class="log-title">
@@ -2762,6 +3408,7 @@ HTML = f"""<!doctype html>
 
         logListEl.prepend(item);
         renderFlowGraph(entry);
+        renderInspector(entry);
       }}
 
       function resetTrace() {{
@@ -2789,8 +3436,10 @@ HTML = f"""<!doctype html>
           : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
         httpTraceExpanded = false;
         agentTraceExpanded = false;
+        inspectorExpanded = false;
         resetTrace();
         resetAgentTrace();
+        resetInspector();
         resetFlowGraph();
         syncTracePanels();
         renderConversation();
@@ -2919,6 +3568,10 @@ HTML = f"""<!doctype html>
         agentTraceExpanded = !agentTraceExpanded;
         syncTracePanels();
       }});
+      inspectorToggleBtn.addEventListener("click", () => {{
+        inspectorExpanded = !inspectorExpanded;
+        syncTracePanels();
+      }});
       copyTraceBtn.addEventListener("click", async () => {{
         const text = logListEl.innerText || "";
         try {{
@@ -2930,6 +3583,29 @@ HTML = f"""<!doctype html>
         }} catch {{
           statusEl.textContent = "Copy failed";
         }}
+      }});
+      settingsBtnEl.addEventListener("click", openSettingsModal);
+      settingsCloseBtnEl.addEventListener("click", closeSettingsModal);
+      settingsReloadBtnEl.addEventListener("click", () => loadSettingsModal("Reloading settings..."));
+      settingsSaveBtnEl.addEventListener("click", saveSettingsModal);
+      settingsModalEl.addEventListener("click", (e) => {{
+        if (e.target === settingsModalEl) closeSettingsModal();
+      }});
+      settingsGroupsEl.addEventListener("click", (e) => {{
+        const btn = e.target.closest("[data-settings-reveal]");
+        if (!btn) return;
+        const key = btn.getAttribute("data-settings-reveal");
+        let input = null;
+        if (key && window.CSS && CSS.escape) {{
+          input = settingsGroupsEl.querySelector(`[data-settings-key="${{CSS.escape(key)}}"]`);
+        }}
+        if (!input && key) {{
+          input = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-key]")).find((el) => el.getAttribute("data-settings-key") === key) || null;
+        }}
+        if (!input) return;
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.textContent = show ? "Hide" : "Show";
       }});
       flowZoomInBtn.addEventListener("click", () => flowZoomBy(1.15));
       flowZoomOutBtn.addEventListener("click", () => flowZoomBy(1 / 1.15));
@@ -3020,6 +3696,11 @@ HTML = f"""<!doctype html>
           if (!sendBtn.disabled) sendPrompt();
         }}
       }});
+      document.addEventListener("keydown", (e) => {{
+        if (e.key === "Escape" && settingsModalEl.classList.contains("open")) {{
+          closeSettingsModal();
+        }}
+      }});
       renderPresetCatalog();
       refreshCurrentModelText();
       renderConversation();
@@ -3029,6 +3710,7 @@ HTML = f"""<!doctype html>
       syncZscalerProxyModeState();
       setHttpTraceCount(0);
       setAgentTraceCount(0);
+      setInspectorCount(0);
       syncTracePanels();
       refreshMcpStatus();
       mcpStatusTimer = setInterval(refreshMcpStatus, 60000);
@@ -3039,6 +3721,7 @@ HTML = f"""<!doctype html>
       refreshLiteLlmStatus();
       liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
       resetAgentTrace();
+      resetInspector();
       resetFlowGraph();
       renderCodeViewer();
     </script>
@@ -3439,6 +4122,138 @@ def _hhmmss_now() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+SETTINGS_SCHEMA = [
+    {"group": "App", "key": "APP_DEMO_NAME", "label": "App Demo Name", "secret": False, "hint": "Browser/page title and app card heading"},
+    {"group": "App", "key": "PORT", "label": "App Port", "secret": False, "hint": "Requires restart to bind a different port"},
+    {"group": "Ollama", "key": "OLLAMA_URL", "label": "Ollama Base URL", "secret": False, "hint": "Local Ollama runtime URL"},
+    {"group": "Ollama", "key": "OLLAMA_MODEL", "label": "Ollama Model", "secret": False, "hint": "Default local model"},
+    {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Direct Anthropic SDK auth"},
+    {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
+    {"group": "OpenAI", "key": "OPENAI_API_KEY", "label": "OpenAI API Key", "secret": True, "hint": "Direct OpenAI SDK auth"},
+    {"group": "OpenAI", "key": "OPENAI_MODEL", "label": "OpenAI Model", "secret": False, "hint": "Default OpenAI model"},
+    {"group": "LiteLLM", "key": "LITELLM_BASE_URL", "label": "LiteLLM Base URL", "secret": False, "hint": "LiteLLM gateway /v1 base URL"},
+    {"group": "LiteLLM", "key": "LITELLM_API_KEY", "label": "LiteLLM API Key", "secret": True, "hint": "LiteLLM virtual key"},
+    {"group": "LiteLLM", "key": "LITELLM_MODEL", "label": "LiteLLM Model", "secret": False, "hint": "Requested model sent to LiteLLM"},
+    {"group": "AWS Bedrock", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Default us-east-1; AWS auth via local credentials/SSO"},
+    {"group": "AWS Bedrock", "key": "BEDROCK_INVOKE_MODEL", "label": "Bedrock Model", "secret": False, "hint": "e.g. amazon.nova-lite-v1:0"},
+    {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ID", "label": "Bedrock Agent ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
+    {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ALIAS_ID", "label": "Bedrock Agent Alias ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
+    {"group": "Perplexity", "key": "PERPLEXITY_API_KEY", "label": "Perplexity API Key", "secret": True, "hint": "OpenAI-compatible auth"},
+    {"group": "Perplexity", "key": "PERPLEXITY_MODEL", "label": "Perplexity Model", "secret": False, "hint": "Default sonar"},
+    {"group": "Perplexity", "key": "PERPLEXITY_BASE_URL", "label": "Perplexity Base URL", "secret": False, "hint": "Defaults to api.perplexity.ai"},
+    {"group": "xAI", "key": "XAI_API_KEY", "label": "xAI API Key", "secret": True, "hint": "Grok provider auth"},
+    {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default grok model"},
+    {"group": "xAI", "key": "XAI_BASE_URL", "label": "xAI Base URL", "secret": False, "hint": "Defaults to https://api.x.ai/v1"},
+    {"group": "Gemini", "key": "GEMINI_API_KEY", "label": "Gemini API Key", "secret": True, "hint": "Google Generative Language API key"},
+    {"group": "Gemini", "key": "GEMINI_MODEL", "label": "Gemini Model", "secret": False, "hint": "Default Gemini model"},
+    {"group": "Gemini", "key": "GEMINI_BASE_URL", "label": "Gemini Base URL", "secret": False, "hint": "Optional override"},
+    {"group": "Google Vertex", "key": "VERTEX_PROJECT_ID", "label": "Vertex Project ID", "secret": False, "hint": "Required for Vertex provider"},
+    {"group": "Google Vertex", "key": "VERTEX_LOCATION", "label": "Vertex Location", "secret": False, "hint": "Default us-central1"},
+    {"group": "Google Vertex", "key": "VERTEX_MODEL", "label": "Vertex Model", "secret": False, "hint": "Gemini model on Vertex"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_API_KEY", "label": "Azure AI Foundry API Key", "secret": True, "hint": "OpenAI-compatible inference key"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_BASE_URL", "label": "Azure AI Foundry Base URL", "secret": False, "hint": "OpenAI-compatible /v1 endpoint"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_MODEL", "label": "Azure AI Foundry Model", "secret": False, "hint": "Deployment/model name"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard API Key", "secret": True, "hint": "Resolve policy endpoint auth"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Resolve-and-execute-policy endpoint"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Custom header name forwarded to AI Guard"},
+    {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
+    {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Default X-ApiKey"},
+    {"group": "Zscaler AI Guard Proxy", "key": "ANTHROPIC_ZS_PROXY_API_KEY", "label": "Anthropic Proxy Key", "secret": True, "hint": "Zscaler proxy app key for Anthropic"},
+    {"group": "Zscaler AI Guard Proxy", "key": "OPENAI_ZS_PROXY_API_KEY", "label": "OpenAI Proxy Key", "secret": True, "hint": "Zscaler proxy app key for OpenAI"},
+    {"group": "Tools / MCP", "key": "BRAVE_SEARCH_API_KEY", "label": "Brave Search API Key", "secret": True, "hint": "Optional tool API key"},
+    {"group": "Tools / MCP", "key": "BRAVE_SEARCH_BASE_URL", "label": "Brave Search Base URL", "secret": False, "hint": "Optional override"},
+    {"group": "Tools / MCP", "key": "BRAVE_SEARCH_MAX_RESULTS", "label": "Brave Search Max Results", "secret": False, "hint": "Default tool result count"},
+    {"group": "Tools / MCP", "key": "MCP_SERVER_COMMAND", "label": "MCP Server Command", "secret": False, "hint": "Optional custom MCP stdio command"},
+    {"group": "Tools / MCP", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Optional MCP timeout"},
+    {"group": "Tools / MCP", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Optional MCP protocol override"},
+    {"group": "Agentic / Multi-Agent", "key": "AGENTIC_MAX_STEPS", "label": "Agentic Max Steps", "secret": False, "hint": "Optional single-agent loop cap"},
+    {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "Optional multi-agent round cap"},
+    {"group": "Local TLS (Corp)", "key": "SSL_CERT_FILE", "label": "SSL_CERT_FILE", "secret": False, "hint": "Optional custom CA bundle (local corp envs)"},
+    {"group": "Local TLS (Corp)", "key": "REQUESTS_CA_BUNDLE", "label": "REQUESTS_CA_BUNDLE", "secret": False, "hint": "Optional custom CA bundle (requests/urllib)"},
+]
+
+
+def _env_local_read_lines() -> list[str]:
+    try:
+        return ENV_LOCAL_PATH.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+
+def _env_local_parse(lines: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for line in lines:
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        val = val.strip()
+        if (val.startswith("'") and val.endswith("'")) or (val.startswith('"') and val.endswith('"')):
+            val = val[1:-1]
+        parsed[key] = val
+    return parsed
+
+
+def _env_quote(value: str) -> str:
+    return "'" + str(value).replace("'", "'\"'\"'") + "'"
+
+
+def _settings_values() -> dict[str, str]:
+    file_map = _env_local_parse(_env_local_read_lines())
+    values: dict[str, str] = {}
+    for item in SETTINGS_SCHEMA:
+        key = str(item["key"])
+        values[key] = str(file_map.get(key, os.getenv(key, "")) or "")
+    return values
+
+
+def _settings_save(values: dict[str, str]) -> None:
+    schema_keys = {str(item["key"]) for item in SETTINGS_SCHEMA}
+    lines = _env_local_read_lines()
+    out_lines: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            out_lines.append(line)
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key in schema_keys and key in values:
+            out_lines.append(f"{key}={_env_quote(values.get(key, ''))}")
+            seen.add(key)
+        else:
+            out_lines.append(line)
+    if out_lines and out_lines[-1] != "":
+        out_lines.append("")
+    if not out_lines:
+        out_lines.append("# Local demo settings (generated by Settings panel)")
+        out_lines.append("")
+    for item in SETTINGS_SCHEMA:
+        key = str(item["key"])
+        if key in seen or key not in values:
+            continue
+        out_lines.append(f"{key}={_env_quote(values.get(key, ''))}")
+    ENV_LOCAL_PATH.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
+
+    # Apply a subset of values to the running process for best-effort live updates.
+    for key, value in values.items():
+        if value:
+            os.environ[key] = str(value)
+        else:
+            os.environ.pop(key, None)
+    global OLLAMA_URL, OLLAMA_MODEL, ANTHROPIC_MODEL, OPENAI_MODEL, ZS_PROXY_BASE_URL
+    OLLAMA_URL = os.getenv("OLLAMA_URL", OLLAMA_URL)
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", OLLAMA_MODEL)
+    ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL)
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", OPENAI_MODEL)
+    ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", ZS_PROXY_BASE_URL)
+
+
 def _proxy_block_message(stage: str, block_body: object) -> str:
     if not isinstance(block_body, dict):
         return f"This {stage} was blocked by AI Guard per Company Policy."
@@ -3558,6 +4373,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/settings":
+            self._send_json(
+                {
+                    "ok": True,
+                    "env_file": str(ENV_LOCAL_PATH),
+                    "schema": SETTINGS_SCHEMA,
+                    "values": _settings_values(),
+                    "restart_recommended": True,
+                    "security_note": "Local-only convenience panel. Saved values are stored in .env.local on this machine.",
+                }
+            )
+            return
         if self.path == "/mcp-status":
             try:
                 from mcp_client import mcp_client_from_env
@@ -3731,6 +4558,48 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": "Not found"}, status=404)
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.path == "/restart":
+            scheduled = _schedule_self_restart()
+            self._send_json(
+                {
+                    "ok": True,
+                    "scheduled": scheduled,
+                    "message": "Restart scheduled." if scheduled else "Restart already pending.",
+                },
+                status=200,
+            )
+            return
+
+        if self.path == "/settings":
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(content_length)
+            try:
+                data = json.loads(raw_body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "Invalid JSON"}, status=400)
+                return
+            incoming_values = data.get("values")
+            if not isinstance(incoming_values, dict):
+                self._send_json({"error": "values object is required"}, status=400)
+                return
+            allowed_keys = {str(item["key"]) for item in SETTINGS_SCHEMA}
+            normalized: dict[str, str] = {
+                str(k): str(v or "")
+                for k, v in incoming_values.items()
+                if str(k) in allowed_keys
+            }
+            _settings_save(normalized)
+            self._send_json(
+                {
+                    "ok": True,
+                    "saved_keys": sorted(normalized.keys()),
+                    "values": _settings_values(),
+                    "restart_recommended": True,
+                    "message": "Saved to .env.local. Restart is recommended for all server-side changes to take effect.",
+                }
+            )
+            return
+
         if self.path != "/chat":
             self._send_json({"error": "Not found"}, status=404)
             return

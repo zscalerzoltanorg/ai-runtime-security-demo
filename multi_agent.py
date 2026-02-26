@@ -5,7 +5,17 @@ from typing import Callable
 import agentic
 
 
-MULTI_AGENT_MAX_SPECIALIST_ROUNDS = int(os.getenv("MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "1"))
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+MULTI_AGENT_MAX_SPECIALIST_ROUNDS = _int_env("MULTI_AGENT_MAX_SPECIALIST_ROUNDS", 1)
 
 
 def _latest_user_prompt(messages: list[dict]) -> str:

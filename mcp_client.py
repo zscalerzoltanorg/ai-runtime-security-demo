@@ -199,7 +199,11 @@ def mcp_client_from_env() -> MCPClient | None:
             cmd_str = f"{shlex.quote(sys.executable)} {shlex.quote(local_server)}"
         else:
             return None
-    timeout = float(os.getenv("MCP_TIMEOUT_SECONDS", "15"))
+    raw_timeout = str(os.getenv("MCP_TIMEOUT_SECONDS", "")).strip()
+    try:
+        timeout = float(raw_timeout) if raw_timeout else 15.0
+    except ValueError:
+        timeout = 15.0
     command = shlex.split(cmd_str)
     if not command:
         return None

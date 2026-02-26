@@ -13,9 +13,19 @@ from zoneinfo import ZoneInfo
 from mcp_client import mcp_client_from_env
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 BRAVE_SEARCH_BASE_URL = os.getenv("BRAVE_SEARCH_BASE_URL", "https://api.search.brave.com")
-BRAVE_SEARCH_MAX_RESULTS = int(os.getenv("BRAVE_SEARCH_MAX_RESULTS", "5"))
-AGENTIC_MAX_STEPS = int(os.getenv("AGENTIC_MAX_STEPS", "3"))
+BRAVE_SEARCH_MAX_RESULTS = _int_env("BRAVE_SEARCH_MAX_RESULTS", 5)
+AGENTIC_MAX_STEPS = _int_env("AGENTIC_MAX_STEPS", 3)
 
 
 TOOLS = {

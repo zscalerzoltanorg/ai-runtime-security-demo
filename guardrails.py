@@ -9,10 +9,20 @@ DEFAULT_ZS_GUARDRAILS_URL = (
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _guardrails_config() -> tuple[str, str, float, str]:
     url = os.getenv("ZS_GUARDRAILS_URL", DEFAULT_ZS_GUARDRAILS_URL)
     api_key = os.getenv("ZS_GUARDRAILS_API_KEY", "")
-    timeout = float(os.getenv("ZS_GUARDRAILS_TIMEOUT_SECONDS", "15"))
+    timeout = _float_env("ZS_GUARDRAILS_TIMEOUT_SECONDS", 15.0)
     conversation_id_header = os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip()
     return url, api_key, timeout, conversation_id_header
 
