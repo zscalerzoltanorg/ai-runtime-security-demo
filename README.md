@@ -142,10 +142,10 @@ All model overrides are optional and can be configured later.
 ### Proxy mode
 
 - `ZS_PROXY_BASE_URL` (default shown in `.env.example`)
-- `ZS_PROXY_API_KEY` (or provider-specific keys)
-- Optional provider-specific proxy keys:
+- Provider-specific proxy keys:
   - `ANTHROPIC_ZS_PROXY_API_KEY`
   - `OPENAI_ZS_PROXY_API_KEY`
+  - `KONG_ZS_PROXY_API_KEY`
   - `LITELLM_ZS_PROXY_API_KEY`
   - `BEDROCK_INVOKE_ZS_PROXY_API_KEY`
   - `BEDROCK_AGENT_ZS_PROXY_API_KEY`

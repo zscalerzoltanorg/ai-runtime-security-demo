@@ -23,6 +23,7 @@ DEFAULT_PERPLEXITY_MODEL = _env_or_default("PERPLEXITY_MODEL", "sonar")
 DEFAULT_XAI_MODEL = _env_or_default("XAI_MODEL", "grok-4")
 DEFAULT_GEMINI_MODEL = _env_or_default("GEMINI_MODEL", "gemini-1.5-flash")
 DEFAULT_LITELLM_MODEL = _env_or_default("LITELLM_MODEL", "claude-3-haiku-20240307")
+DEFAULT_KONG_MODEL = _env_or_default("KONG_MODEL", "")
 DEFAULT_VERTEX_LOCATION = _env_or_default("VERTEX_LOCATION", "us-central1")
 DEFAULT_VERTEX_MODEL = _env_or_default("VERTEX_MODEL", "gemini-1.5-flash")
 DEFAULT_AZURE_AI_FOUNDRY_MODEL = _env_or_default("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini")
@@ -156,6 +157,7 @@ def available_providers() -> list[dict[str, str]]:
         {"id": "gemini", "label": "Google Gemini"},
         {"id": "vertex", "label": "Google Vertex"},
         {"id": "litellm", "label": "LiteLLM"},
+        {"id": "kong", "label": "Kong Gateway"},
         {"id": "azure_foundry", "label": "Azure AI Foundry"},
     ]
 
@@ -394,7 +396,7 @@ def _zscaler_proxy_sdk_config(
     ]
     proxy_key = ""
     proxy_key_source = ""
-    for env_name in provider_key_envs + ["ZS_PROXY_API_KEY"]:
+    for env_name in provider_key_envs:
         candidate = os.getenv(env_name, "").strip()
         if candidate:
             proxy_key = candidate
@@ -526,20 +528,61 @@ def _openai_compatible_chat_messages(
     messages: list[dict],
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    proxy_mode: bool = False,
+    proxy_provider_family: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv(api_key_env, "").strip()
     base_url = os.getenv(base_url_env, "").strip() or default_base_url
+    proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, _proxy_key_source = _zscaler_proxy_sdk_config(
+        proxy_provider_family or provider_name,
+        conversation_id,
+        demo_user,
+    )
+    effective_api_key = proxy_key if proxy_mode else api_key
+    effective_base_url = _openai_proxy_base_url(proxy_base_url) if proxy_mode else base_url
     normalized = _normalize_messages(messages)
     request_payload = {
         "model": model,
         "messages": normalized,
         "temperature": 0.2,
     }
+    if not str(model or "").strip():
+        return None, {
+            "error": f"{provider_name} model is not set.",
+            "status_code": 500,
+            "trace_step": {
+                "name": provider_name,
+                "request": {"method": "SDK", "url": "(not sent)", "headers": {}, "payload": request_payload},
+                "response": {"status": 500, "body": {"error": "Missing model setting"}},
+            },
+        }
+    if not proxy_mode and not str(base_url or "").strip():
+        return None, {
+            "error": f"{provider_name} base URL is not set.",
+            "status_code": 500,
+            "trace_step": {
+                "name": provider_name,
+                "request": {"method": "SDK", "url": "(not sent)", "headers": {}, "payload": request_payload},
+                "response": {"status": 500, "body": {"error": "Missing base URL setting"}},
+            },
+        }
     trace_request = {
         "method": "SDK",
-        "url": f"{base_url.rstrip('/')}/chat/completions ({provider_name} via OpenAI-compatible SDK)",
+        "url": (
+            f"{effective_base_url}/chat/completions (Zscaler Proxy -> {provider_name} via OpenAI-compatible SDK)"
+            if proxy_mode
+            else f"{base_url.rstrip('/')}/chat/completions ({provider_name} via OpenAI-compatible SDK)"
+        ),
         "headers": {
-            "Authorization": "Bearer ***redacted***" if api_key else "***missing***",
+            "Authorization": "Bearer ***redacted***" if effective_api_key else "***missing***",
+            **(
+                {
+                    k: ("***redacted***" if k.lower() == proxy_api_key_header_name.lower() else v)
+                    for k, v in proxy_headers.items()
+                }
+                if proxy_mode
+                else {}
+            ),
             **(
                 {os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip(): conversation_id}
                 if os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip() and conversation_id
@@ -550,14 +593,29 @@ def _openai_compatible_chat_messages(
         "payload": request_payload,
     }
 
-    if not api_key:
+    if not effective_api_key:
         return None, {
-            "error": f"{api_key_env} is not set.",
+            "error": (
+                f"{proxy_provider_family or provider_name} proxy key is not set. "
+                f"Set {(proxy_provider_family or provider_name).upper()}_ZS_PROXY_API_KEY "
+                f"(or {(proxy_provider_family or provider_name).upper()}_ZS_PROXY_KEY)."
+                if proxy_mode
+                else f"{api_key_env} is not set."
+            ),
             "status_code": 500,
             "trace_step": {
                 "name": provider_name,
                 "request": trace_request,
-                "response": {"status": 500, "body": {"error": f"Missing {api_key_env}"}},
+                "response": {
+                    "status": 500,
+                    "body": {
+                        "error": (
+                            "Missing provider-specific ZS proxy key"
+                            if proxy_mode
+                            else f"Missing {api_key_env}"
+                        ),
+                    },
+                },
             },
         }
 
@@ -583,7 +641,11 @@ def _openai_compatible_chat_messages(
         default_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
 
     try:
-        client = OpenAI(api_key=api_key, base_url=base_url, default_headers=default_headers or None)
+        client = OpenAI(
+            api_key=effective_api_key,
+            base_url=effective_base_url,
+            default_headers=(proxy_headers if proxy_mode else (default_headers or None)),
+        )
         resp = client.chat.completions.create(**request_payload)
         choice0 = (getattr(resp, "choices", None) or [None])[0]
         message_obj = getattr(choice0, "message", None)
@@ -621,10 +683,20 @@ def _openai_compatible_chat_messages(
                 err_body = None
             if err_body is None:
                 err_body = getattr(err_response, "text", None)
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=int(err_status or 0) if err_status else None,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
         return None, {
             "error": f"{provider_name} request failed.",
             "status_code": int(err_status or 502),
             "details": str(exc),
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
             "trace_step": {
                 "name": provider_name,
                 "request": trace_request,
@@ -832,7 +904,7 @@ def _anthropic_generate(
     if not effective_api_key:
         return None, {
             "error": (
-                "Anthropic proxy key is not set. Set ANTHROPIC_ZS_PROXY_API_KEY (or ANTHROPIC_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY."
+                "Anthropic proxy key is not set. Set ANTHROPIC_ZS_PROXY_API_KEY (or ANTHROPIC_ZS_PROXY_KEY)."
                 if proxy_mode
                 else "ANTHROPIC_API_KEY is not set."
             ),
@@ -843,10 +915,10 @@ def _anthropic_generate(
                 "response": {
                     "status": 500,
                     "body": {
-                        "error": "Missing ZS_PROXY_API_KEY" if proxy_mode else "Missing ANTHROPIC_API_KEY"
+                        "error": "Missing provider-specific ZS proxy key" if proxy_mode else "Missing ANTHROPIC_API_KEY"
                         ,
                         "proxy_key_envs_checked": (
-                            ["ANTHROPIC_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_KEY", "ZS_PROXY_API_KEY"]
+                            ["ANTHROPIC_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_KEY"]
                             if proxy_mode
                             else None
                         ),
@@ -1013,7 +1085,7 @@ def _anthropic_chat_messages(
     if not effective_api_key:
         return None, {
             "error": (
-                "Anthropic proxy key is not set. Set ANTHROPIC_ZS_PROXY_API_KEY (or ANTHROPIC_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY."
+                "Anthropic proxy key is not set. Set ANTHROPIC_ZS_PROXY_API_KEY (or ANTHROPIC_ZS_PROXY_KEY)."
                 if proxy_mode
                 else "ANTHROPIC_API_KEY is not set."
             ),
@@ -1024,10 +1096,10 @@ def _anthropic_chat_messages(
                 "response": {
                     "status": 500,
                     "body": {
-                        "error": "Missing ZS_PROXY_API_KEY" if proxy_mode else "Missing ANTHROPIC_API_KEY"
+                        "error": "Missing provider-specific ZS proxy key" if proxy_mode else "Missing ANTHROPIC_API_KEY"
                         ,
                         "proxy_key_envs_checked": (
-                            ["ANTHROPIC_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_KEY", "ZS_PROXY_API_KEY"]
+                            ["ANTHROPIC_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_KEY"]
                             if proxy_mode
                             else None
                         ),
@@ -1173,7 +1245,7 @@ def _openai_chat_messages(
     if not effective_api_key:
         return None, {
             "error": (
-                "OpenAI proxy key is not set. Set OPENAI_ZS_PROXY_API_KEY (or OPENAI_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY."
+                "OpenAI proxy key is not set. Set OPENAI_ZS_PROXY_API_KEY (or OPENAI_ZS_PROXY_KEY)."
                 if proxy_mode
                 else "OPENAI_API_KEY is not set."
             ),
@@ -1184,9 +1256,9 @@ def _openai_chat_messages(
                 "response": {
                     "status": 500,
                     "body": {
-                        "error": "Missing ZS_PROXY_API_KEY" if proxy_mode else "Missing OPENAI_API_KEY",
+                        "error": "Missing provider-specific ZS proxy key" if proxy_mode else "Missing OPENAI_API_KEY",
                         "proxy_key_envs_checked": (
-                            ["OPENAI_ZS_PROXY_API_KEY", "OPENAI_ZS_PROXY_KEY", "ZS_PROXY_API_KEY"]
+                            ["OPENAI_ZS_PROXY_API_KEY", "OPENAI_ZS_PROXY_KEY"]
                             if proxy_mode
                             else None
                         ),
@@ -1333,7 +1405,7 @@ def _bedrock_invoke_chat_messages(
         )
         if not proxy_key:
             return None, {
-                "error": "Bedrock proxy key is not set. Set BEDROCK_INVOKE_ZS_PROXY_API_KEY (or BEDROCK_INVOKE_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY.",
+                "error": "Bedrock proxy key is not set. Set BEDROCK_INVOKE_ZS_PROXY_API_KEY (or BEDROCK_INVOKE_ZS_PROXY_KEY).",
                 "status_code": 500,
                 "trace_step": {
                     "name": "AWS Bedrock (Nova Lite)",
@@ -1343,7 +1415,7 @@ def _bedrock_invoke_chat_messages(
                         "headers": trace_headers,
                         "payload": request_payload,
                     },
-                    "response": {"status": 500, "body": {"error": "Missing ZS_PROXY_API_KEY"}},
+                    "response": {"status": 500, "body": {"error": "Missing provider-specific ZS proxy key"}},
                 },
             }
         try:
@@ -1489,7 +1561,7 @@ def _bedrock_agent_chat_messages(
         )
         if not proxy_key:
             return None, {
-                "error": "Bedrock Agent proxy key is not set. Set BEDROCK_AGENT_ZS_PROXY_API_KEY (or BEDROCK_AGENT_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY.",
+                "error": "Bedrock Agent proxy key is not set. Set BEDROCK_AGENT_ZS_PROXY_API_KEY (or BEDROCK_AGENT_ZS_PROXY_KEY).",
                 "status_code": 500,
                 "trace_step": {
                     "name": "AWS Bedrock Agent",
@@ -1499,7 +1571,7 @@ def _bedrock_agent_chat_messages(
                         "headers": trace_headers,
                         "payload": request_payload,
                     },
-                    "response": {"status": 500, "body": {"error": "Missing ZS_PROXY_API_KEY"}},
+                    "response": {"status": 500, "body": {"error": "Missing provider-specific ZS proxy key"}},
                 },
             }
         try:
@@ -1814,16 +1886,37 @@ def call_provider_messages(
             f"include_tools_flag={include_flag} provider_supports_tools={provider == 'anthropic'}"
         )
     aws_region = os.getenv("AWS_REGION", DEFAULT_AWS_REGION).strip() or DEFAULT_AWS_REGION
-    if zscaler_proxy_mode and provider not in {"anthropic", "openai", "bedrock_invoke", "bedrock_agent"}:
-        return None, {
-            "error": "Zscaler Proxy Mode is currently supported for Anthropic, OpenAI, AWS Bedrock, and AWS Bedrock Agent in this demo. Use DAS/API mode for the selected provider.",
-            "status_code": 400,
-            "trace_step": {
-                "name": "Provider Selection",
-                "request": {"provider": provider_id, "zscaler_proxy_mode": True},
-                "response": {"status": 400, "body": {"error": "Unsupported provider for proxy mode"}},
-            },
+    if zscaler_proxy_mode:
+        if provider in {"ollama", "litellm"}:
+            return None, {
+                "error": "Zscaler Proxy Mode is disabled for Ollama and LiteLLM in this demo. Choose API/DAS mode or another provider.",
+                "status_code": 400,
+                "trace_step": {
+                    "name": "Provider Selection",
+                    "request": {"provider": provider_id, "zscaler_proxy_mode": True},
+                    "response": {"status": 400, "body": {"error": "Unsupported provider for proxy mode"}},
+                },
+            }
+        proxy_wired = {
+            "anthropic",
+            "openai",
+            "bedrock_invoke",
+            "bedrock_agent",
+            "perplexity",
+            "xai",
+            "azure_foundry",
+            "kong",
         }
+        if provider not in proxy_wired:
+            return None, {
+                "error": f"Zscaler Proxy Mode is not wired yet for provider `{provider}` in backend calls. Choose API/DAS mode for this provider.",
+                "status_code": 400,
+                "trace_step": {
+                    "name": "Provider Selection",
+                    "request": {"provider": provider_id, "zscaler_proxy_mode": True},
+                    "response": {"status": 400, "body": {"error": "Proxy mode backend not wired for provider"}},
+                },
+            }
     if provider == "anthropic":
         return _anthropic_chat_messages(
             messages,
@@ -1868,6 +1961,8 @@ def call_provider_messages(
             messages=messages,
             conversation_id=conversation_id,
             demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="PERPLEXITY",
         )
     if provider == "xai":
         return _openai_compatible_chat_messages(
@@ -1879,6 +1974,8 @@ def call_provider_messages(
             messages=messages,
             conversation_id=conversation_id,
             demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="XAI",
         )
     if provider == "gemini":
         return _gemini_chat_messages(
@@ -1905,6 +2002,19 @@ def call_provider_messages(
             conversation_id=conversation_id,
             demo_user=demo_user,
         )
+    if provider == "kong":
+        return _openai_compatible_chat_messages(
+            provider_name="Kong Gateway",
+            api_key_env="KONG_API_KEY",
+            model=os.getenv("KONG_MODEL", DEFAULT_KONG_MODEL).strip(),
+            default_base_url=os.getenv("KONG_BASE_URL", "").strip(),
+            base_url_env="KONG_BASE_URL",
+            messages=messages,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="KONG",
+        )
     if provider == "azure_foundry":
         return _openai_compatible_chat_messages(
             provider_name="Azure AI Foundry",
@@ -1915,6 +2025,8 @@ def call_provider_messages(
             messages=messages,
             conversation_id=conversation_id,
             demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="AZURE_FOUNDRY",
         )
     if provider != "ollama":
         return None, {

@@ -401,6 +401,16 @@ HTML = f"""<!doctype html>
         color: var(--muted);
         font-size: 0.82rem;
       }}
+      .status-pill.pill-tested {{
+        background: #ecfeff;
+        border-color: #67e8f9;
+        color: #0e7490;
+      }}
+      .status-pill.pill-untested {{
+        background: #fff7ed;
+        border-color: #fdba74;
+        color: #9a3412;
+      }}
       .status-dot {{
         width: 9px;
         height: 9px;
@@ -460,6 +470,49 @@ HTML = f"""<!doctype html>
       }}
       .toggle-label {{
         font-weight: 500;
+      }}
+      .mode-toggle {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 6px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: #fff;
+      }}
+      .mode-toggle.disabled {{
+        opacity: 0.55;
+      }}
+      .mode-toggle-label {{
+        font-size: 0.82rem;
+        color: var(--muted);
+        font-weight: 700;
+      }}
+      .mode-toggle-buttons {{
+        display: inline-flex;
+        gap: 4px;
+      }}
+      .mode-toggle-btn {{
+        border: 1px solid #d1d5db;
+        background: #f8fafc;
+        color: #374151;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 0.78rem;
+        line-height: 1;
+        font-weight: 700;
+      }}
+      .mode-toggle-btn:hover {{
+        background: #f1f5f9;
+      }}
+      .mode-toggle-btn.active {{
+        background: #ecfeff;
+        border-color: #67e8f9;
+        color: #0e7490;
+      }}
+      .mode-toggle-btn:disabled {{
+        opacity: 0.65;
+        cursor: not-allowed;
       }}
       .response {{
         margin-top: 16px;
@@ -1030,11 +1083,30 @@ HTML = f"""<!doctype html>
       .settings-group-title {{
         font-weight: 700;
       }}
+      .settings-group-body {{
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }}
+      .settings-subgroup {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fcfcfd;
+        overflow: hidden;
+      }}
+      .settings-subgroup-title {{
+        padding: 8px 10px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #334155;
+        background: #f8fafc;
+        border-bottom: 1px solid var(--border);
+      }}
       .settings-grid {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         gap: 10px;
-        padding: 12px;
+        padding: 10px;
       }}
       .settings-field {{
         display: grid;
@@ -1155,11 +1227,12 @@ HTML = f"""<!doctype html>
               <select id="providerSelect" class="provider-select">
               <option value="ollama" selected>Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
-              <option value="azure_foundry">Azure AI Foundry (Untested)</option>
+              <option value="azure_foundry">Azure AI Foundry</option>
               <option value="bedrock_invoke">AWS Bedrock</option>
               <option value="bedrock_agent">AWS Bedrock Agent</option>
-              <option value="gemini">Google Gemini (Untested)</option>
-              <option value="vertex">Google Vertex (Untested)</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="vertex">Google Vertex</option>
+              <option value="kong">Kong Gateway</option>
               <option value="litellm">LiteLLM</option>
               <option value="openai">OpenAI</option>
               <option value="perplexity">Perplexity</option>
@@ -1192,6 +1265,16 @@ HTML = f"""<!doctype html>
             <div class="toggle-section">
               <div class="toggle-section-title">Execution</div>
               <div class="toggle-section-body">
+            <div id="agentModeWrap" class="mode-toggle" title="Choose Off, Agentic, or Multi-Agent mode.">
+              <span class="mode-toggle-label">Agent Mode</span>
+              <div class="mode-toggle-buttons">
+                <button id="agentModeOffBtn" class="mode-toggle-btn active" type="button">Off</button>
+                <button id="agentModeAgenticBtn" class="mode-toggle-btn" type="button">Agentic</button>
+                <button id="agentModeMultiBtn" class="mode-toggle-btn" type="button">Multi-Agent</button>
+              </div>
+              <input id="agenticToggle" type="checkbox" aria-label="Toggle agentic mode" style="display:none;" />
+              <input id="multiAgentToggle" type="checkbox" aria-label="Toggle multi-agent mode" style="display:none;" />
+            </div>
             <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Allow tools during Agentic or Multi-Agent runs (MCP/local tools).">
               <input id="toolsToggle" type="checkbox" role="switch" aria-label="Toggle tools runtime (MCP planned)" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -1202,39 +1285,36 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Local Tasks</span>
             </label>
-            <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent mode: plan, optionally call tools, then return a final answer.">
-              <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
-              <span class="toggle-track" aria-hidden="true"></span>
-              <span class="toggle-label">Agentic Mode</span>
-            </label>
-            <label id="multiAgentToggleWrap" class="toggle-wrap" for="multiAgentToggle" title="Multi-agent mode: orchestrator, researcher, reviewer, and finalizer collaborate per request.">
-              <input id="multiAgentToggle" type="checkbox" role="switch" aria-label="Toggle multi-agent mode" />
-              <span class="toggle-track" aria-hidden="true"></span>
-              <span class="toggle-label">Multi-Agent Mode</span>
-            </label>
-            <label class="toggle-wrap" for="multiTurnToggle" title="Keep chat history across turns (context is sent with each new message).">
-              <input id="multiTurnToggle" type="checkbox" role="switch" aria-label="Toggle multi-turn chat mode" />
-              <span class="toggle-track" aria-hidden="true"></span>
-              <span class="toggle-label">Multi-turn Chat</span>
-            </label>
+            <div id="chatModeWrap" class="mode-toggle" title="Single Turn sends only the latest prompt. Multi Turn keeps conversation history.">
+              <span class="mode-toggle-label">Chat Context</span>
+              <div class="mode-toggle-buttons">
+                <button id="chatModeSingleBtn" class="mode-toggle-btn active" type="button">Single Turn</button>
+                <button id="chatModeMultiBtn" class="mode-toggle-btn" type="button">Multi Turn</button>
+              </div>
+              <input id="multiTurnToggle" type="checkbox" aria-label="Toggle multi-turn chat mode" style="display:none;" />
+            </div>
               </div>
             </div>
 
             <div class="toggle-section">
               <div class="toggle-section-title">Security</div>
               <div class="toggle-section-body">
-            <label class="toggle-wrap" for="guardrailsToggle" title="Enable Zscaler AI Guard enforcement for this request path.">
-              <input id="guardrailsToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler AI Guard" />
-              <span class="toggle-track" aria-hidden="true"></span>
-              <span class="toggle-label">Zscaler AI Guard</span>
-            </label>
-            <label id="zscalerProxyModeWrap" class="toggle-wrap disabled" for="zscalerProxyModeToggle" title="Enable Zscaler Proxy Mode (supported for Anthropic, OpenAI, AWS Bedrock, and AWS Bedrock Agent). Requires Zscaler AI Guard to be ON.">
-              <span class="toggle-label" style="color: var(--muted);">Mode:</span>
-              <span id="zscalerModeLeftLabel" class="toggle-label" style="color: var(--muted); font-weight: 700;">API/DAS</span>
-              <input id="zscalerProxyModeToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler Proxy Mode" disabled />
-              <span class="toggle-track" aria-hidden="true"></span>
-              <span id="zscalerModeRightLabel" class="toggle-label">Proxy</span>
-            </label>
+            <div id="zscalerGuardModeWrap" class="mode-toggle" title="Enable or disable Zscaler AI Guard for this request path.">
+              <span class="mode-toggle-label">Zscaler AI Guard</span>
+              <div class="mode-toggle-buttons">
+                <button id="zscalerGuardOffBtn" class="mode-toggle-btn active" type="button">Off</button>
+                <button id="zscalerGuardOnBtn" class="mode-toggle-btn" type="button">On</button>
+              </div>
+              <input id="guardrailsToggle" type="checkbox" aria-label="Toggle Zscaler AI Guard" style="display:none;" />
+            </div>
+            <div id="zscalerProxyModeWrap" class="mode-toggle disabled" title="Choose Zscaler mode. Proxy is disabled only for Ollama and LiteLLM in this demo.">
+              <span class="mode-toggle-label">Mode</span>
+              <div class="mode-toggle-buttons">
+                <button id="zscalerModeApiBtn" class="mode-toggle-btn active" type="button">API/DAS</button>
+                <button id="zscalerModeProxyBtn" class="mode-toggle-btn" type="button">Proxy</button>
+              </div>
+              <input id="zscalerProxyModeToggle" type="checkbox" aria-label="Toggle Zscaler Proxy Mode" style="display:none;" />
+            </div>
                 <span id="status" class="status">Idle</span>
               </div>
             </div>
@@ -1391,7 +1471,7 @@ HTML = f"""<!doctype html>
           <div class="settings-foot">
             <div class="settings-foot-note" id="settingsFootNote">Local-only configuration editor for demo/lab use.</div>
             <div class="settings-actions">
-              <button id="settingsReloadBtn" class="secondary" type="button">Reload</button>
+              <button id="settingsReloadBtn" class="secondary" type="button" title="Reload settings from backend (.env.local + env). Unsaved edits in this dialog will be replaced.">Reload From Source</button>
               <button id="settingsSaveBtn" type="button">Save Settings</button>
             </div>
           </div>
@@ -1418,10 +1498,13 @@ HTML = f"""<!doctype html>
       const presetGroupsEl = document.getElementById("presetGroups");
       const logListEl = document.getElementById("logList");
       const guardrailsToggleEl = document.getElementById("guardrailsToggle");
+      const zscalerGuardModeWrapEl = document.getElementById("zscalerGuardModeWrap");
+      const zscalerGuardOffBtnEl = document.getElementById("zscalerGuardOffBtn");
+      const zscalerGuardOnBtnEl = document.getElementById("zscalerGuardOnBtn");
       const zscalerProxyModeWrapEl = document.getElementById("zscalerProxyModeWrap");
+      const zscalerModeApiBtnEl = document.getElementById("zscalerModeApiBtn");
+      const zscalerModeProxyBtnEl = document.getElementById("zscalerModeProxyBtn");
       const zscalerProxyModeToggleEl = document.getElementById("zscalerProxyModeToggle");
-      const zscalerModeLeftLabelEl = document.getElementById("zscalerModeLeftLabel");
-      const zscalerModeRightLabelEl = document.getElementById("zscalerModeRightLabel");
       const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
       const providerTestPillEl = document.getElementById("providerTestPill");
@@ -1434,6 +1517,9 @@ HTML = f"""<!doctype html>
       const settingsGroupsEl = document.getElementById("settingsGroups");
       const settingsStatusTextEl = document.getElementById("settingsStatusText");
       const settingsFootNoteEl = document.getElementById("settingsFootNote");
+      const chatModeWrapEl = document.getElementById("chatModeWrap");
+      const chatModeSingleBtnEl = document.getElementById("chatModeSingleBtn");
+      const chatModeMultiBtnEl = document.getElementById("chatModeMultiBtn");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
@@ -1451,9 +1537,11 @@ HTML = f"""<!doctype html>
       const awsAuthPillEl = document.getElementById("awsAuthPill");
       const awsAuthDotEl = document.getElementById("awsAuthDot");
       const awsAuthTextEl = document.getElementById("awsAuthText");
-      const agenticToggleWrapEl = document.getElementById("agenticToggleWrap");
+      const agentModeWrapEl = document.getElementById("agentModeWrap");
+      const agentModeOffBtnEl = document.getElementById("agentModeOffBtn");
+      const agentModeAgenticBtnEl = document.getElementById("agentModeAgenticBtn");
+      const agentModeMultiBtnEl = document.getElementById("agentModeMultiBtn");
       const agenticToggleEl = document.getElementById("agenticToggle");
-      const multiAgentToggleWrapEl = document.getElementById("multiAgentToggleWrap");
       const multiAgentToggleEl = document.getElementById("multiAgentToggle");
       const codeAutoBtn = document.getElementById("codeAutoBtn");
       const codeBeforeBtn = document.getElementById("codeBeforeBtn");
@@ -1511,13 +1599,23 @@ HTML = f"""<!doctype html>
         bedrock_agent: "Bedrock Agent (agent + alias config)",
         gemini: "{providers.DEFAULT_GEMINI_MODEL}",
         vertex: "{providers.DEFAULT_VERTEX_MODEL}",
+        kong: "{providers.DEFAULT_KONG_MODEL}",
         litellm: "{providers.DEFAULT_LITELLM_MODEL}",
         ollama: "{OLLAMA_MODEL}",
         openai: "{OPENAI_MODEL}",
         perplexity: "{providers.DEFAULT_PERPLEXITY_MODEL}",
         xai: "{providers.DEFAULT_XAI_MODEL}"
       }};
-      const testedProviderSet = new Set(["ollama", "anthropic", "openai", "litellm", "perplexity", "xai"]);
+      const testedProviderSet = new Set([
+        "ollama",
+        "anthropic",
+        "openai",
+        "litellm",
+        "perplexity",
+        "xai",
+        "bedrock_invoke",
+        "bedrock_agent"
+      ]);
 
       function pretty(obj) {{
         try {{
@@ -1553,6 +1651,12 @@ HTML = f"""<!doctype html>
         return multiTurnToggleEl.checked ? "multi" : "single";
       }}
 
+      function syncChatContextModeState() {{
+        const isMulti = currentChatMode() === "multi";
+        chatModeSingleBtnEl.classList.toggle("active", !isMulti);
+        chatModeMultiBtnEl.classList.toggle("active", isMulti);
+      }}
+
       function currentDemoUser() {{
         return String((demoUserSelectEl && demoUserSelectEl.value) || "").trim();
       }}
@@ -1574,6 +1678,8 @@ HTML = f"""<!doctype html>
         providerTestPillEl.textContent = tested
           ? "Provider: tested"
           : "Provider: untested";
+        providerTestPillEl.classList.toggle("pill-tested", tested);
+        providerTestPillEl.classList.toggle("pill-untested", !tested);
         providerTestPillEl.title = tested
           ? "Validated in this demo: provider path tested end-to-end"
           : "Not yet validated in this demo environment. Configure and test before relying on it.";
@@ -1623,6 +1729,41 @@ HTML = f"""<!doctype html>
         return item && item.secret ? "password" : "text";
       }}
 
+      function _settingsFieldRank(groupName, item) {{
+        const key = String(item?.key || "");
+        if (groupName === "Zscaler AI Guard Proxy") {{
+          const explicit = {{
+            ZS_PROXY_BASE_URL: 0,
+            ZS_PROXY_API_KEY_HEADER_NAME: 1,
+          }};
+          if (Object.prototype.hasOwnProperty.call(explicit, key)) return explicit[key];
+          return 100;
+        }}
+        const upper = key.toUpperCase();
+        if (upper.includes("BASE_URL") || upper.endsWith("_URL")) return 0;
+        if (
+          upper.includes("API_KEY") ||
+          upper.includes("ACCESS_KEY") ||
+          upper.endsWith("_TOKEN") ||
+          upper.includes("SECRET")
+        ) {{
+          return 1;
+        }}
+        if (upper.includes("MODEL")) return 2;
+        return 3;
+      }}
+
+      function _sortSettingsFields(groupName, items) {{
+        return [...items].sort((a, b) => {{
+          const aRank = _settingsFieldRank(groupName, a);
+          const bRank = _settingsFieldRank(groupName, b);
+          if (aRank !== bRank) return aRank - bRank;
+          const aLabel = String(a?.label || a?.key || "");
+          const bLabel = String(b?.label || b?.key || "");
+          return aLabel.localeCompare(bLabel, undefined, {{ sensitivity: "base" }});
+        }});
+      }}
+
       function _renderSettingsGroups() {{
         const grouped = new Map();
         for (const item of (Array.isArray(settingsSchema) ? settingsSchema : [])) {{
@@ -1630,8 +1771,44 @@ HTML = f"""<!doctype html>
           if (!grouped.has(group)) grouped.set(group, []);
           grouped.get(group).push(item);
         }}
-        settingsGroupsEl.innerHTML = Array.from(grouped.entries()).map(([groupName, items]) => {{
-          const fields = items.map((item) => {{
+        const pinnedGroups = ["App", "Zscaler AI Guard DAS/API", "Zscaler AI Guard Proxy"];
+        const sortedGroups = Array.from(grouped.entries()).sort((a, b) => {{
+          const aName = String(a[0] || "");
+          const bName = String(b[0] || "");
+          const aPinnedIdx = pinnedGroups.indexOf(aName);
+          const bPinnedIdx = pinnedGroups.indexOf(bName);
+          if (aPinnedIdx >= 0 && bPinnedIdx >= 0) return aPinnedIdx - bPinnedIdx;
+          if (aPinnedIdx >= 0) return -1;
+          if (bPinnedIdx >= 0) return 1;
+          return aName.localeCompare(bName, undefined, {{ sensitivity: "base" }});
+        }});
+        settingsGroupsEl.innerHTML = sortedGroups.map(([groupName, items]) => {{
+          const subgroupMap = new Map();
+          for (const item of items) {{
+            const subgroup = String(item.subgroup || "").trim() || "_default";
+            if (!subgroupMap.has(subgroup)) subgroupMap.set(subgroup, []);
+            subgroupMap.get(subgroup).push(item);
+          }}
+          const subgroupOrder = {{
+            AWS: ["Shared Credentials", "Bedrock Runtime", "Bedrock Agent"],
+            "Tools / MCP": ["Core Connections", "Local Tasks", "LLM Tool Payload", "Advanced"],
+            "Zscaler AI Guard Proxy": ["Core Config", "Provider Keys"],
+          }};
+          const orderedSubgroups = Array.from(subgroupMap.entries()).sort((a, b) => {{
+            const order = subgroupOrder[groupName] || [];
+            const aName = a[0];
+            const bName = b[0];
+            const aIdx = order.indexOf(aName);
+            const bIdx = order.indexOf(bName);
+            if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+            if (aIdx >= 0) return -1;
+            if (bIdx >= 0) return 1;
+            return aName.localeCompare(bName, undefined, {{ sensitivity: "base" }});
+          }});
+
+          const subgroupBlocks = orderedSubgroups.map(([subgroupName, subgroupItems]) => {{
+            const sortedItems = _sortSettingsFields(groupName, subgroupItems);
+            const fields = sortedItems.map((item) => {{
             const key = String(item.key || "");
             const val = settingsValues[key] ?? "";
             const revealBtn = item.secret
@@ -1652,17 +1829,28 @@ HTML = f"""<!doctype html>
                   />
                   ${{revealBtn}}
                 </div>
-                <div class="hint">${{escapeHtml(item.desc || "")}}</div>
+                <div class="hint">${{escapeHtml(item.hint || item.desc || "")}}</div>
+              </div>
+            `;
+            }}).join("");
+            if (subgroupName === "_default") {{
+              return `<div class="settings-grid">${{fields}}</div>`;
+            }}
+            return `
+              <div class="settings-subgroup">
+                <div class="settings-subgroup-title">${{escapeHtml(subgroupName)}}</div>
+                <div class="settings-grid">${{fields}}</div>
               </div>
             `;
           }}).join("");
+
           return `
             <div class="settings-group">
               <div class="settings-group-head">
                 <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
                 <span class="status">${{items.length}} variable${{items.length === 1 ? "" : "s"}}</span>
               </div>
-              <div class="settings-grid">${{fields}}</div>
+              <div class="settings-group-body">${{subgroupBlocks}}</div>
             </div>
           `;
         }}).join("");
@@ -1749,10 +1937,14 @@ HTML = f"""<!doctype html>
       }}
 
       function syncToolsToggleState() {{
-        const toolsEligible = !!agenticToggleEl.checked || !!multiAgentToggleEl.checked;
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        const isBedrockAgentProvider = provider === "bedrock_agent";
+        const toolsEligible = !isBedrockAgentProvider && (!!agenticToggleEl.checked || !!multiAgentToggleEl.checked);
         toolsToggleEl.disabled = !toolsEligible;
         toolsToggleWrapEl.classList.toggle("disabled", !toolsEligible);
-        toolsToggleWrapEl.title = toolsEligible
+        toolsToggleWrapEl.title = isBedrockAgentProvider
+          ? "Tools/MCP is disabled for Bedrock Agent provider because orchestration is handled by Bedrock Agent."
+          : toolsEligible
           ? "Tools runtime for agentic or multi-agent mode. MCP transport integration is supported for the bundled/local MCP server."
           : "Tools requires Agentic Mode or Multi-Agent Mode. Enable one first.";
         if (!toolsEligible) {{
@@ -1761,10 +1953,14 @@ HTML = f"""<!doctype html>
       }}
 
       function syncLocalTasksToggleState() {{
-        const eligible = (!!agenticToggleEl.checked || !!multiAgentToggleEl.checked) && !!toolsToggleEl.checked;
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        const isBedrockAgentProvider = provider === "bedrock_agent";
+        const eligible = !isBedrockAgentProvider && ((!!agenticToggleEl.checked || !!multiAgentToggleEl.checked) && !!toolsToggleEl.checked);
         localTasksToggleEl.disabled = !eligible;
         localTasksToggleWrapEl.classList.toggle("disabled", !eligible);
-        localTasksToggleWrapEl.title = eligible
+        localTasksToggleWrapEl.title = isBedrockAgentProvider
+          ? "Local Tasks is disabled for Bedrock Agent provider because app-side orchestration/tools are disabled."
+          : eligible
           ? "Enable safe local task tools (whoami, pwd, local directory listing/sizes, and curl-like HTTP requests)."
           : "Local Tasks requires Tools (MCP) and Agentic or Multi-Agent mode.";
         if (!eligible) {{
@@ -1773,53 +1969,60 @@ HTML = f"""<!doctype html>
       }}
 
       function syncAgentModeExclusivityState() {{
-        const agenticOn = !!agenticToggleEl.checked;
-        const multiAgentOn = !!multiAgentToggleEl.checked;
-
-        const disableMultiAgent = agenticOn;
-        const disableAgentic = multiAgentOn;
-
-        multiAgentToggleEl.disabled = disableMultiAgent;
-        multiAgentToggleWrapEl.classList.toggle("disabled", disableMultiAgent);
-        multiAgentToggleWrapEl.title = disableMultiAgent
-          ? "Disable Agentic Mode to enable Multi-Agent Mode."
-          : "Orchestrator + specialist agents (researcher, reviewer, finalizer). Uses the selected provider and optional tools.";
-
-        agenticToggleEl.disabled = disableAgentic;
-        agenticToggleWrapEl.classList.toggle("disabled", disableAgentic);
-        agenticToggleWrapEl.title = disableAgentic
-          ? "Disable Multi-Agent Mode to enable Agentic Mode."
-          : "Single-agent multi-step loop that can call tools and then finalize a response.";
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        const isBedrockAgentProvider = provider === "bedrock_agent";
+        const mode = multiAgentToggleEl.checked ? "multi" : (agenticToggleEl.checked ? "agentic" : "off");
+        agentModeOffBtnEl.classList.toggle("active", mode === "off");
+        agentModeAgenticBtnEl.classList.toggle("active", mode === "agentic");
+        agentModeMultiBtnEl.classList.toggle("active", mode === "multi");
+        if (isBedrockAgentProvider) {{
+          agenticToggleEl.checked = false;
+          multiAgentToggleEl.checked = false;
+          agenticToggleEl.disabled = false;
+          multiAgentToggleEl.disabled = false;
+          agentModeWrapEl.classList.add("disabled");
+          agentModeWrapEl.title = "Disabled for Bedrock Agent provider (provider already performs orchestration).";
+          agentModeOffBtnEl.classList.add("active");
+          agentModeAgenticBtnEl.classList.remove("active");
+          agentModeMultiBtnEl.classList.remove("active");
+          agentModeOffBtnEl.disabled = true;
+          agentModeAgenticBtnEl.disabled = true;
+          agentModeMultiBtnEl.disabled = true;
+          return;
+        }}
+        agentModeWrapEl.classList.remove("disabled");
+        agentModeWrapEl.title = "Choose Off, Agentic, or Multi-Agent mode.";
+        agentModeOffBtnEl.disabled = false;
+        agentModeAgenticBtnEl.disabled = false;
+        agentModeMultiBtnEl.disabled = false;
       }}
 
       function syncZscalerProxyModeState() {{
         const guardrailsOn = !!guardrailsToggleEl.checked;
         const provider = (providerSelectEl.value || "ollama").toLowerCase();
         const supportsProxyMode =
-          provider === "anthropic" ||
-          provider === "openai" ||
-          provider === "bedrock_invoke" ||
-          provider === "bedrock_agent";
-        const enabled = guardrailsOn && supportsProxyMode;
-        zscalerProxyModeToggleEl.disabled = !enabled;
-        zscalerProxyModeWrapEl.classList.toggle("disabled", !enabled);
-        if (!enabled) {{
+          provider !== "ollama" &&
+          provider !== "litellm";
+        const modeEnabled = guardrailsOn;
+        zscalerGuardOffBtnEl.classList.toggle("active", !guardrailsOn);
+        zscalerGuardOnBtnEl.classList.toggle("active", guardrailsOn);
+        zscalerGuardModeWrapEl.title = "Enable or disable Zscaler AI Guard for this request path.";
+        zscalerModeApiBtnEl.disabled = !modeEnabled;
+        zscalerModeProxyBtnEl.disabled = !modeEnabled || !supportsProxyMode;
+        zscalerProxyModeWrapEl.classList.toggle("disabled", !modeEnabled);
+        if (!guardrailsOn || !supportsProxyMode) {{
           zscalerProxyModeToggleEl.checked = false;
         }}
         if (!guardrailsOn) {{
-          zscalerProxyModeWrapEl.title = "Enable Zscaler AI Guard first, then choose DAS/API Mode or Proxy Mode.";
+          zscalerProxyModeWrapEl.title = "Enable Zscaler AI Guard first, then choose API/DAS Mode or Proxy Mode.";
         }} else if (!supportsProxyMode) {{
-          zscalerProxyModeWrapEl.title = "Proxy Mode is supported for Anthropic, OpenAI, AWS Bedrock, and AWS Bedrock Agent. Other providers use DAS/API mode.";
+          zscalerProxyModeWrapEl.title = "Proxy Mode is disabled for Ollama and LiteLLM in this demo. Select another provider or use API/DAS mode.";
         }} else {{
-          zscalerProxyModeWrapEl.title = "Send provider SDK requests through Zscaler AI Guard Proxy Mode (instead of DAS/API IN/OUT checks).";
+          zscalerProxyModeWrapEl.title = "Choose API/DAS checks or send provider SDK requests through Zscaler AI Guard Proxy Mode.";
         }}
-        if (zscalerModeLeftLabelEl && zscalerModeRightLabelEl) {{
-          const proxyOn = !!zscalerProxyModeToggleEl.checked && enabled;
-          zscalerModeLeftLabelEl.style.color = proxyOn ? "var(--muted)" : "var(--ink)";
-          zscalerModeLeftLabelEl.style.fontWeight = proxyOn ? "500" : "700";
-          zscalerModeRightLabelEl.style.color = proxyOn ? "var(--ink)" : "var(--muted)";
-          zscalerModeRightLabelEl.style.fontWeight = proxyOn ? "700" : "500";
-        }}
+        const proxyOn = !!zscalerProxyModeToggleEl.checked && guardrailsOn && supportsProxyMode;
+        zscalerModeApiBtnEl.classList.toggle("active", !proxyOn);
+        zscalerModeProxyBtnEl.classList.toggle("active", proxyOn);
       }}
 
       function setMcpStatus(kind, text) {{
@@ -2085,6 +2288,7 @@ HTML = f"""<!doctype html>
         const p = (providerSelectEl.value || "ollama").toLowerCase();
         if (p === "ollama") return "Querying local Ollama model";
         if (p === "litellm") return "Sending request to LiteLLM gateway";
+        if (p === "kong") return "Sending request to Kong Gateway";
         if (p === "bedrock_invoke") return "Calling AWS Bedrock";
         if (p === "bedrock_agent") return "Calling AWS Bedrock Agent";
         if (p === "azure_foundry") return "Calling Azure AI Foundry";
@@ -2176,6 +2380,7 @@ HTML = f"""<!doctype html>
       function updateChatModeUI() {{
         responseEl.style.display = "none";
         conversationViewEl.style.display = "block";
+        syncChatContextModeState();
         renderConversation();
       }}
 
@@ -2522,6 +2727,7 @@ HTML = f"""<!doctype html>
         if (providerId === "xai") return "xAI (Grok)";
         if (providerId === "gemini") return "Google Gemini";
         if (providerId === "vertex") return "Google Vertex";
+        if (providerId === "kong") return "Kong Gateway";
         if (providerId === "litellm") return "LiteLLM";
         if (providerId === "azure_foundry") return "Azure AI Foundry";
         return providerId;
@@ -2547,7 +2753,7 @@ HTML = f"""<!doctype html>
       }}
 
       function _extractGatewayDownstreamMeta(providerId, providerStep) {{
-        if (String(providerId || "").toLowerCase() !== "litellm") return {{}};
+        if (!["litellm", "kong"].includes(String(providerId || "").toLowerCase())) return {{}};
         const step = providerStep || {{}};
         const req = (step.request && typeof step.request === "object") ? step.request : {{}};
         const res = (step.response && typeof step.response === "object") ? step.response : {{}};
@@ -2584,25 +2790,26 @@ HTML = f"""<!doctype html>
         }}
 
         const inferredProvider = _inferProviderFromModelName(responseModel || requestedModel);
+        const gatewayName = providerId === "kong" ? "Kong" : "LiteLLM";
         const meta = {{
-          "Gateway Type": "LLM Gateway / Proxy (LiteLLM)",
+          "Gateway Type": providerId === "kong" ? "LLM Gateway / Proxy (Kong)" : "LLM Gateway / Proxy (LiteLLM)",
           "Downstream Visibility": observedProvider
-            ? "Observed from LiteLLM response metadata"
+            ? `Observed from ${{gatewayName}} response metadata`
             : (inferredProvider ? "Inferred from model name only" : "Not visible to client"),
-          "Requested Model (to LiteLLM)": requestedModel || "",
-          "Response Model (from LiteLLM)": responseModel || "",
+          "Requested Model (to Gateway)": requestedModel || "",
+          "Response Model (from Gateway)": responseModel || "",
         }};
         if (observedProvider) {{
           meta["Observed Downstream Provider"] = observedProvider;
         }}
         if (inferredProvider) {{
           meta["Inferred Downstream Provider"] = inferredProvider;
-          meta["Inference Basis"] = responseModel ? "LiteLLM response.model" : "LiteLLM request.model";
+          meta["Inference Basis"] = responseModel ? `${{gatewayName}} response.model` : `${{gatewayName}} request.model`;
         }}
         meta["Observed Metadata Fields"] = observedPairs.length
           ? observedPairs.join(" | ")
           : "None returned to client in this response";
-        meta["Note"] = "LiteLLM internal retries/fallbacks/routing are not visible to this app unless LiteLLM exposes telemetry/metadata.";
+        meta["Note"] = `${{gatewayName}} internal retries/fallbacks/routing are not visible to this app unless the gateway exposes telemetry/metadata.`;
         return meta;
       }}
 
@@ -3466,6 +3673,7 @@ HTML = f"""<!doctype html>
           anthropic: "ANTHROPIC_MODEL",
           openai: "OPENAI_MODEL",
           litellm: "LITELLM_MODEL",
+          kong: "KONG_MODEL",
           bedrock_invoke: "BEDROCK_INVOKE_MODEL",
           bedrock_agent: "BEDROCK_AGENT_ID / BEDROCK_AGENT_ALIAS_ID",
           perplexity: "PERPLEXITY_MODEL",
@@ -3847,7 +4055,7 @@ HTML = f"""<!doctype html>
       }});
       settingsBtnEl.addEventListener("click", openSettingsModal);
       settingsCloseBtnEl.addEventListener("click", closeSettingsModal);
-      settingsReloadBtnEl.addEventListener("click", () => loadSettingsModal("Reloading settings..."));
+      settingsReloadBtnEl.addEventListener("click", () => loadSettingsModal("Reloading from backend source (.env.local + env)..."));
       settingsSaveBtnEl.addEventListener("click", saveSettingsModal);
       settingsModalEl.addEventListener("click", (e) => {{
         if (e.target === settingsModalEl) closeSettingsModal();
@@ -3892,6 +4100,15 @@ HTML = f"""<!doctype html>
       }});
       providerSelectEl.addEventListener("change", () => {{
         lastSelectedProvider = providerSelectEl.value || "ollama";
+        if ((providerSelectEl.value || "").toLowerCase() === "bedrock_agent") {{
+          agenticToggleEl.checked = false;
+          multiAgentToggleEl.checked = false;
+          toolsToggleEl.checked = false;
+          localTasksToggleEl.checked = false;
+        }}
+        syncAgentModeExclusivityState();
+        syncToolsToggleState();
+        syncLocalTasksToggleState();
         refreshCurrentModelText();
         refreshProviderValidationText();
         syncZscalerProxyModeState();
@@ -3910,7 +4127,39 @@ HTML = f"""<!doctype html>
         syncZscalerProxyModeState();
         renderCodeViewer();
       }});
+      zscalerGuardOffBtnEl.addEventListener("click", () => {{
+        guardrailsToggleEl.checked = false;
+        zscalerProxyModeToggleEl.checked = false;
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+      }});
+      zscalerGuardOnBtnEl.addEventListener("click", () => {{
+        guardrailsToggleEl.checked = true;
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+      }});
+      zscalerModeApiBtnEl.addEventListener("click", () => {{
+        if (!guardrailsToggleEl.checked) return;
+        zscalerProxyModeToggleEl.checked = false;
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+      }});
+      zscalerModeProxyBtnEl.addEventListener("click", () => {{
+        if (!guardrailsToggleEl.checked || zscalerModeProxyBtnEl.disabled) return;
+        zscalerProxyModeToggleEl.checked = true;
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+      }});
+      function setChatContextMode(mode) {{
+        multiTurnToggleEl.checked = String(mode || "single").toLowerCase() === "multi";
+        lastChatMode = currentChatMode();
+        updateChatModeUI();
+        renderCodeViewer();
+      }}
+      chatModeSingleBtnEl.addEventListener("click", () => setChatContextMode("single"));
+      chatModeMultiBtnEl.addEventListener("click", () => setChatContextMode("multi"));
       multiTurnToggleEl.addEventListener("change", () => {{
+        // Kept for compatibility with existing state flow, though UI now uses segmented buttons.
         lastChatMode = currentChatMode();
         updateChatModeUI();
         renderCodeViewer();
@@ -3923,8 +4172,19 @@ HTML = f"""<!doctype html>
       localTasksToggleEl.addEventListener("change", () => {{
         renderCodeViewer();
       }});
-      agenticToggleEl.addEventListener("change", () => {{
-        if (agenticToggleEl.checked) {{
+      function setAgentMode(mode) {{
+        const normalized = String(mode || "off").toLowerCase();
+        if ((providerSelectEl.value || "").toLowerCase() === "bedrock_agent") {{
+          agenticToggleEl.checked = false;
+          multiAgentToggleEl.checked = false;
+        }} else if (normalized === "agentic") {{
+          agenticToggleEl.checked = true;
+          multiAgentToggleEl.checked = false;
+        }} else if (normalized === "multi") {{
+          agenticToggleEl.checked = false;
+          multiAgentToggleEl.checked = true;
+        }} else {{
+          agenticToggleEl.checked = false;
           multiAgentToggleEl.checked = false;
         }}
         syncAgentModeExclusivityState();
@@ -3934,19 +4194,10 @@ HTML = f"""<!doctype html>
           resetAgentTrace();
         }}
         renderCodeViewer();
-      }});
-      multiAgentToggleEl.addEventListener("change", () => {{
-        if (multiAgentToggleEl.checked) {{
-          agenticToggleEl.checked = false;
-        }}
-        syncAgentModeExclusivityState();
-        syncToolsToggleState();
-        syncLocalTasksToggleState();
-        if (!multiAgentToggleEl.checked && !agenticToggleEl.checked) {{
-          resetAgentTrace();
-        }}
-        renderCodeViewer();
-      }});
+      }}
+      agentModeOffBtnEl.addEventListener("click", () => setAgentMode("off"));
+      agentModeAgenticBtnEl.addEventListener("click", () => setAgentMode("agentic"));
+      agentModeMultiBtnEl.addEventListener("click", () => setAgentMode("multi"));
       codeAutoBtn.addEventListener("click", () => {{
         codeViewMode = "auto";
         renderCodeViewer();
@@ -4437,69 +4688,73 @@ def _is_local_admin_request(handler: BaseHTTPRequestHandler) -> bool:
 SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_DEMO_NAME", "label": "App Demo Name", "secret": False, "hint": "Browser/page title and app card heading"},
     {"group": "App", "key": "PORT", "label": "App Port", "secret": False, "hint": "Requires restart to bind a different port"},
-    {"group": "Ollama", "key": "OLLAMA_URL", "label": "Ollama Base URL", "secret": False, "hint": "Default http://127.0.0.1:11434"},
-    {"group": "Ollama", "key": "OLLAMA_MODEL", "label": "Ollama Model", "secret": False, "hint": "Default local model"},
-    {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Direct Anthropic SDK auth"},
+    {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Provider credential used for direct Anthropic SDK calls"},
     {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
-    {"group": "OpenAI", "key": "OPENAI_API_KEY", "label": "OpenAI API Key", "secret": True, "hint": "Direct OpenAI SDK auth"},
-    {"group": "OpenAI", "key": "OPENAI_MODEL", "label": "OpenAI Model", "secret": False, "hint": "Default OpenAI model"},
-    {"group": "LiteLLM", "key": "LITELLM_BASE_URL", "label": "LiteLLM Base URL", "secret": False, "hint": "Default http://127.0.0.1:4000/v1"},
-    {"group": "LiteLLM", "key": "LITELLM_API_KEY", "label": "LiteLLM API Key", "secret": True, "hint": "LiteLLM virtual key"},
-    {"group": "LiteLLM", "key": "LITELLM_MODEL", "label": "LiteLLM Model", "secret": False, "hint": "Requested model sent to LiteLLM"},
-    {"group": "AWS Bedrock", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Default us-east-1"},
-    {"group": "AWS Bedrock", "key": "AWS_ACCESS_KEY_ID", "label": "AWS Access Key ID", "secret": True, "hint": "Optional explicit Bedrock auth (used before ambient AWS credentials)"},
-    {"group": "AWS Bedrock", "key": "AWS_SECRET_ACCESS_KEY", "label": "AWS Secret Access Key", "secret": True, "hint": "Optional explicit Bedrock auth (used before ambient AWS credentials)"},
-    {"group": "AWS Bedrock", "key": "AWS_SESSION_TOKEN", "label": "AWS Session Token", "secret": True, "hint": "Optional STS session token for temporary credentials"},
-    {"group": "AWS Bedrock", "key": "BEDROCK_INVOKE_MODEL", "label": "Bedrock Model", "secret": False, "hint": "e.g. amazon.nova-lite-v1:0"},
-    {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ID", "label": "Bedrock Agent ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
-    {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ALIAS_ID", "label": "Bedrock Agent Alias ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
-    {"group": "Perplexity", "key": "PERPLEXITY_API_KEY", "label": "Perplexity API Key", "secret": True, "hint": "OpenAI-compatible auth"},
-    {"group": "Perplexity", "key": "PERPLEXITY_MODEL", "label": "Perplexity Model", "secret": False, "hint": "Default sonar"},
-    {"group": "Perplexity", "key": "PERPLEXITY_BASE_URL", "label": "Perplexity Base URL", "secret": False, "hint": "Default https://api.perplexity.ai"},
-    {"group": "xAI", "key": "XAI_API_KEY", "label": "xAI API Key", "secret": True, "hint": "Grok provider auth"},
-    {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default grok model"},
-    {"group": "xAI", "key": "XAI_BASE_URL", "label": "xAI Base URL", "secret": False, "hint": "Default https://api.x.ai/v1"},
+    {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Shared region for both Bedrock Runtime and Bedrock Agent"},
+    {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_ACCESS_KEY_ID", "label": "AWS Access Key ID", "secret": True, "hint": "Optional explicit credentials (used before ambient CLI/SSO creds)"},
+    {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_SECRET_ACCESS_KEY", "label": "AWS Secret Access Key", "secret": True, "hint": "Optional explicit credentials (used before ambient CLI/SSO creds)"},
+    {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_SESSION_TOKEN", "label": "AWS Session Token", "secret": True, "hint": "Optional temporary STS token; leave blank for long-lived access keys"},
+    {"group": "AWS", "subgroup": "Bedrock Runtime", "key": "BEDROCK_INVOKE_MODEL", "label": "Bedrock Model", "secret": False, "hint": "Model ID for AWS Bedrock provider (for example amazon.nova-lite-v1:0)"},
+    {"group": "AWS", "subgroup": "Bedrock Agent", "key": "BEDROCK_AGENT_ID", "label": "Bedrock Agent ID", "secret": False, "hint": "Required when provider is AWS Bedrock Agent"},
+    {"group": "AWS", "subgroup": "Bedrock Agent", "key": "BEDROCK_AGENT_ALIAS_ID", "label": "Bedrock Agent Alias ID", "secret": False, "hint": "Required when provider is AWS Bedrock Agent"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_BASE_URL", "label": "Azure AI Foundry Base URL", "secret": False, "hint": "OpenAI-compatible inference endpoint base URL"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_API_KEY", "label": "Azure AI Foundry API Key", "secret": True, "hint": "Credential/token for Azure AI Foundry endpoint"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_MODEL", "label": "Azure AI Foundry Model", "secret": False, "hint": "Deployment/model name sent in request payload"},
+    {"group": "Gemini", "key": "GEMINI_BASE_URL", "label": "Gemini Base URL", "secret": False, "hint": "Google Generative Language API base URL (override only if needed)"},
     {"group": "Gemini", "key": "GEMINI_API_KEY", "label": "Gemini API Key", "secret": True, "hint": "Google Generative Language API key"},
     {"group": "Gemini", "key": "GEMINI_MODEL", "label": "Gemini Model", "secret": False, "hint": "Default Gemini model"},
-    {"group": "Gemini", "key": "GEMINI_BASE_URL", "label": "Gemini Base URL", "secret": False, "hint": "Default https://generativelanguage.googleapis.com"},
-    {"group": "Google Vertex", "key": "VERTEX_PROJECT_ID", "label": "Vertex Project ID", "secret": False, "hint": "Required for Vertex provider"},
-    {"group": "Google Vertex", "key": "VERTEX_LOCATION", "label": "Vertex Location", "secret": False, "hint": "Default us-central1"},
+    {"group": "Google Vertex", "key": "VERTEX_PROJECT_ID", "label": "Vertex Project ID", "secret": False, "hint": "Required GCP project for Vertex provider"},
     {"group": "Google Vertex", "key": "VERTEX_MODEL", "label": "Vertex Model", "secret": False, "hint": "Gemini model on Vertex"},
-    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_API_KEY", "label": "Azure AI Foundry API Key", "secret": True, "hint": "OpenAI-compatible inference key"},
-    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_BASE_URL", "label": "Azure AI Foundry Base URL", "secret": False, "hint": "Default https://example.inference.ai.azure.com/v1 (replace with your endpoint)"},
-    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_MODEL", "label": "Azure AI Foundry Model", "secret": False, "hint": "Deployment/model name"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard API Key", "secret": True, "hint": "Resolve policy endpoint auth"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Default https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"},
+    {"group": "Google Vertex", "key": "VERTEX_LOCATION", "label": "Vertex Location", "secret": False, "hint": "GCP location (for example us-central1)"},
+    {"group": "Kong Gateway", "key": "KONG_BASE_URL", "label": "Kong Base URL", "secret": False, "hint": "OpenAI-compatible Kong route base URL"},
+    {"group": "Kong Gateway", "key": "KONG_API_KEY", "label": "Kong API Key", "secret": True, "hint": "Gateway API key/token used by your Kong route"},
+    {"group": "Kong Gateway", "key": "KONG_MODEL", "label": "Kong Model", "secret": False, "hint": "Model/deployment value forwarded through Kong"},
+    {"group": "LiteLLM", "key": "LITELLM_BASE_URL", "label": "LiteLLM Base URL", "secret": False, "hint": "OpenAI-compatible LiteLLM base URL (default http://127.0.0.1:4000/v1)"},
+    {"group": "LiteLLM", "key": "LITELLM_API_KEY", "label": "LiteLLM API Key", "secret": True, "hint": "LiteLLM virtual key/token"},
+    {"group": "LiteLLM", "key": "LITELLM_MODEL", "label": "LiteLLM Model", "secret": False, "hint": "Requested model sent to LiteLLM"},
+    {"group": "Ollama", "key": "OLLAMA_URL", "label": "Ollama Base URL", "secret": False, "hint": "Local Ollama base URL (default http://127.0.0.1:11434)"},
+    {"group": "Ollama", "key": "OLLAMA_MODEL", "label": "Ollama Model", "secret": False, "hint": "Local Ollama model name"},
+    {"group": "OpenAI", "key": "OPENAI_API_KEY", "label": "OpenAI API Key", "secret": True, "hint": "Provider credential used for direct OpenAI SDK calls"},
+    {"group": "OpenAI", "key": "OPENAI_MODEL", "label": "OpenAI Model", "secret": False, "hint": "Default OpenAI model"},
+    {"group": "Perplexity", "key": "PERPLEXITY_BASE_URL", "label": "Perplexity Base URL", "secret": False, "hint": "OpenAI-compatible Perplexity base URL (default https://api.perplexity.ai)"},
+    {"group": "Perplexity", "key": "PERPLEXITY_API_KEY", "label": "Perplexity API Key", "secret": True, "hint": "Perplexity provider API key"},
+    {"group": "Perplexity", "key": "PERPLEXITY_MODEL", "label": "Perplexity Model", "secret": False, "hint": "Default Perplexity model"},
+    {"group": "xAI", "key": "XAI_BASE_URL", "label": "xAI Base URL", "secret": False, "hint": "OpenAI-compatible xAI base URL (default https://api.x.ai/v1)"},
+    {"group": "xAI", "key": "XAI_API_KEY", "label": "xAI API Key", "secret": True, "hint": "xAI (Grok) API key"},
+    {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default xAI model"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Base URL for resolve-and-execute-policy endpoint"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard API Key", "secret": True, "hint": "API key/token used for DAS/API checks"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Custom header name forwarded to AI Guard"},
-    {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
-    {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Default X-ApiKey"},
-    {"group": "Zscaler AI Guard Proxy", "key": "ANTHROPIC_ZS_PROXY_API_KEY", "label": "Anthropic Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "OPENAI_ZS_PROXY_API_KEY", "label": "OpenAI Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "LITELLM_ZS_PROXY_API_KEY", "label": "LiteLLM Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "BEDROCK_INVOKE_ZS_PROXY_API_KEY", "label": "AWS Bedrock Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "BEDROCK_AGENT_ZS_PROXY_API_KEY", "label": "AWS Bedrock Agent Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "PERPLEXITY_ZS_PROXY_API_KEY", "label": "Perplexity Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "XAI_ZS_PROXY_API_KEY", "label": "xAI Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "GEMINI_ZS_PROXY_API_KEY", "label": "Gemini Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "VERTEX_ZS_PROXY_API_KEY", "label": "Vertex Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Zscaler AI Guard Proxy", "key": "AZURE_FOUNDRY_ZS_PROXY_API_KEY", "label": "Azure Foundry Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
-    {"group": "Tools / MCP", "key": "BRAVE_SEARCH_API_KEY", "label": "Brave Search API Key", "secret": True, "hint": "Optional tool API key"},
-    {"group": "Tools / MCP", "key": "BRAVE_SEARCH_BASE_URL", "label": "Brave Search Base URL", "secret": False, "hint": "Optional override"},
-    {"group": "Tools / MCP", "key": "BRAVE_SEARCH_MAX_RESULTS", "label": "Brave Search Max Results", "secret": False, "hint": "Default tool result count"},
-    {"group": "Tools / MCP", "key": "MCP_SERVER_COMMAND", "label": "MCP Server Command", "secret": False, "hint": "Optional custom MCP stdio command"},
-    {"group": "Tools / MCP", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Optional MCP timeout"},
-    {"group": "Tools / MCP", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Optional MCP protocol override"},
-    {"group": "Tools / MCP", "key": "LOCAL_TASKS_BASE_DIR", "label": "Local Tasks Base Dir", "secret": False, "hint": "Local tool filesystem root (relative or absolute path)"},
-    {"group": "Tools / MCP", "key": "LOCAL_TASKS_MAX_ENTRIES", "label": "Local Tasks Max Entries", "secret": False, "hint": "Max rows returned by local_ls (default 200)"},
-    {"group": "Tools / MCP", "key": "LOCAL_TASKS_MAX_BYTES", "label": "Local Tasks Max Bytes", "secret": False, "hint": "Max bytes captured by local_curl response body"},
-    {"group": "Tools / MCP", "key": "TOOLSET_DEBUG_LOGS", "label": "Toolset Debug Logs", "secret": False, "hint": "When true, prints MCP servers/tools and per-call tool inclusion metadata"},
-    {"group": "Tools / MCP", "key": "INCLUDE_TOOLS_IN_LLM_REQUEST", "label": "Include Tools In LLM Request", "secret": False, "hint": "When true, provider payloads include tool definitions (if provider supports it)"},
-    {"group": "Tools / MCP", "key": "MAX_TOOLS_IN_REQUEST", "label": "Max Tools In Request", "secret": False, "hint": "Maximum number of tool defs attached to each LLM request"},
-    {"group": "Tools / MCP", "key": "TOOL_INCLUDE_MODE", "label": "Tool Include Mode", "secret": False, "hint": "all | allowlist | progressive"},
-    {"group": "Tools / MCP", "key": "TOOL_ALLOWLIST", "label": "Tool Allowlist", "secret": False, "hint": "Comma-separated tool names/ids used when TOOL_INCLUDE_MODE=allowlist"},
-    {"group": "Tools / MCP", "key": "TOOL_PROGRESSIVE_COUNT", "label": "Tool Progressive Count", "secret": False, "hint": "How many tools to include when TOOL_INCLUDE_MODE=progressive"},
-    {"group": "Tools / MCP", "key": "TOOL_NAME_PREFIX_STRATEGY", "label": "Tool Name Prefix Strategy", "secret": False, "hint": "serverPrefix | hash | none"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Optional header name forwarded to AI Guard"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Default X-ApiKey"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "ANTHROPIC_ZS_PROXY_API_KEY", "label": "Anthropic Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "AZURE_FOUNDRY_ZS_PROXY_API_KEY", "label": "Azure Foundry Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "BEDROCK_INVOKE_ZS_PROXY_API_KEY", "label": "AWS Bedrock Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "BEDROCK_AGENT_ZS_PROXY_API_KEY", "label": "AWS Bedrock Agent Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "GEMINI_ZS_PROXY_API_KEY", "label": "Gemini Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "KONG_ZS_PROXY_API_KEY", "label": "Kong Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "LITELLM_ZS_PROXY_API_KEY", "label": "LiteLLM Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "OPENAI_ZS_PROXY_API_KEY", "label": "OpenAI Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "PERPLEXITY_ZS_PROXY_API_KEY", "label": "Perplexity Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "VERTEX_ZS_PROXY_API_KEY", "label": "Vertex Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "XAI_ZS_PROXY_API_KEY", "label": "xAI Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "BRAVE_SEARCH_BASE_URL", "label": "Brave Search Base URL", "secret": False, "hint": "Override Brave API URL only if required by your environment"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "BRAVE_SEARCH_API_KEY", "label": "Brave Search API Key", "secret": True, "hint": "Optional API key used by the `brave_search` tool"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "BRAVE_SEARCH_MAX_RESULTS", "label": "Brave Search Max Results", "secret": False, "hint": "Default max results returned by the `brave_search` tool"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "MCP_SERVER_COMMAND", "label": "MCP Server Command", "secret": False, "hint": "Advanced override for the MCP stdio launch command (leave blank to use bundled server)"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Advanced override of MCP protocol version; default is recommended"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Advanced timeout override for MCP tool calls"},
+    {"group": "Tools / MCP", "subgroup": "Local Tasks", "key": "LOCAL_TASKS_BASE_DIR", "label": "Local Tasks Base Dir", "secret": False, "hint": "Filesystem root allowed for local task tools (relative to repo or absolute path)"},
+    {"group": "Tools / MCP", "subgroup": "Local Tasks", "key": "LOCAL_TASKS_MAX_BYTES", "label": "Local Tasks Max Bytes", "secret": False, "hint": "Maximum response body bytes captured by `local_curl` previews"},
+    {"group": "Tools / MCP", "subgroup": "Local Tasks", "key": "LOCAL_TASKS_MAX_ENTRIES", "label": "Local Tasks Max Entries", "secret": False, "hint": "Maximum file entries returned by `local_ls`"},
+    {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "INCLUDE_TOOLS_IN_LLM_REQUEST", "label": "Include Tools In LLM Request", "secret": False, "hint": "When true, supported providers receive MCP tool definitions in request payload"},
+    {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "MAX_TOOLS_IN_REQUEST", "label": "Max Tools In Request", "secret": False, "hint": "Max number of tool definitions attached to each LLM request"},
+    {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "TOOL_INCLUDE_MODE", "label": "Tool Include Mode", "secret": False, "hint": "Selection strategy: all | allowlist | progressive"},
+    {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "TOOL_ALLOWLIST", "label": "Tool Allowlist", "secret": False, "hint": "Comma-separated tool names/ids used when Tool Include Mode is allowlist"},
+    {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "TOOL_PROGRESSIVE_COUNT", "label": "Tool Progressive Count", "secret": False, "hint": "Number of tools included when Tool Include Mode is progressive"},
+    {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "TOOL_NAME_PREFIX_STRATEGY", "label": "Tool Name Prefix Strategy", "secret": False, "hint": "Provider tool naming strategy: serverPrefix | hash | none"},
+    {"group": "Tools / MCP", "subgroup": "Advanced", "key": "TOOLSET_DEBUG_LOGS", "label": "Toolset Debug Logs", "secret": False, "hint": "Debug toggle: logs MCP server/tool inventory and per-call inclusion details"},
     {"group": "Agentic / Multi-Agent", "key": "AGENTIC_MAX_STEPS", "label": "Agentic Max Steps", "secret": False, "hint": "Optional single-agent loop cap"},
     {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "How many researcher rounds to allow (default 1 if empty)"},
     {"group": "Local TLS (Corp)", "key": "SSL_CERT_FILE", "label": "SSL_CERT_FILE", "secret": False, "hint": "Optional custom CA bundle (local corp envs)"},
@@ -5077,6 +5332,12 @@ class Handler(BaseHTTPRequestHandler):
         local_tasks_enabled = bool(data.get("local_tasks_enabled")) and tools_enabled
         agentic_enabled = bool(data.get("agentic_enabled"))
         multi_agent_enabled = bool(data.get("multi_agent_enabled"))
+        if provider_id == "bedrock_agent":
+            # Bedrock Agent is already an orchestrator runtime; disable app-side orchestration/tools.
+            agentic_enabled = False
+            multi_agent_enabled = False
+            tools_enabled = False
+            local_tasks_enabled = False
         chat_trace_id = str(data.get("trace_id") or "").strip() or uuid4().hex
 
         mcp_tool_defs: list[tooling.ToolDef] = []
