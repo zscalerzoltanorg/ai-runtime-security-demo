@@ -23,14 +23,19 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _str_env(name: str, default: str) -> str:
+    raw = str(os.getenv(name, "")).strip()
+    return raw or default
+
+
 HOST = "127.0.0.1"
 PORT = _int_env("PORT", 5000)
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
-APP_DEMO_NAME = os.getenv("APP_DEMO_NAME", "AI App Demo")
+OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = _str_env("OLLAMA_MODEL", "llama3.2:1b")
+ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+OPENAI_MODEL = _str_env("OPENAI_MODEL", "gpt-4o-mini")
+ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
+APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI App Demo")
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 _RESTART_LOCK = threading.Lock()
@@ -62,7 +67,7 @@ HTML = f"""<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{APP_DEMO_NAME}</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1' y1='0' y2='1'%3E%3Cstop offset='0%25' stop-color='%2300C3A5'/%3E%3Cstop offset='100%25' stop-color='%23007EA8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M19 47c-7.2 0-13-5.7-13-12.7C6 28.4 10.4 23.4 16.4 22c1.9-7 8.5-12 16.1-12 8.8 0 16.1 6.7 16.9 15.3 4.9.9 8.6 5.1 8.6 10.1 0 5.8-4.8 10.6-10.8 10.6H19z'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/10645/10645125.png" />
     <style>
       :root {{
         --bg: #f4f1ea;
@@ -624,6 +629,14 @@ HTML = f"""<!doctype html>
         font-size: 0.8rem;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }}
+      .code-panel-explain {{
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        background: #fff;
+        color: #374151;
+        font-size: 0.85rem;
+        line-height: 1.45;
+      }}
       .code-panel-body {{
         overflow: auto;
         max-height: 340px;
@@ -1113,6 +1126,7 @@ HTML = f"""<!doctype html>
               </select>
               <label class="status" for="providerSelect">LLM</label>
               <select id="providerSelect" class="provider-select">
+              <option value="ollama" selected>Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
               <option value="azure_foundry">Azure AI Foundry (Untested)</option>
               <option value="bedrock_invoke">AWS Bedrock (Untested)</option>
@@ -1120,7 +1134,6 @@ HTML = f"""<!doctype html>
               <option value="gemini">Google Gemini (Untested)</option>
               <option value="vertex">Google Vertex (Untested)</option>
               <option value="litellm">LiteLLM</option>
-              <option value="ollama">Ollama (Local)</option>
               <option value="openai">OpenAI</option>
               <option value="perplexity">Perplexity (Untested)</option>
               <option value="xai">xAI (Grok) (Untested)</option>
@@ -1148,22 +1161,22 @@ HTML = f"""<!doctype html>
             <div class="toggle-section">
               <div class="toggle-section-title">Execution</div>
               <div class="toggle-section-body">
-            <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Tools runtime for agentic mode. MCP transport integration is planned next (not yet true MCP).">
+            <label id="toolsToggleWrap" class="toggle-wrap" for="toolsToggle" title="Allow tools during Agentic or Multi-Agent runs (MCP/local tools).">
               <input id="toolsToggle" type="checkbox" role="switch" aria-label="Toggle tools runtime (MCP planned)" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Tools (MCP)</span>
             </label>
-            <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent multi-step loop that can call tools and then finalize a response.">
+            <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent mode: plan, optionally call tools, then return a final answer.">
               <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Agentic Mode</span>
             </label>
-            <label id="multiAgentToggleWrap" class="toggle-wrap" for="multiAgentToggle" title="Orchestrator + specialist agents (researcher, reviewer, finalizer). Uses the selected provider and optional tools.">
+            <label id="multiAgentToggleWrap" class="toggle-wrap" for="multiAgentToggle" title="Multi-agent mode: orchestrator, researcher, reviewer, and finalizer collaborate per request.">
               <input id="multiAgentToggle" type="checkbox" role="switch" aria-label="Toggle multi-agent mode" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Multi-Agent Mode</span>
             </label>
-            <label class="toggle-wrap" for="multiTurnToggle">
+            <label class="toggle-wrap" for="multiTurnToggle" title="Keep chat history across turns (context is sent with each new message).">
               <input id="multiTurnToggle" type="checkbox" role="switch" aria-label="Toggle multi-turn chat mode" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Multi-turn Chat</span>
@@ -1174,7 +1187,7 @@ HTML = f"""<!doctype html>
             <div class="toggle-section">
               <div class="toggle-section-title">Security</div>
               <div class="toggle-section-body">
-            <label class="toggle-wrap" for="guardrailsToggle">
+            <label class="toggle-wrap" for="guardrailsToggle" title="Enable Zscaler AI Guard enforcement for this request path.">
               <input id="guardrailsToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler AI Guard" />
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Zscaler AI Guard</span>
@@ -2316,6 +2329,7 @@ HTML = f"""<!doctype html>
       }}
 
       function renderCodeBlock(section) {{
+        const explain = codeSectionExplanation(section);
         const lines = String(section.code || "").replace(/\\n$/, "").split("\\n");
         const lineRows = lines.map((line, idx) => {{
           const safeLine = line.length ? escapeHtml(line) : '<span class="code-empty"> </span>';
@@ -2327,11 +2341,44 @@ HTML = f"""<!doctype html>
               <div class="code-panel-title">${{escapeHtml(section.title || "Code Section")}}</div>
               <div class="code-panel-file">${{escapeHtml(section.file || "")}}</div>
             </div>
+            <div class="code-panel-explain">${{escapeHtml(explain)}}</div>
             <div class="code-panel-body">
               <pre class="code-pre">${{lineRows}}</pre>
             </div>
           </div>
         `;
+      }}
+
+      function codeSectionExplanation(section) {{
+        const explicit = String(section && section.explain ? section.explain : "").trim();
+        if (explicit) return explicit;
+        const title = String(section && section.title ? section.title : "").toLowerCase();
+        const file = String(section && section.file ? section.file : "").toLowerCase();
+        if (title.includes("provider selection") || title.includes("direct path")) {{
+          return "This block shows how the app chooses the active provider and sends requests directly when guardrails are off.";
+        }}
+        if (file.includes("guardrails") || title.includes("ai guard") || title.includes("zscaler")) {{
+          return "This block shows where Zscaler AI Guard is applied and how request/response checks are enforced.";
+        }}
+        if (file.includes("providers") || title.includes("provider")) {{
+          return "This block shows the provider-specific SDK/API call path and the trace metadata captured for the HTTP Trace panel.";
+        }}
+        if (file.includes("agentic") || title.includes("agentic")) {{
+          return "This block shows the single-agent loop path: reason, optionally call tools, and finalize a response.";
+        }}
+        if (file.includes("multi_agent") || title.includes("multi-agent")) {{
+          return "This block shows the orchestrated multi-agent path across researcher, reviewer, and finalizer roles.";
+        }}
+        if (file.includes("mcp") || title.includes("mcp") || title.includes("tool")) {{
+          return "This block shows the tools path through MCP/local tool execution and how tool steps are added to agent trace.";
+        }}
+        if (title.includes("chat mode") || title.includes("single-turn") || title.includes("multi-turn")) {{
+          return "This block shows request shape differences between single-turn and multi-turn conversation handling.";
+        }}
+        if (title.includes("execution summary")) {{
+          return "This summary reflects the currently selected provider and toggle state driving the active runtime path.";
+        }}
+        return "This block shows the relevant code path for the current provider and feature toggles.";
       }}
 
       function resetFlowGraph() {{
@@ -3150,6 +3197,20 @@ HTML = f"""<!doctype html>
         const agenticOn = !!agenticToggleEl.checked;
         const multiAgentOn = !!multiAgentToggleEl.checked;
         const toolsOn = !!toolsToggleEl.checked && (agenticOn || multiAgentOn);
+        sections.push({{
+          title: "Execution Summary (Live UI State)",
+          file: "runtime",
+          explain: "This is the live state snapshot that determines which code paths are active for the next request.",
+          code: [
+            `provider = "${{providerId}}"`,
+            `chat_mode = "${{currentChatMode()}}"`,
+            `guardrails_enabled = ${{guardOn}}`,
+            `zscaler_proxy_mode = ${{proxyOn}}`,
+            `agentic_enabled = ${{agenticOn}}`,
+            `multi_agent_enabled = ${{multiAgentOn}}`,
+            `tools_enabled = ${{toolsOn}}`,
+          ].join("\\n")
+        }});
 
         if (guardOn) {{
           sections.push({{
@@ -3251,22 +3312,37 @@ HTML = f"""<!doctype html>
 
       function relabelCodeSectionsForProvider(sections, providerId) {{
         const list = Array.isArray(sections) ? sections : [];
-        if (providerId !== "openai") return list;
+        if (providerId === "ollama") return list;
+        const providerLabel = _providerLabel(providerId);
+        const modelVarNameMap = {{
+          anthropic: "ANTHROPIC_MODEL",
+          openai: "OPENAI_MODEL",
+          litellm: "LITELLM_MODEL",
+          bedrock_invoke: "BEDROCK_INVOKE_MODEL",
+          bedrock_agent: "BEDROCK_AGENT_ID / BEDROCK_AGENT_ALIAS_ID",
+          perplexity: "PERPLEXITY_MODEL",
+          xai: "XAI_MODEL",
+          gemini: "GEMINI_MODEL",
+          vertex: "VERTEX_MODEL",
+          azure_foundry: "AZURE_AI_FOUNDRY_MODEL"
+        }};
+        const providerToken = String(providerId).toLowerCase();
+        const modelVarName = modelVarNameMap[providerToken] || "PROVIDER_MODEL";
         return list.map((section) => {{
           if (!section || typeof section !== "object") return section;
           const title = String(section.title || "")
-            .replaceAll("Anthropic selected", "OpenAI selected")
-            .replaceAll("Anthropic/OpenAI", "OpenAI/Anthropic");
+            .replaceAll("Anthropic selected", `${{providerLabel}} selected`)
+            .replaceAll("Anthropic/OpenAI", `${{providerLabel}}`);
           const file = String(section.file || "");
           let code = String(section.code || "");
           code = code
-            .replaceAll("_anthropic_", "_openai_")
-            .replaceAll("anthropic_model", "openai_model")
-            .replaceAll("ANTHROPIC_MODEL", "OPENAI_MODEL")
-            .replaceAll("Anthropic(", "OpenAI(")
-            .replaceAll("Anthropic SDK", "OpenAI SDK")
-            .replaceAll("from anthropic import Anthropic", "from openai import OpenAI")
-            .replaceAll('# "anthropic"', '# "openai"');
+            .replaceAll("_anthropic_", `_${{providerToken}}_`)
+            .replaceAll("anthropic_model", `${{providerToken}}_model`)
+            .replaceAll("ANTHROPIC_MODEL", modelVarName)
+            .replaceAll("Anthropic(", `${{providerLabel}}(`)
+            .replaceAll("Anthropic SDK", `${{providerLabel}} SDK`)
+            .replaceAll("from anthropic import Anthropic", `# provider import: ${{providerLabel}} SDK`)
+            .replaceAll('# "anthropic"', `# "${{providerToken}}"`);
           return {{ ...section, title, file, code }};
         }});
       }}
@@ -3660,6 +3736,8 @@ HTML = f"""<!doctype html>
         if (!guardrailsToggleEl.checked) {{
           zscalerProxyModeToggleEl.checked = false;
         }}
+        syncZscalerProxyModeState();
+        renderCodeViewer();
       }});
       multiTurnToggleEl.addEventListener("change", () => {{
         lastChatMode = currentChatMode();
@@ -3668,6 +3746,7 @@ HTML = f"""<!doctype html>
       }});
       toolsToggleEl.addEventListener("change", () => {{
         // Valid state: tools OFF while agentic ON (agent will avoid tool execution).
+        renderCodeViewer();
       }});
       agenticToggleEl.addEventListener("change", () => {{
         if (agenticToggleEl.checked) {{
@@ -3678,6 +3757,7 @@ HTML = f"""<!doctype html>
         if (!agenticToggleEl.checked && !multiAgentToggleEl.checked) {{
           resetAgentTrace();
         }}
+        renderCodeViewer();
       }});
       multiAgentToggleEl.addEventListener("change", () => {{
         if (multiAgentToggleEl.checked) {{
@@ -3688,6 +3768,7 @@ HTML = f"""<!doctype html>
         if (!multiAgentToggleEl.checked && !agenticToggleEl.checked) {{
           resetAgentTrace();
         }}
+        renderCodeViewer();
       }});
       codeAutoBtn.addEventListener("click", () => {{
         codeViewMode = "auto";
@@ -4177,8 +4258,16 @@ SETTINGS_SCHEMA = [
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Custom header name forwarded to AI Guard"},
     {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
     {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Default X-ApiKey"},
-    {"group": "Zscaler AI Guard Proxy", "key": "ANTHROPIC_ZS_PROXY_API_KEY", "label": "Anthropic Proxy Key", "secret": True, "hint": "Zscaler proxy app key for Anthropic"},
-    {"group": "Zscaler AI Guard Proxy", "key": "OPENAI_ZS_PROXY_API_KEY", "label": "OpenAI Proxy Key", "secret": True, "hint": "Zscaler proxy app key for OpenAI"},
+    {"group": "Zscaler AI Guard Proxy", "key": "ANTHROPIC_ZS_PROXY_API_KEY", "label": "Anthropic Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "OPENAI_ZS_PROXY_API_KEY", "label": "OpenAI Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "LITELLM_ZS_PROXY_API_KEY", "label": "LiteLLM Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "BEDROCK_INVOKE_ZS_PROXY_API_KEY", "label": "AWS Bedrock Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "BEDROCK_AGENT_ZS_PROXY_API_KEY", "label": "AWS Bedrock Agent Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "PERPLEXITY_ZS_PROXY_API_KEY", "label": "Perplexity Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "XAI_ZS_PROXY_API_KEY", "label": "xAI Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "GEMINI_ZS_PROXY_API_KEY", "label": "Gemini Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "VERTEX_ZS_PROXY_API_KEY", "label": "Vertex Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
+    {"group": "Zscaler AI Guard Proxy", "key": "AZURE_FOUNDRY_ZS_PROXY_API_KEY", "label": "Azure Foundry Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
     {"group": "Tools / MCP", "key": "BRAVE_SEARCH_API_KEY", "label": "Brave Search API Key", "secret": True, "hint": "Optional tool API key"},
     {"group": "Tools / MCP", "key": "BRAVE_SEARCH_BASE_URL", "label": "Brave Search Base URL", "secret": False, "hint": "Optional override"},
     {"group": "Tools / MCP", "key": "BRAVE_SEARCH_MAX_RESULTS", "label": "Brave Search Max Results", "secret": False, "hint": "Default tool result count"},
@@ -4186,7 +4275,7 @@ SETTINGS_SCHEMA = [
     {"group": "Tools / MCP", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Optional MCP timeout"},
     {"group": "Tools / MCP", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Optional MCP protocol override"},
     {"group": "Agentic / Multi-Agent", "key": "AGENTIC_MAX_STEPS", "label": "Agentic Max Steps", "secret": False, "hint": "Optional single-agent loop cap"},
-    {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "Optional multi-agent round cap"},
+    {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "How many researcher rounds to allow (default 1 if empty)"},
     {"group": "Local TLS (Corp)", "key": "SSL_CERT_FILE", "label": "SSL_CERT_FILE", "secret": False, "hint": "Optional custom CA bundle (local corp envs)"},
     {"group": "Local TLS (Corp)", "key": "REQUESTS_CA_BUNDLE", "label": "REQUESTS_CA_BUNDLE", "secret": False, "hint": "Optional custom CA bundle (requests/urllib)"},
 ]
@@ -4265,11 +4354,11 @@ def _settings_save(values: dict[str, str]) -> None:
         else:
             os.environ.pop(key, None)
     global OLLAMA_URL, OLLAMA_MODEL, ANTHROPIC_MODEL, OPENAI_MODEL, ZS_PROXY_BASE_URL
-    OLLAMA_URL = os.getenv("OLLAMA_URL", OLLAMA_URL)
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", OLLAMA_MODEL)
-    ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", ANTHROPIC_MODEL)
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", OPENAI_MODEL)
-    ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", ZS_PROXY_BASE_URL)
+    OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
+    OLLAMA_MODEL = _str_env("OLLAMA_MODEL", OLLAMA_MODEL)
+    ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", ANTHROPIC_MODEL)
+    OPENAI_MODEL = _str_env("OPENAI_MODEL", OPENAI_MODEL)
+    ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", ZS_PROXY_BASE_URL)
 
 
 def _proxy_block_message(stage: str, block_body: object) -> str:

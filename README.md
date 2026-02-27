@@ -55,7 +55,7 @@ This project is designed to run directly with Python.
    - `set -a; source .env.local; set +a`
    - `python app.py`
 6. Open:
-   - [http://127.0.0.1:5050](http://127.0.0.1:5050)
+   - [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
 ### Windows (PowerShell)
 
@@ -73,7 +73,7 @@ This project is designed to run directly with Python.
 5. Run app:
    - `python app.py`
 6. Open:
-   - [http://127.0.0.1:5050](http://127.0.0.1:5050)
+   - [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
 ---
 
@@ -93,7 +93,7 @@ Only set keys/providers you actually want to use.
 Your `.env.local` should at least have:
 
 ```env
-PORT=5050
+PORT=5000
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=llama3.2:1b
 MCP_SERVER_COMMAND=
@@ -135,6 +135,14 @@ All model overrides are optional and can be configured later.
 - Optional provider-specific proxy keys:
   - `ANTHROPIC_ZS_PROXY_API_KEY`
   - `OPENAI_ZS_PROXY_API_KEY`
+  - `LITELLM_ZS_PROXY_API_KEY`
+  - `BEDROCK_INVOKE_ZS_PROXY_API_KEY`
+  - `BEDROCK_AGENT_ZS_PROXY_API_KEY`
+  - `PERPLEXITY_ZS_PROXY_API_KEY`
+  - `XAI_ZS_PROXY_API_KEY`
+  - `GEMINI_ZS_PROXY_API_KEY`
+  - `VERTEX_ZS_PROXY_API_KEY`
+  - `AZURE_FOUNDRY_ZS_PROXY_API_KEY`
 
 ---
 

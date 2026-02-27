@@ -1,24 +1,28 @@
+import ast
+import json
 import os
 from typing import Any
-import ast
-
 from urllib import error, request
-import json
 
 
-DEFAULT_ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-DEFAULT_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-DEFAULT_AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-DEFAULT_BEDROCK_INVOKE_MODEL = os.getenv("BEDROCK_INVOKE_MODEL", "amazon.nova-lite-v1:0")
-DEFAULT_PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar")
-DEFAULT_XAI_MODEL = os.getenv("XAI_MODEL", "grok-2-latest")
-DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-DEFAULT_LITELLM_MODEL = os.getenv("LITELLM_MODEL", "claude-3-haiku-20240307")
-DEFAULT_VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
-DEFAULT_VERTEX_MODEL = os.getenv("VERTEX_MODEL", "gemini-1.5-flash")
-DEFAULT_AZURE_AI_FOUNDRY_MODEL = os.getenv("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini")
-DEFAULT_ZS_PROXY_BASE_URL = os.getenv("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
-DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = os.getenv("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
+def _env_or_default(name: str, default: str) -> str:
+    raw = str(os.getenv(name, "")).strip()
+    return raw or default
+
+
+DEFAULT_ANTHROPIC_MODEL = _env_or_default("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+DEFAULT_OPENAI_MODEL = _env_or_default("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_AWS_REGION = _env_or_default("AWS_REGION", "us-east-1")
+DEFAULT_BEDROCK_INVOKE_MODEL = _env_or_default("BEDROCK_INVOKE_MODEL", "amazon.nova-lite-v1:0")
+DEFAULT_PERPLEXITY_MODEL = _env_or_default("PERPLEXITY_MODEL", "sonar")
+DEFAULT_XAI_MODEL = _env_or_default("XAI_MODEL", "grok-2-latest")
+DEFAULT_GEMINI_MODEL = _env_or_default("GEMINI_MODEL", "gemini-1.5-flash")
+DEFAULT_LITELLM_MODEL = _env_or_default("LITELLM_MODEL", "claude-3-haiku-20240307")
+DEFAULT_VERTEX_LOCATION = _env_or_default("VERTEX_LOCATION", "us-central1")
+DEFAULT_VERTEX_MODEL = _env_or_default("VERTEX_MODEL", "gemini-1.5-flash")
+DEFAULT_AZURE_AI_FOUNDRY_MODEL = _env_or_default("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini")
+DEFAULT_ZS_PROXY_BASE_URL = _env_or_default("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
+DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = _env_or_default("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 
 
