@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error as urlerror, request as urlrequest
 from uuid import uuid4
@@ -1156,14 +1156,14 @@ HTML = f"""<!doctype html>
               <option value="ollama" selected>Ollama (Local)</option>
               <option value="anthropic">Anthropic</option>
               <option value="azure_foundry">Azure AI Foundry (Untested)</option>
-              <option value="bedrock_invoke">AWS Bedrock (Untested)</option>
-              <option value="bedrock_agent">AWS Bedrock Agent (Untested)</option>
+              <option value="bedrock_invoke">AWS Bedrock</option>
+              <option value="bedrock_agent">AWS Bedrock Agent</option>
               <option value="gemini">Google Gemini (Untested)</option>
               <option value="vertex">Google Vertex (Untested)</option>
               <option value="litellm">LiteLLM</option>
               <option value="openai">OpenAI</option>
-              <option value="perplexity">Perplexity (Untested)</option>
-              <option value="xai">xAI (Grok) (Untested)</option>
+              <option value="perplexity">Perplexity</option>
+              <option value="xai">xAI (Grok)</option>
               </select>
               <span id="providerTestPill" class="status-pill" title="Provider validation marker based on this demo's tested coverage">
                 Provider: unknown
@@ -1179,6 +1179,10 @@ HTML = f"""<!doctype html>
               <span id="liteLlmStatusPill" class="status-pill" style="display:none;" title="LiteLLM gateway status (checks only when LiteLLM provider is selected)">
                 <span id="liteLlmStatusDot" class="status-dot" aria-hidden="true"></span>
                 <span id="liteLlmStatusText">LiteLLM: hidden</span>
+              </span>
+              <span id="awsAuthPill" class="status-pill" style="display:none;" title="AWS auth source for Bedrock providers">
+                <span id="awsAuthDot" class="status-dot" aria-hidden="true"></span>
+                <span id="awsAuthText">AWS Auth: hidden</span>
               </span>
               <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
@@ -1224,7 +1228,7 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Zscaler AI Guard</span>
             </label>
-            <label id="zscalerProxyModeWrap" class="toggle-wrap disabled" for="zscalerProxyModeToggle" title="Enable Zscaler Proxy Mode (supported for remote providers like Anthropic/OpenAI). Requires Zscaler AI Guard to be ON.">
+            <label id="zscalerProxyModeWrap" class="toggle-wrap disabled" for="zscalerProxyModeToggle" title="Enable Zscaler Proxy Mode (supported for Anthropic, OpenAI, AWS Bedrock, and AWS Bedrock Agent). Requires Zscaler AI Guard to be ON.">
               <span class="toggle-label" style="color: var(--muted);">Mode:</span>
               <span id="zscalerModeLeftLabel" class="toggle-label" style="color: var(--muted); font-weight: 700;">API/DAS</span>
               <input id="zscalerProxyModeToggle" type="checkbox" role="switch" aria-label="Toggle Zscaler Proxy Mode" disabled />
@@ -1444,6 +1448,9 @@ HTML = f"""<!doctype html>
       const liteLlmStatusPillEl = document.getElementById("liteLlmStatusPill");
       const liteLlmStatusDotEl = document.getElementById("liteLlmStatusDot");
       const liteLlmStatusTextEl = document.getElementById("liteLlmStatusText");
+      const awsAuthPillEl = document.getElementById("awsAuthPill");
+      const awsAuthDotEl = document.getElementById("awsAuthDot");
+      const awsAuthTextEl = document.getElementById("awsAuthText");
       const agenticToggleWrapEl = document.getElementById("agenticToggleWrap");
       const agenticToggleEl = document.getElementById("agenticToggle");
       const multiAgentToggleWrapEl = document.getElementById("multiAgentToggleWrap");
@@ -1494,6 +1501,7 @@ HTML = f"""<!doctype html>
       let pendingAssistantText = "";
       let pendingAssistantElapsed = 0;
       let lastObservedModelMap = {{}};
+      const CHAT_REQUEST_TIMEOUT_MS = 60000;
       let settingsSchema = [];
       let settingsValues = {{}};
       const providerModelMap = {{
@@ -1509,7 +1517,7 @@ HTML = f"""<!doctype html>
         perplexity: "{providers.DEFAULT_PERPLEXITY_MODEL}",
         xai: "{providers.DEFAULT_XAI_MODEL}"
       }};
-      const testedProviderSet = new Set(["ollama", "anthropic", "openai", "litellm"]);
+      const testedProviderSet = new Set(["ollama", "anthropic", "openai", "litellm", "perplexity", "xai"]);
 
       function pretty(obj) {{
         try {{
@@ -1787,7 +1795,11 @@ HTML = f"""<!doctype html>
       function syncZscalerProxyModeState() {{
         const guardrailsOn = !!guardrailsToggleEl.checked;
         const provider = (providerSelectEl.value || "ollama").toLowerCase();
-        const supportsProxyMode = provider === "anthropic" || provider === "openai";
+        const supportsProxyMode =
+          provider === "anthropic" ||
+          provider === "openai" ||
+          provider === "bedrock_invoke" ||
+          provider === "bedrock_agent";
         const enabled = guardrailsOn && supportsProxyMode;
         zscalerProxyModeToggleEl.disabled = !enabled;
         zscalerProxyModeWrapEl.classList.toggle("disabled", !enabled);
@@ -1797,7 +1809,7 @@ HTML = f"""<!doctype html>
         if (!guardrailsOn) {{
           zscalerProxyModeWrapEl.title = "Enable Zscaler AI Guard first, then choose DAS/API Mode or Proxy Mode.";
         }} else if (!supportsProxyMode) {{
-          zscalerProxyModeWrapEl.title = "Proxy Mode is supported for remote providers (Anthropic/OpenAI). Ollama (Local) uses DAS/API mode only.";
+          zscalerProxyModeWrapEl.title = "Proxy Mode is supported for Anthropic, OpenAI, AWS Bedrock, and AWS Bedrock Agent. Other providers use DAS/API mode.";
         }} else {{
           zscalerProxyModeWrapEl.title = "Send provider SDK requests through Zscaler AI Guard Proxy Mode (instead of DAS/API IN/OUT checks).";
         }}
@@ -1824,6 +1836,14 @@ HTML = f"""<!doctype html>
           liteLlmStatusDotEl.classList.add(kind);
         }}
         liteLlmStatusTextEl.textContent = text;
+      }}
+
+      function setAwsAuthStatus(kind, text) {{
+        awsAuthDotEl.classList.remove("ok", "bad", "warn");
+        if (kind) {{
+          awsAuthDotEl.classList.add(kind);
+        }}
+        awsAuthTextEl.textContent = text;
       }}
 
       function setOllamaStatus(kind, text) {{
@@ -1908,6 +1928,40 @@ HTML = f"""<!doctype html>
           ollamaStatusPillEl.title = "Ollama runtime status (checks only when Ollama provider is selected)";
         }}
         return isOllama;
+      }}
+
+      function syncAwsAuthStatusVisibility() {{
+        const p = (providerSelectEl.value || "").toLowerCase();
+        const isAws = p === "bedrock_invoke" || p === "bedrock_agent";
+        awsAuthPillEl.style.display = isAws ? "inline-flex" : "none";
+        if (!isAws) {{
+          setAwsAuthStatus("", "AWS Auth: hidden");
+          awsAuthPillEl.title = "AWS auth source for Bedrock providers";
+        }}
+        return isAws;
+      }}
+
+      async function refreshAwsAuthStatus() {{
+        if (!syncAwsAuthStatusVisibility()) return;
+        try {{
+          const res = await fetch("/aws-auth-status");
+          const data = await res.json();
+          if (!res.ok) {{
+            setAwsAuthStatus("bad", "AWS Auth: error");
+            return;
+          }}
+          const label = String(data.label || "Unknown");
+          const detail = String(data.details || "");
+          if (data.ok) {{
+            setAwsAuthStatus("ok", `AWS Auth: ${{label}}`);
+          }} else {{
+            setAwsAuthStatus("warn", `AWS Auth: ${{label}}`);
+          }}
+          awsAuthPillEl.title = detail ? `AWS auth source for Bedrock providers\\n\\n${{detail}}` : "AWS auth source for Bedrock providers";
+        }} catch {{
+          setAwsAuthStatus("bad", "AWS Auth: unreachable");
+          awsAuthPillEl.title = "AWS auth source for Bedrock providers";
+        }}
       }}
 
       async function refreshOllamaStatus() {{
@@ -3648,6 +3702,7 @@ HTML = f"""<!doctype html>
         statusEl.textContent = "Sending...";
         responseEl.classList.remove("error");
         responseEl.textContent = providerWaitingText();
+        let requestTimeout = null;
 
         try {{
           lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
@@ -3665,12 +3720,15 @@ HTML = f"""<!doctype html>
           }}
           renderConversation();
           startThinkingUI();
+          const requestController = new AbortController();
+          requestTimeout = setTimeout(() => requestController.abort(), CHAT_REQUEST_TIMEOUT_MS);
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{
               "Content-Type": "application/json",
               ...(currentDemoUser() ? {{ "X-Demo-User": currentDemoUser() }} : {{}})
             }},
+            signal: requestController.signal,
             body: JSON.stringify({{
               prompt,
               provider: providerSelectEl.value,
@@ -3735,13 +3793,16 @@ HTML = f"""<!doctype html>
         }} catch (err) {{
           stopThinkingUI(false);
           renderAgentTrace([]);
-          responseEl.textContent = err.message || String(err);
+          const errMsg = (err && err.name === "AbortError")
+            ? `Request timed out after ${{Math.floor(CHAT_REQUEST_TIMEOUT_MS / 1000)}}s.`
+            : (err.message || String(err));
+          responseEl.textContent = errMsg;
           responseEl.classList.add("error");
           if (prompt) {{
             const userTs = (conversation[0] && conversation[0].role === "user" && conversation[0].ts) ? conversation[0].ts : hhmmssNow();
             conversation = [
               {{ role: "user", content: prompt, ts: userTs }},
-              {{ role: "assistant", content: err.message || String(err), ts: hhmmssNow() }}
+              {{ role: "assistant", content: errMsg, ts: hhmmssNow() }}
             ];
             renderConversation();
           }}
@@ -3749,6 +3810,10 @@ HTML = f"""<!doctype html>
           updateChatModeUI();
           renderCodeViewer();
         }} finally {{
+          if (requestTimeout) {{
+            clearTimeout(requestTimeout);
+            requestTimeout = null;
+          }}
           stopThinkingUI(false);
           sendBtn.disabled = false;
         }}
@@ -3834,6 +3899,8 @@ HTML = f"""<!doctype html>
         refreshOllamaStatus();
         syncLiteLlmStatusVisibility();
         refreshLiteLlmStatus();
+        syncAwsAuthStatusVisibility();
+        refreshAwsAuthStatus();
         renderCodeViewer();
       }});
       zscalerProxyModeToggleEl.addEventListener("change", () => {{
@@ -3930,6 +3997,8 @@ HTML = f"""<!doctype html>
       syncLiteLlmStatusVisibility();
       refreshLiteLlmStatus();
       liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
+      syncAwsAuthStatusVisibility();
+      refreshAwsAuthStatus();
       resetAgentTrace();
       resetInspector();
       resetFlowGraph();
@@ -4377,7 +4446,10 @@ SETTINGS_SCHEMA = [
     {"group": "LiteLLM", "key": "LITELLM_BASE_URL", "label": "LiteLLM Base URL", "secret": False, "hint": "Default http://127.0.0.1:4000/v1"},
     {"group": "LiteLLM", "key": "LITELLM_API_KEY", "label": "LiteLLM API Key", "secret": True, "hint": "LiteLLM virtual key"},
     {"group": "LiteLLM", "key": "LITELLM_MODEL", "label": "LiteLLM Model", "secret": False, "hint": "Requested model sent to LiteLLM"},
-    {"group": "AWS Bedrock", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Default us-east-1; AWS auth via local credentials/SSO"},
+    {"group": "AWS Bedrock", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Default us-east-1"},
+    {"group": "AWS Bedrock", "key": "AWS_ACCESS_KEY_ID", "label": "AWS Access Key ID", "secret": True, "hint": "Optional explicit Bedrock auth (used before ambient AWS credentials)"},
+    {"group": "AWS Bedrock", "key": "AWS_SECRET_ACCESS_KEY", "label": "AWS Secret Access Key", "secret": True, "hint": "Optional explicit Bedrock auth (used before ambient AWS credentials)"},
+    {"group": "AWS Bedrock", "key": "AWS_SESSION_TOKEN", "label": "AWS Session Token", "secret": True, "hint": "Optional STS session token for temporary credentials"},
     {"group": "AWS Bedrock", "key": "BEDROCK_INVOKE_MODEL", "label": "Bedrock Model", "secret": False, "hint": "e.g. amazon.nova-lite-v1:0"},
     {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ID", "label": "Bedrock Agent ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
     {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ALIAS_ID", "label": "Bedrock Agent Alias ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
@@ -4859,6 +4931,13 @@ class Handler(BaseHTTPRequestHandler):
                     status=200,
                 )
                 return
+        if self.path == "/aws-auth-status":
+            if not self._require_local_admin():
+                return
+            region = str(os.getenv("AWS_REGION", providers.DEFAULT_AWS_REGION)).strip() or providers.DEFAULT_AWS_REGION
+            status = providers.aws_auth_status(region=region)
+            self._send_json(status, status=200)
+            return
         if self.path == "/ollama-status":
             if not self._require_local_admin():
                 return
@@ -5496,7 +5575,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = HTTPServer((HOST, PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Serving demo app at http://{HOST}:{PORT}")
     print(f"Using Ollama model: {OLLAMA_MODEL}")
     print(f"Ollama base URL: {OLLAMA_URL}")

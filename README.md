@@ -121,7 +121,7 @@ When `MCP_SERVER_COMMAND` is empty, the app automatically uses the bundled local
 - Anthropic: `ANTHROPIC_API_KEY`
 - OpenAI: `OPENAI_API_KEY`
 - LiteLLM: `LITELLM_API_KEY`, `LITELLM_BASE_URL`
-- Bedrock: AWS auth + optional `AWS_REGION`, plus agent IDs for Bedrock Agent
+- Bedrock: AWS auth via either explicit keys (`AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + optional `AWS_SESSION_TOKEN`) or ambient local credentials/SSO, plus optional `AWS_REGION` and agent IDs for Bedrock Agent
 - Perplexity: `PERPLEXITY_API_KEY`
 - xAI: `XAI_API_KEY`
 - Gemini: `GEMINI_API_KEY`

@@ -20,7 +20,7 @@ DEFAULT_OPENAI_MODEL = _env_or_default("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_AWS_REGION = _env_or_default("AWS_REGION", "us-east-1")
 DEFAULT_BEDROCK_INVOKE_MODEL = _env_or_default("BEDROCK_INVOKE_MODEL", "amazon.nova-lite-v1:0")
 DEFAULT_PERPLEXITY_MODEL = _env_or_default("PERPLEXITY_MODEL", "sonar")
-DEFAULT_XAI_MODEL = _env_or_default("XAI_MODEL", "grok-2-latest")
+DEFAULT_XAI_MODEL = _env_or_default("XAI_MODEL", "grok-4")
 DEFAULT_GEMINI_MODEL = _env_or_default("GEMINI_MODEL", "gemini-1.5-flash")
 DEFAULT_LITELLM_MODEL = _env_or_default("LITELLM_MODEL", "claude-3-haiku-20240307")
 DEFAULT_VERTEX_LOCATION = _env_or_default("VERTEX_LOCATION", "us-central1")
@@ -84,6 +84,36 @@ def _proxy_guardrails_block_from_error(
                 body = ast.literal_eval(txt.strip())
             except Exception:
                 body = None
+
+    if isinstance(body, dict) and "Error" in body and isinstance(body.get("Error"), dict):
+        err_obj = body.get("Error") or {}
+        err_code = str(err_obj.get("Code") or "").strip()
+        nested_msg = err_obj.get("Message")
+        if isinstance(nested_msg, str) and nested_msg.strip():
+            msg = nested_msg.strip()
+            parsed_nested: Any = None
+            if msg.startswith("{") and msg.endswith("}"):
+                try:
+                    parsed_nested = json.loads(msg)
+                except Exception:
+                    try:
+                        parsed_nested = ast.literal_eval(msg)
+                    except Exception:
+                        parsed_nested = None
+            if isinstance(parsed_nested, dict):
+                body = parsed_nested
+            else:
+                body = {"reason": msg}
+        elif err_code == "403":
+            return {
+                "reason": "Request was rejected by Zscaler AI Guard proxy (HTTP 403)",
+                "policyName": None,
+                "inputDetections": [],
+                "outputDetections": [],
+                "stage": "UNKNOWN",
+                "raw": body,
+                "status_code": 403,
+            }
 
     if not isinstance(body, dict):
         return {
@@ -384,6 +414,99 @@ def _zscaler_proxy_sdk_config(
     if demo_user:
         headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     return proxy_key or None, base_url, api_key_header_name, headers, proxy_key_source
+
+
+def _bedrock_client_auth_kwargs() -> tuple[dict[str, str], str]:
+    access_key_id = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+    secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+    session_token = os.getenv("AWS_SESSION_TOKEN", "").strip()
+    if access_key_id and secret_access_key:
+        kwargs = {
+            "aws_access_key_id": access_key_id,
+            "aws_secret_access_key": secret_access_key,
+        }
+        if session_token:
+            kwargs["aws_session_token"] = session_token
+            return kwargs, "env_keys+session_token"
+        return kwargs, "env_keys"
+    return {}, "ambient"
+
+
+def _bedrock_botocore_config(*, proxy_mode: bool, unsigned: bool = False) -> Any:
+    from botocore import UNSIGNED
+    from botocore.config import Config as BotocoreConfig
+
+    connect_default = 5 if proxy_mode else 10
+    read_default = 12 if proxy_mode else 30
+    connect_timeout = _int_env("BEDROCK_CONNECT_TIMEOUT_SECONDS", connect_default)
+    read_timeout = _int_env("BEDROCK_READ_TIMEOUT_SECONDS", read_default)
+    default_attempts = 1 if proxy_mode else 3
+    max_attempts = _int_env("BEDROCK_MAX_ATTEMPTS", default_attempts)
+    kwargs: dict[str, Any] = {
+        "connect_timeout": max(1, connect_timeout),
+        "read_timeout": max(1, read_timeout),
+        "retries": {"max_attempts": max(1, max_attempts), "mode": "standard"},
+    }
+    if unsigned:
+        kwargs["signature_version"] = UNSIGNED
+    return BotocoreConfig(**kwargs)
+
+
+def aws_auth_status(*, region: str | None = None) -> dict[str, Any]:
+    auth_kwargs, auth_source = _bedrock_client_auth_kwargs()
+    if auth_kwargs:
+        key_id = str(auth_kwargs.get("aws_access_key_id") or "")
+        return {
+            "ok": True,
+            "source": auth_source,
+            "label": "Env Keys",
+            "details": f"AWS_ACCESS_KEY_ID set ({'***' + key_id[-4:] if key_id else 'hidden'})",
+        }
+    try:
+        import boto3
+    except Exception as exc:
+        return {
+            "ok": False,
+            "source": "unavailable",
+            "label": "Unavailable",
+            "details": f"boto3 not installed: {exc}",
+        }
+    try:
+        session = boto3.Session(region_name=region or None)
+        creds = session.get_credentials()
+        frozen = creds.get_frozen_credentials() if creds else None
+        if not frozen:
+            return {
+                "ok": False,
+                "source": "none",
+                "label": "Not Configured",
+                "details": "No ambient AWS credentials detected. Configure env keys or local AWS profile/SSO.",
+            }
+        method = str(getattr(creds, "method", "") or "unknown")
+        access_key = str(getattr(frozen, "access_key", "") or "")
+        if "role" in method:
+            label = "Role"
+        elif "sso" in method:
+            label = "SSO"
+        elif method == "env":
+            label = "Env (Ambient)"
+        elif "shared" in method or "config" in method:
+            label = "Profile"
+        else:
+            label = "Ambient"
+        return {
+            "ok": True,
+            "source": f"ambient:{method}",
+            "label": label,
+            "details": f"Credential source `{method}` ({'***' + access_key[-4:] if access_key else 'hidden'})",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "source": "error",
+            "label": "Unavailable",
+            "details": str(exc),
+        }
 
 
 def _openai_proxy_base_url(base_url: str) -> str:
@@ -1178,6 +1301,9 @@ def _bedrock_invoke_chat_messages(
     model_id: str,
     *,
     region: str,
+    proxy_mode: bool = False,
+    conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     normalized = _normalize_messages(messages)
     system_blocks = [m["content"] for m in normalized if m["role"] == "system" and m["content"].strip()]
@@ -1192,11 +1318,67 @@ def _bedrock_invoke_chat_messages(
     }
     if system_blocks:
         request_payload["system"] = [{"text": "\n\n".join(system_blocks)}]
+    trace_headers: dict[str, str] = {
+        "Authorization": "AWS SigV4 (AWS env keys or ambient credentials)"
+    }
+    client_kwargs: dict[str, Any] = {"region_name": region}
+    auth_kwargs, auth_source = _bedrock_client_auth_kwargs()
+    if auth_kwargs:
+        client_kwargs.update(auth_kwargs)
+    if proxy_mode:
+        proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, _ = _zscaler_proxy_sdk_config(
+            "BEDROCK_INVOKE",
+            conversation_id,
+            demo_user,
+        )
+        if not proxy_key:
+            return None, {
+                "error": "Bedrock proxy key is not set. Set BEDROCK_INVOKE_ZS_PROXY_API_KEY (or BEDROCK_INVOKE_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY.",
+                "status_code": 500,
+                "trace_step": {
+                    "name": "AWS Bedrock (Nova Lite)",
+                    "request": {
+                        "method": "SDK",
+                        "url": f"AWS Bedrock Runtime (converse) [{region}] via proxy",
+                        "headers": trace_headers,
+                        "payload": request_payload,
+                    },
+                    "response": {"status": 500, "body": {"error": "Missing ZS_PROXY_API_KEY"}},
+                },
+            }
+        try:
+            config_obj = _bedrock_botocore_config(proxy_mode=True, unsigned=True)
+        except Exception as exc:
+            return None, {
+                "error": "botocore proxy support unavailable.",
+                "status_code": 500,
+                "details": str(exc),
+            }
+        client_kwargs["endpoint_url"] = proxy_base_url
+        client_kwargs["config"] = config_obj
+        auth_source = f"{auth_source}+proxy_unsigned"
+        trace_headers["Authorization"] = "AWS Unsigned via proxy"
+        trace_headers.update(
+            {
+                k: ("***redacted***" if k.lower() == proxy_api_key_header_name.lower() else v)
+                for k, v in proxy_headers.items()
+            }
+        )
+    else:
+        try:
+            client_kwargs["config"] = _bedrock_botocore_config(proxy_mode=False, unsigned=False)
+        except Exception:
+            pass
     trace_request = {
         "method": "SDK",
-        "url": f"AWS Bedrock Runtime (converse) [{region}]",
-        "headers": {"Authorization": "AWS SigV4 (ambient credentials)"},
+        "url": (
+            f"AWS Bedrock Runtime (converse) [{region}] via proxy"
+            if proxy_mode
+            else f"AWS Bedrock Runtime (converse) [{region}]"
+        ),
+        "headers": trace_headers,
         "payload": request_payload,
+        "auth_source": auth_source,
     }
     try:
         import boto3
@@ -1208,7 +1390,13 @@ def _bedrock_invoke_chat_messages(
             "trace_step": {"name": "AWS Bedrock (Nova Lite)", "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install boto3`", "details": str(exc)}}},
         }
     try:
-        client = boto3.client("bedrock-runtime", region_name=region)
+        client = boto3.client("bedrock-runtime", **client_kwargs)
+        if proxy_mode:
+            for k, v in proxy_headers.items():
+                client.meta.events.register(
+                    "request-created.bedrock-runtime.Converse",
+                    lambda request, _k=k, _v=v, **kwargs: request.headers.__setitem__(_k, _v),
+                )
         resp = client.converse(**request_payload)
         text = "".join(
             part.get("text", "")
@@ -1228,11 +1416,36 @@ def _bedrock_invoke_chat_messages(
             }
         }
     except Exception as exc:
+        err_status: int | None = None
+        err_body: Any = None
+        if hasattr(exc, "response") and isinstance(getattr(exc, "response", None), dict):
+            err_body = getattr(exc, "response")
+            try:
+                err_status = int(((err_body.get("ResponseMetadata") or {}).get("HTTPStatusCode")))
+            except Exception:
+                err_status = None
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=err_status,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
         return None, {
             "error": "Bedrock invoke request failed.",
-            "status_code": 502,
+            "status_code": int(err_status or 502),
             "details": str(exc),
-            "trace_step": {"name": "AWS Bedrock (Nova Lite)", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+            "trace_step": {
+                "name": "AWS Bedrock (Nova Lite)",
+                "request": trace_request,
+                "response": {
+                    "status": int(err_status or 502),
+                    "body": {"error": str(exc), **({"response_body": err_body} if err_body is not None else {})},
+                },
+            },
         }
 
 
@@ -1240,7 +1453,9 @@ def _bedrock_agent_chat_messages(
     messages: list[dict],
     *,
     region: str,
+    proxy_mode: bool = False,
     conversation_id: str | None = None,
+    demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     agent_id = os.getenv("BEDROCK_AGENT_ID", "").strip()
     alias_id = os.getenv("BEDROCK_AGENT_ALIAS_ID", "").strip()
@@ -1259,11 +1474,67 @@ def _bedrock_agent_chat_messages(
         "sessionId": session_id,
         "inputText": latest_user,
     }
+    trace_headers: dict[str, str] = {
+        "Authorization": "AWS SigV4 (AWS env keys or ambient credentials)"
+    }
+    client_kwargs: dict[str, Any] = {"region_name": region}
+    auth_kwargs, auth_source = _bedrock_client_auth_kwargs()
+    if auth_kwargs:
+        client_kwargs.update(auth_kwargs)
+    if proxy_mode:
+        proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, _ = _zscaler_proxy_sdk_config(
+            "BEDROCK_AGENT",
+            conversation_id,
+            demo_user,
+        )
+        if not proxy_key:
+            return None, {
+                "error": "Bedrock Agent proxy key is not set. Set BEDROCK_AGENT_ZS_PROXY_API_KEY (or BEDROCK_AGENT_ZS_PROXY_KEY), or fall back to ZS_PROXY_API_KEY.",
+                "status_code": 500,
+                "trace_step": {
+                    "name": "AWS Bedrock Agent",
+                    "request": {
+                        "method": "SDK",
+                        "url": f"AWS Bedrock Agent Runtime (invoke_agent) [{region}] via proxy",
+                        "headers": trace_headers,
+                        "payload": request_payload,
+                    },
+                    "response": {"status": 500, "body": {"error": "Missing ZS_PROXY_API_KEY"}},
+                },
+            }
+        try:
+            config_obj = _bedrock_botocore_config(proxy_mode=True, unsigned=True)
+        except Exception as exc:
+            return None, {
+                "error": "botocore proxy support unavailable.",
+                "status_code": 500,
+                "details": str(exc),
+            }
+        client_kwargs["endpoint_url"] = proxy_base_url
+        client_kwargs["config"] = config_obj
+        auth_source = f"{auth_source}+proxy_unsigned"
+        trace_headers["Authorization"] = "AWS Unsigned via proxy"
+        trace_headers.update(
+            {
+                k: ("***redacted***" if k.lower() == proxy_api_key_header_name.lower() else v)
+                for k, v in proxy_headers.items()
+            }
+        )
+    else:
+        try:
+            client_kwargs["config"] = _bedrock_botocore_config(proxy_mode=False, unsigned=False)
+        except Exception:
+            pass
     trace_request = {
         "method": "SDK",
-        "url": f"AWS Bedrock Agent Runtime (invoke_agent) [{region}]",
-        "headers": {"Authorization": "AWS SigV4 (ambient credentials)"},
+        "url": (
+            f"AWS Bedrock Agent Runtime (invoke_agent) [{region}] via proxy"
+            if proxy_mode
+            else f"AWS Bedrock Agent Runtime (invoke_agent) [{region}]"
+        ),
+        "headers": trace_headers,
         "payload": request_payload,
+        "auth_source": auth_source,
     }
     if not agent_id or not alias_id:
         return None, {
@@ -1281,7 +1552,13 @@ def _bedrock_agent_chat_messages(
             "trace_step": {"name": "AWS Bedrock Agent", "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install boto3`", "details": str(exc)}}},
         }
     try:
-        client = boto3.client("bedrock-agent-runtime", region_name=region)
+        client = boto3.client("bedrock-agent-runtime", **client_kwargs)
+        if proxy_mode:
+            for k, v in proxy_headers.items():
+                client.meta.events.register(
+                    "request-created.bedrock-agent-runtime.InvokeAgent",
+                    lambda request, _k=k, _v=v, **kwargs: request.headers.__setitem__(_k, _v),
+                )
         resp = client.invoke_agent(**request_payload)
         chunks: list[str] = []
         completion = resp.get("completion")
@@ -1305,11 +1582,36 @@ def _bedrock_agent_chat_messages(
             }
         }
     except Exception as exc:
+        err_status: int | None = None
+        err_body: Any = None
+        if hasattr(exc, "response") and isinstance(getattr(exc, "response", None), dict):
+            err_body = getattr(exc, "response")
+            try:
+                err_status = int(((err_body.get("ResponseMetadata") or {}).get("HTTPStatusCode")))
+            except Exception:
+                err_status = None
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=err_status,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
         return None, {
             "error": "Bedrock agent request failed.",
-            "status_code": 502,
+            "status_code": int(err_status or 502),
             "details": str(exc),
-            "trace_step": {"name": "AWS Bedrock Agent", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+            "trace_step": {
+                "name": "AWS Bedrock Agent",
+                "request": trace_request,
+                "response": {
+                    "status": int(err_status or 502),
+                    "body": {"error": str(exc), **({"response_body": err_body} if err_body is not None else {})},
+                },
+            },
         }
 
 
@@ -1512,9 +1814,9 @@ def call_provider_messages(
             f"include_tools_flag={include_flag} provider_supports_tools={provider == 'anthropic'}"
         )
     aws_region = os.getenv("AWS_REGION", DEFAULT_AWS_REGION).strip() or DEFAULT_AWS_REGION
-    if zscaler_proxy_mode and provider not in {"anthropic", "openai"}:
+    if zscaler_proxy_mode and provider not in {"anthropic", "openai", "bedrock_invoke", "bedrock_agent"}:
         return None, {
-            "error": "Zscaler Proxy Mode is currently supported only for Anthropic and OpenAI in this demo. Use DAS/API mode for the selected provider.",
+            "error": "Zscaler Proxy Mode is currently supported for Anthropic, OpenAI, AWS Bedrock, and AWS Bedrock Agent in this demo. Use DAS/API mode for the selected provider.",
             "status_code": 400,
             "trace_step": {
                 "name": "Provider Selection",
@@ -1544,12 +1846,17 @@ def call_provider_messages(
             messages,
             os.getenv("BEDROCK_INVOKE_MODEL", DEFAULT_BEDROCK_INVOKE_MODEL).strip() or DEFAULT_BEDROCK_INVOKE_MODEL,
             region=aws_region,
+            proxy_mode=zscaler_proxy_mode,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "bedrock_agent":
         return _bedrock_agent_chat_messages(
             messages,
             region=aws_region,
+            proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
+            demo_user=demo_user,
         )
     if provider == "perplexity":
         return _openai_compatible_chat_messages(
