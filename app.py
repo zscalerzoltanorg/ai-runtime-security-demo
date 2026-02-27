@@ -1217,6 +1217,7 @@ HTML = f"""<!doctype html>
             <div class="chat-meta-controls">
               <label class="status" for="demoUserSelect">Demo User</label>
               <select id="demoUserSelect" class="provider-select" title="Adds X-Demo-User header to requests (and forwards upstream where supported)">
+                <option value="" selected>(None)</option>
                 <option value="alex.rivera@acme-demo.com">alex.rivera@acme-demo.com</option>
                 <option value="maria.chen@northwind.test">maria.chen@northwind.test</option>
                 <option value="jamal.brooks@contoso-labs.io">jamal.brooks@contoso-labs.io</option>
