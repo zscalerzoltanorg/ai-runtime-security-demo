@@ -1,4 +1,4 @@
-# Local LLM Demo (Multi-Provider + Optional Zscaler AI Guard)
+# AI Runtime Security Demo
 
 Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy), agentic/multi-agent workflows, MCP/tools, and rich traces.
 
@@ -43,8 +43,8 @@ This project is designed to run directly with Python.
    - Python 3.11+
    - Git
 2. Clone:
-   - `git clone https://github.com/zscalerzoltanorg/local-llm-demo.git`
-   - `cd local-llm-demo`
+   - `git clone https://github.com/zscalerzoltanorg/ai-runtime-security-demo.git`
+   - `cd ai-runtime-security-demo`
 3. Bootstrap:
    - `./scripts/bootstrap_mac_linux.sh`
    - This script creates `.venv`, installs Python deps, creates `.env.local` (if missing), installs Ollama when possible, starts `ollama serve`, and pulls `llama3.2:1b`.
@@ -63,8 +63,8 @@ This project is designed to run directly with Python.
    - Python 3.11+
    - Git for Windows
 2. Clone:
-   - `git clone https://github.com/zscalerzoltanorg/local-llm-demo.git`
-   - `cd local-llm-demo`
+   - `git clone https://github.com/zscalerzoltanorg/ai-runtime-security-demo.git`
+   - `cd ai-runtime-security-demo`
 3. Bootstrap:
    - `./scripts/bootstrap_windows.ps1`
    - This script creates `.venv`, installs Python deps, creates `.env.local` (if missing), installs Ollama via winget when possible, starts `ollama serve`, and pulls `llama3.2:1b`.
@@ -100,6 +100,7 @@ OLLAMA_MODEL=llama3.2:1b
 MCP_SERVER_COMMAND=
 MCP_TIMEOUT_SECONDS=15
 MCP_PROTOCOL_VERSION=2024-11-05
+MAX_REQUEST_BYTES=1000000
 ```
 
 When `MCP_SERVER_COMMAND` is empty, the app automatically uses the bundled local MCP server.
@@ -152,6 +153,10 @@ All model overrides are optional and can be configured later.
 - `.env`, `.env.*` are git-ignored (`!.env.example` is allowed)
 - Do not commit real API keys
 - Rotate/revoke temporary keys after demos
+- Admin endpoints (`/settings`, `/restart`, status checks) are restricted to localhost-style requests
+- Tooling URL safety:
+  - `web_fetch` and `http_head` block localhost/private/reserved destinations by default
+  - set `ALLOW_PRIVATE_TOOL_NETWORK=true` only if you intentionally need private network tooling in a trusted lab
 
 ---
 
@@ -189,6 +194,9 @@ What Docker runs:
 ### Docker notes
 
 - In Docker mode, the app uses `OLLAMA_URL=http://ollama:11434`.
+- Compose binds published ports to loopback by default:
+  - `127.0.0.1:5000` (app)
+  - `127.0.0.1:11434` (Ollama)
 - You can still edit provider keys/models via in-app Settings; values persist in `.env.local`.
 - If you change settings that need restart, use the app restart prompt or run:
   - `docker compose restart app`

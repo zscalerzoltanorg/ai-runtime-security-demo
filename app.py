@@ -1,4 +1,5 @@
 import ast
+import ipaddress
 import json
 import os
 import sys
@@ -30,12 +31,13 @@ def _str_env(name: str, default: str) -> str:
 
 HOST = _str_env("HOST", "127.0.0.1")
 PORT = _int_env("PORT", 5000)
+MAX_REQUEST_BYTES = _int_env("MAX_REQUEST_BYTES", 1_000_000)
 OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = _str_env("OLLAMA_MODEL", "llama3.2:1b")
 ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
 OPENAI_MODEL = _str_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
-APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI App Demo")
+APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 _RESTART_LOCK = threading.Lock()
@@ -2322,7 +2324,7 @@ HTML = f"""<!doctype html>
                 <div class="agent-step-title">${{title}}</div>
                 <div>${{badge}}</div>
               </div>
-              <pre>${{detail}}</pre>
+              <pre>${{escapeHtml(detail)}}</pre>
             </div>
           `;
         }}).join("");
@@ -3471,9 +3473,9 @@ HTML = f"""<!doctype html>
             </span>
           </div>
           <div class="log-label">Step ${{idx + 1}}: ${{step.name || "Upstream"}}</div>
-          <pre>${{pretty(step.request || {{}})}}</pre>
+          <pre>${{escapeHtml(pretty(step.request || {{}}))}}</pre>
           <div class="log-label">Step ${{idx + 1}} Response</div>
-          <pre>${{pretty(step.response || {{}})}}</pre>
+          <pre>${{escapeHtml(pretty(step.response || {{}}))}}</pre>
         `).join("");
 
         item.innerHTML = `
@@ -3490,11 +3492,11 @@ HTML = f"""<!doctype html>
             </span>
           </div>
           <div class="log-label">Request</div>
-          <pre>${{pretty(clientReq)}}</pre>
+          <pre>${{escapeHtml(pretty(clientReq))}}</pre>
           <div class="log-label">Response</div>
-          <pre>${{pretty(clientRes)}}</pre>
-          ${{upstreamReq ? `<div class="log-label">Upstream Request (Ollama)</div><pre>${{pretty(upstreamReq)}}</pre>` : ""}}
-          ${{upstreamRes ? `<div class="log-label">Upstream Response (Ollama)</div><pre>${{pretty(upstreamRes)}}</pre>` : ""}}
+          <pre>${{escapeHtml(pretty(clientRes))}}</pre>
+          ${{upstreamReq ? `<div class="log-label">Upstream Request (Ollama)</div><pre>${{escapeHtml(pretty(upstreamReq))}}</pre>` : ""}}
+          ${{upstreamRes ? `<div class="log-label">Upstream Response (Ollama)</div><pre>${{escapeHtml(pretty(upstreamRes))}}</pre>` : ""}}
           ${{traceStepsHtml}}
         `;
 
@@ -4221,6 +4223,19 @@ def _hhmmss_now() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+def _is_local_admin_request(handler: BaseHTTPRequestHandler) -> bool:
+    remote_ip_raw = str((handler.client_address or [""])[0] or "").strip()
+    host_header = str(handler.headers.get("Host") or "").strip().lower()
+    host_name = host_header.split(":", 1)[0].strip("[]")
+    host_is_local = host_name in {"localhost", "127.0.0.1", "::1"}
+    try:
+        remote_ip = ipaddress.ip_address(remote_ip_raw)
+        ip_is_localish = remote_ip.is_loopback or remote_ip.is_private
+    except ValueError:
+        ip_is_localish = False
+    return bool(host_is_local and ip_is_localish)
+
+
 SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_DEMO_NAME", "label": "App Demo Name", "secret": False, "hint": "Browser/page title and app card heading"},
     {"group": "App", "key": "PORT", "label": "App Port", "secret": False, "hint": "Requires restart to bind a different port"},
@@ -4463,6 +4478,45 @@ def _extract_proxy_block_info_from_payload(payload: dict | None) -> dict | None:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _require_local_admin(self) -> bool:
+        if _is_local_admin_request(self):
+            return True
+        self._send_json({"error": "This endpoint is localhost-only."}, status=403)
+        return False
+
+    def _read_json_body_limited(self) -> dict | None:
+        raw_len = str(self.headers.get("Content-Length", "0")).strip()
+        try:
+            content_length = int(raw_len or "0")
+        except ValueError:
+            self._send_json({"error": "Invalid Content-Length header."}, status=400)
+            return None
+        if content_length < 0:
+            self._send_json({"error": "Invalid Content-Length header."}, status=400)
+            return None
+        if content_length > MAX_REQUEST_BYTES:
+            self._send_json(
+                {"error": f"Request body too large. Max {MAX_REQUEST_BYTES} bytes."},
+                status=413,
+            )
+            return None
+        raw_body = self.rfile.read(content_length)
+        if len(raw_body) > MAX_REQUEST_BYTES:
+            self._send_json(
+                {"error": f"Request body too large. Max {MAX_REQUEST_BYTES} bytes."},
+                status=413,
+            )
+            return None
+        try:
+            data = json.loads(raw_body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            self._send_json({"error": "Invalid JSON"}, status=400)
+            return None
+        if not isinstance(data, dict):
+            self._send_json({"error": "JSON object is required."}, status=400)
+            return None
+        return data
+
     def _send_json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -4481,6 +4535,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/settings":
+            if not self._require_local_admin():
+                return
             self._send_json(
                 {
                     "ok": True,
@@ -4493,6 +4549,8 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if self.path == "/mcp-status":
+            if not self._require_local_admin():
+                return
             try:
                 from mcp_client import mcp_client_from_env
 
@@ -4541,6 +4599,8 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
         if self.path == "/litellm-status":
+            if not self._require_local_admin():
+                return
             base_url = os.getenv("LITELLM_BASE_URL", "").strip()
             api_key = os.getenv("LITELLM_API_KEY", "").strip()
             if not base_url or not api_key:
@@ -4608,6 +4668,8 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
         if self.path == "/ollama-status":
+            if not self._require_local_admin():
+                return
             tags_url = f"{OLLAMA_URL.rstrip('/')}/api/tags"
             req = urlrequest.Request(tags_url, headers={"Content-Type": "application/json"}, method="GET")
             try:
@@ -4666,6 +4728,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path == "/restart":
+            if not self._require_local_admin():
+                return
             scheduled = _schedule_self_restart()
             self._send_json(
                 {
@@ -4678,12 +4742,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/settings":
-            content_length = int(self.headers.get("Content-Length", "0"))
-            raw_body = self.rfile.read(content_length)
-            try:
-                data = json.loads(raw_body.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                self._send_json({"error": "Invalid JSON"}, status=400)
+            if not self._require_local_admin():
+                return
+            data = self._read_json_body_limited()
+            if data is None:
                 return
             incoming_values = data.get("values")
             if not isinstance(incoming_values, dict):
@@ -4711,13 +4773,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, status=404)
             return
 
-        content_length = int(self.headers.get("Content-Length", "0"))
-        raw_body = self.rfile.read(content_length)
-
-        try:
-            data = json.loads(raw_body.decode("utf-8") or "{}")
-        except json.JSONDecodeError:
-            self._send_json({"error": "Invalid JSON"}, status=400)
+        data = self._read_json_body_limited()
+        if data is None:
             return
 
         prompt = (data.get("prompt") or "").strip()

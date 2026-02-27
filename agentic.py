@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -26,6 +27,12 @@ def _int_env(name: str, default: int) -> int:
 BRAVE_SEARCH_BASE_URL = os.getenv("BRAVE_SEARCH_BASE_URL", "https://api.search.brave.com")
 BRAVE_SEARCH_MAX_RESULTS = _int_env("BRAVE_SEARCH_MAX_RESULTS", 5)
 AGENTIC_MAX_STEPS = _int_env("AGENTIC_MAX_STEPS", 3)
+ALLOW_PRIVATE_TOOL_NETWORK = str(os.getenv("ALLOW_PRIVATE_TOOL_NETWORK", "")).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 TOOLS = {
@@ -223,6 +230,44 @@ def _http_head(url: str, headers: dict | None = None, timeout: float = 15.0) -> 
         return resp.status, dict(resp.headers.items())
 
 
+def _is_public_ip(ip_raw: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(str(ip_raw).strip())
+    except ValueError:
+        return False
+    if ip_obj.is_loopback or ip_obj.is_private:
+        return False
+    if ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified:
+        return False
+    if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.is_site_local:
+        return False
+    return True
+
+
+def _validate_public_tool_url(url: str) -> str | None:
+    parsed = parse.urlparse(str(url or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        return "only http/https URLs are allowed."
+    host = str(parsed.hostname or "").strip().lower()
+    if not host:
+        return "URL host is required."
+    if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local"):
+        return "localhost/local domains are blocked."
+    if ALLOW_PRIVATE_TOOL_NETWORK:
+        return None
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or None, type=socket.SOCK_STREAM)
+    except Exception as exc:
+        return f"could not resolve host: {exc}"
+    ips = {info[4][0] for info in infos if info and len(info) > 4 and info[4]}
+    if not ips:
+        return "could not resolve host to an IP."
+    blocked = [ip for ip in ips if not _is_public_ip(ip)]
+    if blocked:
+        return f"host resolves to blocked private/local IPs: {', '.join(sorted(blocked))}"
+    return None
+
+
 def _tool_weather(args: dict) -> tuple[str, dict]:
     location = str((args or {}).get("location") or "").strip()
     if not location:
@@ -263,6 +308,14 @@ def _tool_web_fetch(args: dict) -> tuple[str, dict]:
         return "Error: web_fetch tool requires `url`.", {"tool": "web_fetch", "input": args, "error": "missing url"}
     if not url.startswith(("http://", "https://")):
         return "Error: web_fetch only supports http/https URLs.", {"tool": "web_fetch", "input": args, "error": "invalid scheme"}
+    url_err = _validate_public_tool_url(url)
+    if url_err:
+        return f"Error: web_fetch blocked: {url_err}", {
+            "tool": "web_fetch",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "error": url_err,
+        }
 
     try:
         status, body = _http_get(url, headers={"User-Agent": "LocalLLMDemo/1.0"}, timeout=20.0)
@@ -391,6 +444,14 @@ def _tool_http_head(args: dict) -> tuple[str, dict]:
         return "Error: http_head requires `url`.", {"tool": "http_head", "input": args, "error": "missing url"}
     if not url.startswith(("http://", "https://")):
         return "Error: http_head only supports http/https URLs.", {"tool": "http_head", "input": args, "error": "invalid scheme"}
+    url_err = _validate_public_tool_url(url)
+    if url_err:
+        return f"Error: http_head blocked: {url_err}", {
+            "tool": "http_head",
+            "input": args,
+            "request": {"method": "HEAD", "url": url},
+            "error": url_err,
+        }
     req_headers = {"User-Agent": "LocalLLMDemo/1.0"}
     try:
         status, headers = _http_head(url, headers=req_headers, timeout=15.0)

@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: local-llm-demo-app
+    container_name: ai-runtime-security-demo-app
     environment:
       HOST: 0.0.0.0
       PORT: 5000
@@ -11,16 +11,16 @@ services:
     env_file:
       - .env.local
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     depends_on:
       - ollama
     restart: unless-stopped
 
   ollama:
     image: ollama/ollama:latest
-    container_name: local-llm-demo-ollama
+    container_name: ai-runtime-security-demo-ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
