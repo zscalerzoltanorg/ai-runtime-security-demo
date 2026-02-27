@@ -1,0 +1,6 @@
+Demo checklist:
+1. Verify provider key is set
+2. Send baseline prompt
+3. Toggle AI Guard and re-send
+4. Run agentic task with tools enabled
+5. Show flow graph and tool traces

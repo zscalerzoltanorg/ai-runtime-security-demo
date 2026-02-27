@@ -1,0 +1,7 @@
+{
+  "vendors": [
+    {"name": "CloudTransit", "service": "network egress", "contract_renewal": "2026-08-15"},
+    {"name": "ModelGarden", "service": "LLM APIs", "contract_renewal": "2026-11-30"},
+    {"name": "SecOpsHub", "service": "SIEM", "contract_renewal": "2027-01-20"}
+  ]
+}

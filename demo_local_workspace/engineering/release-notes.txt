@@ -1,0 +1,8 @@
+Release v0.9.4
+- Added proxy mode traces for Anthropic and OpenAI
+- Improved flow graph labels for MCP/tool path
+- Fixed stale cert path fallback after project folder rename
+
+Release v0.9.5 (planned)
+- Add local task tools with strict path guardrails
+- Add toolset snapshot events in trace payload

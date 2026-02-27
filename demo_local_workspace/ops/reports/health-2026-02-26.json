@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-02-26T22:15:00Z",
+  "services": {
+    "app": "ok",
+    "ollama": "ok",
+    "mcp": "ok",
+    "guardrails": "ok"
+  },
+  "notes": "No active incidents"
+}

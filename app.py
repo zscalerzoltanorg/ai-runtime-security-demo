@@ -1193,6 +1193,11 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Tools (MCP)</span>
             </label>
+            <label id="localTasksToggleWrap" class="toggle-wrap disabled" for="localTasksToggle" title="Enable safe local task tools (whoami, pwd, local directory listing/sizes, and curl-like HTTP requests). Requires Tools + Agentic/Multi-Agent.">
+              <input id="localTasksToggle" type="checkbox" role="switch" aria-label="Toggle local task tools" disabled />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">Local Tasks</span>
+            </label>
             <label id="agenticToggleWrap" class="toggle-wrap" for="agenticToggle" title="Single-agent mode: plan, optionally call tools, then return a final answer.">
               <input id="agenticToggle" type="checkbox" role="switch" aria-label="Toggle agentic mode" />
               <span class="toggle-track" aria-hidden="true"></span>
@@ -1428,6 +1433,8 @@ HTML = f"""<!doctype html>
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
+      const localTasksToggleWrapEl = document.getElementById("localTasksToggleWrap");
+      const localTasksToggleEl = document.getElementById("localTasksToggle");
       const mcpStatusPillEl = document.getElementById("mcpStatusPill");
       const mcpStatusDotEl = document.getElementById("mcpStatusDot");
       const mcpStatusTextEl = document.getElementById("mcpStatusText");
@@ -1742,6 +1749,18 @@ HTML = f"""<!doctype html>
           : "Tools requires Agentic Mode or Multi-Agent Mode. Enable one first.";
         if (!toolsEligible) {{
           toolsToggleEl.checked = false;
+        }}
+      }}
+
+      function syncLocalTasksToggleState() {{
+        const eligible = (!!agenticToggleEl.checked || !!multiAgentToggleEl.checked) && !!toolsToggleEl.checked;
+        localTasksToggleEl.disabled = !eligible;
+        localTasksToggleWrapEl.classList.toggle("disabled", !eligible);
+        localTasksToggleWrapEl.title = eligible
+          ? "Enable safe local task tools (whoami, pwd, local directory listing/sizes, and curl-like HTTP requests)."
+          : "Local Tasks requires Tools (MCP) and Agentic or Multi-Agent mode.";
+        if (!eligible) {{
+          localTasksToggleEl.checked = false;
         }}
       }}
 
@@ -2652,6 +2671,7 @@ HTML = f"""<!doctype html>
           "Agentic": !!entry.agenticEnabled,
           "Multi-Agent": !!entry.multiAgentEnabled,
           "Tools": !!entry.toolsEnabled,
+          "Local Tasks": !!entry.localTasksEnabled,
           ..._transportMetaFromUrl(`${{window.location.origin}}/chat`, {{
             note: "Browser -> local demo app request"
           }}),
@@ -2717,9 +2737,11 @@ HTML = f"""<!doctype html>
           addNode("researcher", "Researcher", "agent", nextCol + 1, 0, {{
             "Role": "Research / tools",
             "Uses Tools": !!pipelineStart.tools_enabled,
+            "Local Tasks Enabled": !!pipelineStart.local_tasks_enabled,
             "What it does": "Gathers information, can call tools/MCP when enabled, then returns findings.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
             "Tool execution": pipelineStart.tools_enabled ? "Yes (tool/MCP calls may happen here)" : "No (tools disabled)",
+            "Local task tools": pipelineStart.local_tasks_enabled ? "Enabled (whoami/pwd/local ls/sizes/curl-like)" : "Disabled",
             "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
             "Network Protocol": "Not applicable (in-process orchestration)"
           }});
@@ -2756,6 +2778,7 @@ HTML = f"""<!doctype html>
             "What it does": "Single agent plans, optionally calls tools/MCP, and then finalizes the answer.",
             "LLM calls": "Yes (multiple provider calls possible)",
             "Tool execution": entry.toolsEnabled ? "Allowed when model requests it" : "Disabled",
+            "Local task tools": entry.localTasksEnabled ? "Enabled" : "Disabled",
             "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
             "Network Protocol": "Not applicable (in-process orchestration)"
           }});
@@ -2812,6 +2835,7 @@ HTML = f"""<!doctype html>
         }}
 
         const toolIds = [];
+        const toolNetworkIds = [];
         toolEvents.forEach((item, idx) => {{
           const toolName = String(item.tool || "").trim() || `tool_${{idx+1}}`;
           const id = `tool_${{idx}}`;
@@ -2844,9 +2868,36 @@ HTML = f"""<!doctype html>
           const sourceNode = mcpEvents.length ? "mcp" : toolAnchor;
           addEdge(sourceNode, id, "request");
           addEdge(id, sourceNode, "response");
+
+          const tReq = ((item.tool_trace || {{}}).request || {{}}).url || "";
+          if (tReq) {{
+            const netId = `tool_net_${{idx}}`;
+            toolNetworkIds.push(netId);
+            let netHost = "network";
+            let netPath = "";
+            let netMethod = String(((item.tool_trace || {{}}).request || {{}}).method || "").toUpperCase();
+            try {{
+              const u = new URL(String(tReq));
+              netHost = u.host || u.hostname || netHost;
+              netPath = u.pathname || "";
+            }} catch {{}}
+            const tRes = ((item.tool_trace || {{}}).response || {{}}); 
+            addNode(netId, netHost, "provider", nextCol + 2 + idx, (idx % 2 === 0 ? 1 : 3), {{
+              "URL": tReq,
+              "Method": netMethod || "",
+              "Path": netPath,
+              "Status": (tRes.status ?? ""),
+              "Body Preview": _short(String(tRes.body_preview || tRes.body || ""), 220),
+              ..._transportMetaFromUrl(tReq, {{
+                note: "Tool outbound network destination"
+              }}),
+            }});
+            addEdge(id, netId, "request");
+            addEdge(netId, id, "response");
+          }}
         }});
         if ((toolIds.length || mcpEvents.length) && shouldShowProvider) {{
-          nextCol += 2 + Math.max(1, toolIds.length);
+          nextCol += 2 + Math.max(1, toolIds.length + toolNetworkIds.length);
           const returnNode = toolIds.length ? toolIds[toolIds.length - 1] : "mcp";
           addEdge(returnNode, providerNodeId, "response");
         }}
@@ -3238,6 +3289,7 @@ HTML = f"""<!doctype html>
         const agenticOn = !!agenticToggleEl.checked;
         const multiAgentOn = !!multiAgentToggleEl.checked;
         const toolsOn = !!toolsToggleEl.checked && (agenticOn || multiAgentOn);
+        const localTasksOn = !!localTasksToggleEl.checked && toolsOn;
         sections.push({{
           title: "Execution Summary (Live UI State)",
           file: "runtime",
@@ -3250,6 +3302,7 @@ HTML = f"""<!doctype html>
             `agentic_enabled = ${{agenticOn}}`,
             `multi_agent_enabled = ${{multiAgentOn}}`,
             `tools_enabled = ${{toolsOn}}`,
+            `local_tasks_enabled = ${{localTasksOn}}`,
           ].join("\\n")
         }});
 
@@ -3408,13 +3461,16 @@ HTML = f"""<!doctype html>
         const toolsState = (agenticToggleEl.checked || multiAgentToggleEl.checked)
           ? (toolsToggleEl.checked ? "ON" : "OFF")
           : "N/A";
+        const localTasksState = (agenticToggleEl.checked || multiAgentToggleEl.checked)
+          ? (localTasksToggleEl.checked ? "ON" : "OFF")
+          : "N/A";
 
         codeStatusEl.textContent = codeViewMode === "auto"
           ? `Auto mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
             }} for ${{providerLabel}} in ${{
               currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
-            }} mode | Zscaler AI Guard: ${{zMode}} | Execution: ${{execMode}} | Tools/MCP: ${{toolsState}}`
+            }} mode | Zscaler AI Guard: ${{zMode}} | Execution: ${{execMode}} | Tools/MCP: ${{toolsState}} | Local Tasks: ${{localTasksState}}`
           : `Manual mode: showing ${{
               mode.startsWith("after_") ? "AI Guard path" : "direct path"
             }} for ${{mode.endsWith("_ollama") ? "Ollama (Local)" : "Remote Provider (Anthropic/OpenAI)"}} in ${{
@@ -3458,6 +3514,7 @@ HTML = f"""<!doctype html>
             guardrails_enabled: !!entry.guardrailsEnabled,
             agentic_enabled: !!entry.agenticEnabled,
             tools_enabled: !!entry.toolsEnabled,
+            local_tasks_enabled: !!entry.localTasksEnabled,
             multi_agent_enabled: !!entry.multiAgentEnabled
             ,
             zscaler_proxy_mode: !!entry.zscalerProxyMode
@@ -3624,6 +3681,7 @@ HTML = f"""<!doctype html>
               zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
               agentic_enabled: agenticToggleEl.checked,
               tools_enabled: toolsToggleEl.checked,
+              local_tasks_enabled: localTasksToggleEl.checked,
               multi_agent_enabled: multiAgentToggleEl.checked
             }})
           }});
@@ -3644,6 +3702,7 @@ HTML = f"""<!doctype html>
             zscalerProxyMode: zscalerProxyModeToggleEl.checked,
             agenticEnabled: agenticToggleEl.checked,
             toolsEnabled: toolsToggleEl.checked,
+            localTasksEnabled: localTasksToggleEl.checked,
             multiAgentEnabled: multiAgentToggleEl.checked,
             status: res.status,
             body: data
@@ -3791,6 +3850,10 @@ HTML = f"""<!doctype html>
       }});
       toolsToggleEl.addEventListener("change", () => {{
         // Valid state: tools OFF while agentic ON (agent will avoid tool execution).
+        syncLocalTasksToggleState();
+        renderCodeViewer();
+      }});
+      localTasksToggleEl.addEventListener("change", () => {{
         renderCodeViewer();
       }});
       agenticToggleEl.addEventListener("change", () => {{
@@ -3799,6 +3862,7 @@ HTML = f"""<!doctype html>
         }}
         syncAgentModeExclusivityState();
         syncToolsToggleState();
+        syncLocalTasksToggleState();
         if (!agenticToggleEl.checked && !multiAgentToggleEl.checked) {{
           resetAgentTrace();
         }}
@@ -3810,6 +3874,7 @@ HTML = f"""<!doctype html>
         }}
         syncAgentModeExclusivityState();
         syncToolsToggleState();
+        syncLocalTasksToggleState();
         if (!multiAgentToggleEl.checked && !agenticToggleEl.checked) {{
           resetAgentTrace();
         }}
@@ -3851,6 +3916,7 @@ HTML = f"""<!doctype html>
       updateChatModeUI();
       syncAgentModeExclusivityState();
       syncToolsToggleState();
+      syncLocalTasksToggleState();
       syncZscalerProxyModeState();
       setHttpTraceCount(0);
       setAgentTraceCount(0);
@@ -4026,6 +4092,26 @@ PRESET_PROMPTS = [
                 "name": "Base64 Encode",
                 "hint": "Agentic+Tools: encode text",
                 "prompt": 'Use base64_codec to encode the text "zscaler demo".',
+            },
+            {
+                "name": "Natural: Who Am I",
+                "hint": "Agentic+Tools+Local Tasks: natural language local identity query",
+                "prompt": "Can you quickly tell me who is running this app locally and what machine/platform this is?",
+            },
+            {
+                "name": "Natural: List Demo Files",
+                "hint": "Agentic+Tools+Local Tasks: list files from demo_local_workspace",
+                "prompt": "Show me what's in the local demo workspace folder and include size and modified time.",
+            },
+            {
+                "name": "Natural: Largest Files",
+                "hint": "Agentic+Tools+Local Tasks: identify biggest files",
+                "prompt": "Find the largest files in the local demo workspace and summarize total size.",
+            },
+            {
+                "name": "Natural: Curl ipinfo",
+                "hint": "Agentic+Tools+Local Tasks: local_curl outbound request",
+                "prompt": "Use a local curl-style tool to GET http://ipinfo.io and show status, headers, and the first few lines of body.",
             },
         ],
     },
@@ -4332,6 +4418,9 @@ SETTINGS_SCHEMA = [
     {"group": "Tools / MCP", "key": "MCP_SERVER_COMMAND", "label": "MCP Server Command", "secret": False, "hint": "Optional custom MCP stdio command"},
     {"group": "Tools / MCP", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Optional MCP timeout"},
     {"group": "Tools / MCP", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Optional MCP protocol override"},
+    {"group": "Tools / MCP", "key": "LOCAL_TASKS_BASE_DIR", "label": "Local Tasks Base Dir", "secret": False, "hint": "Local tool filesystem root (relative or absolute path)"},
+    {"group": "Tools / MCP", "key": "LOCAL_TASKS_MAX_ENTRIES", "label": "Local Tasks Max Entries", "secret": False, "hint": "Max rows returned by local_ls (default 200)"},
+    {"group": "Tools / MCP", "key": "LOCAL_TASKS_MAX_BYTES", "label": "Local Tasks Max Bytes", "secret": False, "hint": "Max bytes captured by local_curl response body"},
     {"group": "Tools / MCP", "key": "TOOLSET_DEBUG_LOGS", "label": "Toolset Debug Logs", "secret": False, "hint": "When true, prints MCP servers/tools and per-call tool inclusion metadata"},
     {"group": "Tools / MCP", "key": "INCLUDE_TOOLS_IN_LLM_REQUEST", "label": "Include Tools In LLM Request", "secret": False, "hint": "When true, provider payloads include tool definitions (if provider supports it)"},
     {"group": "Tools / MCP", "key": "MAX_TOOLS_IN_REQUEST", "label": "Max Tools In Request", "secret": False, "hint": "Maximum number of tool defs attached to each LLM request"},
@@ -4518,6 +4607,31 @@ def _extract_proxy_block_info_from_payload(payload: dict | None) -> dict | None:
                         "stage": "IN" if parsed.get("inputDetections") else ("OUT" if parsed.get("outputDetections") else "UNKNOWN"),
                         **parsed,
                     }
+    agent_trace = payload.get("agent_trace")
+    if isinstance(agent_trace, list):
+        for item in agent_trace:
+            if not isinstance(item, dict):
+                continue
+            trace_step = item.get("trace_step")
+            if not isinstance(trace_step, dict):
+                continue
+            resp = trace_step.get("response")
+            if not isinstance(resp, dict):
+                continue
+            body = resp.get("body")
+            if isinstance(body, dict):
+                nested = body.get("response_body")
+                if isinstance(nested, dict) and ("policyName" in nested or "reason" in nested):
+                    return {
+                        "stage": "IN" if nested.get("inputDetections") else ("OUT" if nested.get("outputDetections") else "UNKNOWN"),
+                        **nested,
+                    }
+                parsed = _parse_proxy_block_dict_from_text(body.get("error"))
+                if parsed and ("policyName" in parsed or "reason" in parsed):
+                    return {
+                        "stage": "IN" if parsed.get("inputDetections") else ("OUT" if parsed.get("outputDetections") else "UNKNOWN"),
+                        **parsed,
+                    }
     parsed = _parse_proxy_block_dict_from_text(payload.get("details"))
     if parsed and ("policyName" in parsed or "reason" in parsed):
         return {
@@ -4525,6 +4639,21 @@ def _extract_proxy_block_info_from_payload(payload: dict | None) -> dict | None:
             **parsed,
         }
     return None
+
+
+def _infer_proxy_block_stage_from_payload(payload: dict | None, fallback: str = "IN") -> str:
+    default_stage = str(fallback or "IN").upper()
+    if not isinstance(payload, dict):
+        return default_stage
+    agent_trace = payload.get("agent_trace")
+    if isinstance(agent_trace, list):
+        saw_tool = any(isinstance(item, dict) and item.get("kind") == "tool" for item in agent_trace)
+        if saw_tool:
+            return "OUT"
+        llm_steps = sum(1 for item in agent_trace if isinstance(item, dict) and item.get("kind") == "llm")
+        if llm_steps > 1:
+            return "OUT"
+    return default_stage
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -4853,6 +4982,7 @@ class Handler(BaseHTTPRequestHandler):
         guardrails_enabled = bool(data.get("guardrails_enabled"))
         zscaler_proxy_mode = bool(data.get("zscaler_proxy_mode")) and guardrails_enabled
         tools_enabled = bool(data.get("tools_enabled"))
+        local_tasks_enabled = bool(data.get("local_tasks_enabled")) and tools_enabled
         agentic_enabled = bool(data.get("agentic_enabled"))
         multi_agent_enabled = bool(data.get("multi_agent_enabled"))
         chat_trace_id = str(data.get("trace_id") or "").strip() or uuid4().hex
@@ -4909,6 +5039,7 @@ class Handler(BaseHTTPRequestHandler):
                     conversation_messages=messages_for_provider,
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
+                    local_tasks_enabled=local_tasks_enabled,
                 )
                 proxy_block = _extract_proxy_block_info_from_payload(payload)
                 if proxy_block:
@@ -4916,6 +5047,8 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(payload.get("trace"), dict) and isinstance(payload["trace"].get("steps"), list):
                         trace_steps = payload["trace"]["steps"]
                     block_stage = str(proxy_block.get("stage") or "IN").upper()
+                    if block_stage == "UNKNOWN":
+                        block_stage = _infer_proxy_block_stage_from_payload(payload, fallback="IN")
                     block_payload = {
                         "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
                         "guardrails": {
@@ -5003,6 +5136,7 @@ class Handler(BaseHTTPRequestHandler):
                     conversation_messages=messages_for_provider,
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
+                    local_tasks_enabled=local_tasks_enabled,
                 )
                 agent_trace = payload.get("agent_trace", [])
                 payload_trace_steps = []
@@ -5058,6 +5192,7 @@ class Handler(BaseHTTPRequestHandler):
                 conversation_messages=messages_for_provider,
                 provider_messages_call=_provider_messages_call,
                 tools_enabled=tools_enabled,
+                local_tasks_enabled=local_tasks_enabled,
             )
             if chat_mode == "multi" and status == 200 and payload.get("response"):
                 payload["conversation"] = messages_for_provider + [
@@ -5076,6 +5211,7 @@ class Handler(BaseHTTPRequestHandler):
                     conversation_messages=messages_for_provider,
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
+                    local_tasks_enabled=local_tasks_enabled,
                 )
                 proxy_block = _extract_proxy_block_info_from_payload(payload)
                 if proxy_block:
@@ -5083,6 +5219,8 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(payload.get("trace"), dict) and isinstance(payload["trace"].get("steps"), list):
                         trace_steps = payload["trace"]["steps"]
                     block_stage = str(proxy_block.get("stage") or "IN").upper()
+                    if block_stage == "UNKNOWN":
+                        block_stage = _infer_proxy_block_stage_from_payload(payload, fallback="IN")
                     block_payload = {
                         "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
                         "guardrails": {
@@ -5168,6 +5306,7 @@ class Handler(BaseHTTPRequestHandler):
                     conversation_messages=messages_for_provider,
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
+                    local_tasks_enabled=local_tasks_enabled,
                 )
                 agent_trace = payload.get("agent_trace", [])
                 payload_trace_steps = []
@@ -5222,6 +5361,7 @@ class Handler(BaseHTTPRequestHandler):
                 conversation_messages=messages_for_provider,
                 provider_messages_call=_provider_messages_call,
                 tools_enabled=tools_enabled,
+                local_tasks_enabled=local_tasks_enabled,
             )
             if chat_mode == "multi" and status == 200 and payload.get("response"):
                 payload["conversation"] = messages_for_provider + [

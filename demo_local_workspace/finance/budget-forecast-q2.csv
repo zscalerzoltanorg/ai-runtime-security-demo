@@ -1,0 +1,7 @@
+month,team,planned_usd,actual_usd,variance_usd
+Apr,Platform,42000,43800,1800
+Apr,Security,31000,29850,-1150
+May,Platform,44500,45120,620
+May,Security,32500,33740,1240
+Jun,Platform,46000,0,0
+Jun,Security,34000,0,0

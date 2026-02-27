@@ -104,6 +104,9 @@ OLLAMA_MODEL=llama3.2:1b
 MCP_SERVER_COMMAND=
 MCP_TIMEOUT_SECONDS=15
 MCP_PROTOCOL_VERSION=2024-11-05
+LOCAL_TASKS_BASE_DIR=demo_local_workspace
+LOCAL_TASKS_MAX_ENTRIES=200
+LOCAL_TASKS_MAX_BYTES=500000
 MAX_REQUEST_BYTES=1000000
 SSL_CERT_FILE=certs/combined-ca-bundle.pem
 REQUESTS_CA_BUNDLE=certs/combined-ca-bundle.pem
@@ -204,6 +207,55 @@ Provider-specific:
 - payload wiring (`tools` field shape and constraints)
 - tool name normalization and reversible mapping
 - tool-call parsing format (`tool_use` vs function-calls vs Bedrock-specific shapes)
+
+---
+
+## Local Task Tools (Demo)
+
+This repo includes a small local demo dataset at:
+
+- `demo_local_workspace/`
+
+You can enable local task tools from the UI using:
+
+- `Tools (MCP)` toggle
+- `Local Tasks` toggle (enabled only when Agentic or Multi-Agent mode is active)
+
+### Included local task tools
+
+- `local_whoami`: user + host + platform info
+- `local_pwd`: current working dir + configured local tasks base dir
+- `local_ls`: list directory entries under base dir
+- `local_file_sizes`: summarize file sizes under base dir
+- `local_curl`: curl-like HTTP request (GET/HEAD/POST, URL + params + headers + optional body)
+
+Tool alias handling is enabled for weaker models:
+
+- `curl` -> `local_curl`
+- `ls` / `dir` -> `local_ls`
+- `pwd` -> `local_pwd`
+- `whoami` -> `local_whoami`
+- `du` / `file_sizes` -> `local_file_sizes`
+
+### Cross-platform behavior (macOS/Linux/Windows)
+
+- Local filesystem and user tools use Python stdlib APIs, so behavior is portable.
+- Paths are normalized through Python `pathlib` and constrained to `LOCAL_TASKS_BASE_DIR`.
+- No shell command execution is required for `whoami`, `pwd`, or directory listing.
+
+### Local task safety boundaries
+
+- Local filesystem actions are restricted to `LOCAL_TASKS_BASE_DIR` (default: `demo_local_workspace`).
+- `local_ls` and `local_curl` output size are capped with:
+  - `LOCAL_TASKS_MAX_ENTRIES`
+  - `LOCAL_TASKS_MAX_BYTES`
+- `local_curl` does not use an allowlisted host model (for demo flexibility), but is still constrained by method/time/body limits.
+
+### Guardrails visibility note
+
+- Provider request/response traffic appears in HTTP trace and can be enforced by AI Guard (DAS/API or Proxy mode).
+- Local task tool execution appears in Agent/Tool trace + flow graph as tool steps.
+- Local tool calls themselves are local runtime actions and are not automatically sent to AI Guard unless you explicitly route/check them in your own policy pipeline.
 
 ---
 

@@ -1,0 +1,4 @@
+policy_id,policy_name,severity,scope
+p-1001,Prompt Injection Shield,high,input
+p-1002,Sensitive Data Outbound,critical,output
+p-1003,Untrusted Tool Invocation,medium,input

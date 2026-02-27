@@ -86,7 +86,15 @@ def _proxy_guardrails_block_from_error(
                 body = None
 
     if not isinstance(body, dict):
-        return None
+        return {
+            "reason": "Request was rejected by Zscaler AI Guard proxy (HTTP 403)",
+            "policyName": None,
+            "inputDetections": [],
+            "outputDetections": [],
+            "stage": "UNKNOWN",
+            "raw": body if body is not None else details_text,
+            "status_code": 403,
+        }
 
     reason = str(body.get("reason") or "")
     if "Zscaler AI Guard" not in reason and not any(k in body for k in ("policyName", "inputDetections", "outputDetections")):

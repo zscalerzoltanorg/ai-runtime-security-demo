@@ -1,12 +1,15 @@
 import base64
+import getpass
 import hashlib
 import ipaddress
 import json
 import os
+import platform
 import re
 import socket
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 from urllib import error, parse, request
 from zoneinfo import ZoneInfo
@@ -33,6 +36,9 @@ ALLOW_PRIVATE_TOOL_NETWORK = str(os.getenv("ALLOW_PRIVATE_TOOL_NETWORK", "")).st
     "yes",
     "on",
 }
+LOCAL_TASKS_BASE_DIR = str(os.getenv("LOCAL_TASKS_BASE_DIR", "demo_local_workspace")).strip() or "demo_local_workspace"
+LOCAL_TASKS_MAX_ENTRIES = max(1, _int_env("LOCAL_TASKS_MAX_ENTRIES", 200))
+LOCAL_TASKS_MAX_BYTES = max(1024, _int_env("LOCAL_TASKS_MAX_BYTES", 500_000))
 
 
 TOOLS = {
@@ -84,17 +90,129 @@ TOOLS = {
         "description": "Base64 encode or decode text.",
         "input_schema": {"mode": "encode|decode", "text": "string"},
     },
+    "local_whoami": {
+        "description": "Return the current local OS user and host/platform info.",
+        "input_schema": {},
+    },
+    "local_pwd": {
+        "description": "Return the current working directory and allowed local tasks base directory.",
+        "input_schema": {},
+    },
+    "local_ls": {
+        "description": "List files/directories under a path inside the local tasks base directory.",
+        "input_schema": {"path": "string (optional)", "recursive": "boolean (optional)", "max_entries": "integer (optional)"},
+    },
+    "local_file_sizes": {
+        "description": "Summarize file sizes under a path inside the local tasks base directory.",
+        "input_schema": {"path": "string (optional)", "top_n": "integer (optional)"},
+    },
+    "local_curl": {
+        "description": "Make a curl-like HTTP request (GET/HEAD/POST), returning status, headers, and a body preview.",
+        "input_schema": {
+            "url": "string",
+            "method": "GET|HEAD|POST (optional)",
+            "headers": "object (optional)",
+            "params": "object (optional)",
+            "body": "string (optional)",
+            "timeout_seconds": "number (optional)",
+        },
+    },
+}
+
+LOCAL_TASK_TOOL_NAMES = {
+    "local_whoami",
+    "local_pwd",
+    "local_ls",
+    "local_file_sizes",
+    "local_curl",
+}
+
+TOOL_NAME_ALIASES = {
+    "curl": "local_curl",
+    "http_get": "local_curl",
+    "http_fetch": "local_curl",
+    "ls": "local_ls",
+    "dir": "local_ls",
+    "list_files": "local_ls",
+    "pwd": "local_pwd",
+    "whoami": "local_whoami",
+    "du": "local_file_sizes",
+    "file_sizes": "local_file_sizes",
+    "filesizes": "local_file_sizes",
 }
 
 
-def _tool_catalog_text(extra_tools: list[dict] | None = None) -> str:
+def _canonical_tool_name(name: str) -> str:
+    key = str(name or "").strip().lower()
+    return TOOL_NAME_ALIASES.get(key, key)
+
+
+def _resolve_local_tasks_base_dir() -> Path:
+    candidate = Path(LOCAL_TASKS_BASE_DIR).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path(__file__).resolve().parent.joinpath(candidate)
+    return candidate.resolve()
+
+
+def _safe_local_relpath(path: Path, base: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(base))
+    except Exception:
+        return str(path)
+
+
+def _resolve_local_path(user_path: str | None) -> tuple[Path | None, Path, str | None]:
+    base = _resolve_local_tasks_base_dir()
+    if not base.exists():
+        return None, base, f"Local tasks base directory does not exist: {base}"
+    raw = str(user_path or "").strip().strip("\"' ")
+    normalized = raw.replace("\\", "/").strip()
+    normalized_lower = normalized.lower().strip("/ ")
+    base_name = base.name.lower()
+    base_aliases = {
+        base_name,
+        "demo_local_workspace",
+        "local demo workspace",
+        "local demo workspace folder",
+        "demo workspace",
+        "workspace",
+        "local workspace",
+        "base",
+        "base dir",
+        "base directory",
+        ".",
+        "./",
+    }
+    if normalized_lower in base_aliases:
+        normalized = ""
+    elif normalized_lower.startswith(f"{base_name}/"):
+        normalized = normalized[len(base_name) + 1 :]
+    elif normalized_lower.startswith(f"./{base_name}/"):
+        normalized = normalized[len(base_name) + 3 :]
+    target = (
+        base
+        if not normalized
+        else (base.joinpath(normalized).resolve() if not Path(normalized).is_absolute() else Path(normalized).resolve())
+    )
+    try:
+        target.relative_to(base)
+    except Exception:
+        return None, base, f"Path `{raw}` escapes allowed base directory."
+    return target, base, None
+
+
+def _tool_catalog_text(extra_tools: list[dict] | None = None, *, local_tasks_enabled: bool = False) -> str:
     rows = []
     for name, meta in TOOLS.items():
+        if name in LOCAL_TASK_TOOL_NAMES and not local_tasks_enabled:
+            continue
         rows.append(f"- {name}: {meta['description']} input={json.dumps(meta['input_schema'])}")
     for tool in extra_tools or []:
         if not isinstance(tool, dict):
             continue
         name = str(tool.get("name") or "").strip()
+        if name in LOCAL_TASK_TOOL_NAMES and not local_tasks_enabled:
+            continue
         if not name or name in TOOLS:
             continue
         desc = str(tool.get("description") or "MCP tool")
@@ -130,14 +248,51 @@ def _normalize_agent_decision(
         return None
 
     dtype = str(decision.get("type") or "").strip().lower()
-    tool_name = str(decision.get("tool") or "").strip()
-    response = decision.get("response")
+    tool_name = _canonical_tool_name(
+        str(
+            decision.get("tool")
+            or decision.get("tool_name")
+            or decision.get("name")
+            or decision.get("function")
+            or decision.get("action")
+            or ""
+        ).strip()
+    )
+    response = (
+        decision.get("response")
+        or decision.get("output")
+        or decision.get("final")
+        or decision.get("answer")
+        or decision.get("message")
+        or decision.get("text")
+    )
     tool_input = decision.get("input") if isinstance(decision.get("input"), dict) else {}
+    if not tool_input and isinstance(decision.get("arguments"), dict):
+        tool_input = dict(decision.get("arguments") or {})
+    if not tool_input and isinstance(decision.get("args"), dict):
+        tool_input = dict(decision.get("args") or {})
     inferred_args = {
         str(k): v
         for k, v in decision.items()
-        if str(k) not in {"type", "tool", "input", "response"}
+        if str(k) not in {
+            "type",
+            "tool",
+            "tool_name",
+            "name",
+            "function",
+            "action",
+            "input",
+            "arguments",
+            "args",
+            "response",
+            "output",
+            "final",
+            "answer",
+            "message",
+            "text",
+        }
     }
+    known_canonical = {_canonical_tool_name(name) for name in (known_tools or set()) if str(name).strip()}
 
     # Happy path
     if dtype in {"final", "tool"}:
@@ -145,6 +300,13 @@ def _normalize_agent_decision(
         if dtype == "final" and (not isinstance(normalized_response, str) or not normalized_response.strip()):
             if "output" in decision:
                 normalized_response = str(decision.get("output") or "")
+            elif tool_name and tool_name in known_canonical:
+                return {
+                    "type": "tool",
+                    "tool": tool_name,
+                    "input": tool_input or inferred_args,
+                    "response": None,
+                }
         return {
             "type": dtype,
             "tool": tool_name,
@@ -153,16 +315,17 @@ def _normalize_agent_decision(
         }
 
     # Some smaller models return {"tool":"name","input":{...}} without type.
-    if not dtype and tool_name:
+    if not dtype and tool_name and tool_name in known_canonical:
         return {
             "type": "tool",
             "tool": tool_name,
-            "input": tool_input,
+            "input": tool_input or inferred_args,
             "response": response,
         }
 
     # Some smaller models incorrectly put the tool name in "type".
-    if dtype in known_tools:
+    if _canonical_tool_name(dtype) in known_canonical:
+        canonical_dtype = _canonical_tool_name(dtype)
         # If no usable input is provided but a response exists, degrade gracefully to final.
         if not tool_input and isinstance(response, str) and response.strip():
             return {
@@ -173,7 +336,7 @@ def _normalize_agent_decision(
             }
         return {
             "type": "tool",
-            "tool": dtype,
+            "tool": canonical_dtype,
             "input": tool_input or inferred_args,
             "response": response,
         }
@@ -188,20 +351,6 @@ def _normalize_agent_decision(
         }
 
     return None
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        pass
-
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        return None
 
 
 def _safe_eval_expr(expr: str) -> str:
@@ -554,6 +703,175 @@ def _tool_base64_codec(args: dict) -> tuple[str, dict]:
     return json.dumps(payload), {"tool": "base64_codec", "input": args, "response": payload}
 
 
+def _tool_local_whoami(args: dict) -> tuple[str, dict]:
+    payload = {
+        "user": getpass.getuser(),
+        "hostname": socket.gethostname(),
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+    }
+    return json.dumps(payload), {"tool": "local_whoami", "input": args, "response": payload}
+
+
+def _tool_local_pwd(args: dict) -> tuple[str, dict]:
+    base = _resolve_local_tasks_base_dir()
+    cwd = Path.cwd().resolve()
+    payload = {"cwd": str(cwd), "local_tasks_base_dir": str(base)}
+    return json.dumps(payload), {"tool": "local_pwd", "input": args, "response": payload}
+
+
+def _tool_local_ls(args: dict) -> tuple[str, dict]:
+    target, base, err = _resolve_local_path((args or {}).get("path"))
+    if err:
+        return f"Error: local_ls blocked: {err}", {"tool": "local_ls", "input": args, "error": err}
+    assert target is not None
+    if not target.exists():
+        return "Error: local_ls target path does not exist.", {"tool": "local_ls", "input": args, "error": "path missing"}
+    recursive = bool((args or {}).get("recursive"))
+    try:
+        max_entries = max(1, min(int((args or {}).get("max_entries", LOCAL_TASKS_MAX_ENTRIES)), LOCAL_TASKS_MAX_ENTRIES))
+    except Exception:
+        max_entries = LOCAL_TASKS_MAX_ENTRIES
+    rows: list[dict] = []
+    iterator = target.rglob("*") if recursive and target.is_dir() else target.iterdir() if target.is_dir() else [target]
+    for idx, item in enumerate(iterator):
+        if idx >= max_entries:
+            break
+        try:
+            stat = item.stat()
+            rows.append(
+                {
+                    "path": _safe_local_relpath(item, base),
+                    "type": "dir" if item.is_dir() else "file",
+                    "size_bytes": stat.st_size,
+                    "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+                }
+            )
+        except Exception as exc:
+            rows.append({"path": _safe_local_relpath(item, base), "error": str(exc)})
+    payload = {
+        "base_dir": str(base),
+        "target": _safe_local_relpath(target, base),
+        "recursive": recursive,
+        "count": len(rows),
+        "entries": rows,
+    }
+    return json.dumps(payload), {"tool": "local_ls", "input": args, "response": payload}
+
+
+def _tool_local_file_sizes(args: dict) -> tuple[str, dict]:
+    target, base, err = _resolve_local_path((args or {}).get("path"))
+    if err:
+        return f"Error: local_file_sizes blocked: {err}", {"tool": "local_file_sizes", "input": args, "error": err}
+    assert target is not None
+    if not target.exists():
+        return "Error: local_file_sizes target path does not exist.", {
+            "tool": "local_file_sizes",
+            "input": args,
+            "error": "path missing",
+        }
+    try:
+        top_n = max(1, min(int((args or {}).get("top_n", 20)), 100))
+    except Exception:
+        top_n = 20
+    files: list[tuple[int, Path]] = []
+    total_size = 0
+    if target.is_file():
+        st = target.stat()
+        files.append((st.st_size, target))
+        total_size = st.st_size
+    else:
+        for item in target.rglob("*"):
+            if not item.is_file():
+                continue
+            try:
+                size = item.stat().st_size
+                total_size += size
+                files.append((size, item))
+            except Exception:
+                continue
+    files.sort(key=lambda x: x[0], reverse=True)
+    largest = [{"path": _safe_local_relpath(p, base), "size_bytes": s} for s, p in files[:top_n]]
+    payload = {
+        "base_dir": str(base),
+        "target": _safe_local_relpath(target, base),
+        "file_count": len(files),
+        "total_size_bytes": total_size,
+        "largest_files": largest,
+    }
+    return json.dumps(payload), {"tool": "local_file_sizes", "input": args, "response": payload}
+
+
+def _tool_local_curl(args: dict) -> tuple[str, dict]:
+    url = str((args or {}).get("url") or "").strip()
+    if not url:
+        return "Error: local_curl requires `url`.", {"tool": "local_curl", "input": args, "error": "missing url"}
+    parsed = parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return "Error: local_curl only supports http/https URLs.", {"tool": "local_curl", "input": args, "error": "invalid scheme"}
+    method = str((args or {}).get("method") or "GET").strip().upper()
+    if method not in {"GET", "HEAD", "POST"}:
+        return "Error: local_curl method must be GET, HEAD, or POST.", {"tool": "local_curl", "input": args, "error": "invalid method"}
+    timeout_raw = (args or {}).get("timeout_seconds")
+    try:
+        timeout_seconds = float(timeout_raw) if timeout_raw is not None else 20.0
+    except Exception:
+        timeout_seconds = 20.0
+    timeout_seconds = min(max(timeout_seconds, 1.0), 60.0)
+    params = (args or {}).get("params")
+    if isinstance(params, dict) and params:
+        query = parse.parse_qsl(parsed.query, keep_blank_values=True)
+        for k, v in params.items():
+            query.append((str(k), str(v)))
+        url = parse.urlunparse(parsed._replace(query=parse.urlencode(query)))
+    body = (args or {}).get("body")
+    raw_body = str(body).encode("utf-8") if body is not None and method == "POST" else None
+    headers_in = (args or {}).get("headers") if isinstance((args or {}).get("headers"), dict) else {}
+    headers = {str(k): str(v) for k, v in headers_in.items()}
+    req = request.Request(url, headers=headers, data=raw_body, method=method)
+
+    def _redacted_headers(src: dict[str, str]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for k, v in src.items():
+            out[k] = "***redacted***" if k.lower() in {"authorization", "x-api-key", "proxy-authorization"} else v
+        return out
+
+    try:
+        with request.urlopen(req, timeout=timeout_seconds) as resp:
+            data = resp.read(LOCAL_TASKS_MAX_BYTES)
+            text = data.decode("utf-8", errors="replace")
+            payload = {
+                "url": url,
+                "method": method,
+                "status": resp.status,
+                "headers": dict(resp.headers.items()),
+                "body_preview": text[:4000],
+                "body_bytes": len(data),
+                "body_truncated": len(data) >= LOCAL_TASKS_MAX_BYTES,
+            }
+            return json.dumps(payload), {
+                "tool": "local_curl",
+                "input": args,
+                "request": {"method": method, "url": url, "headers": _redacted_headers(headers), "timeout_seconds": timeout_seconds},
+                "response": {"status": resp.status, "headers": dict(resp.headers.items()), "body_preview": text[:800]},
+            }
+    except error.HTTPError as exc:
+        detail = exc.read(LOCAL_TASKS_MAX_BYTES).decode("utf-8", errors="replace")
+        return f"Error: local_curl HTTP {exc.code}", {
+            "tool": "local_curl",
+            "input": args,
+            "request": {"method": method, "url": url, "headers": _redacted_headers(headers), "timeout_seconds": timeout_seconds},
+            "response": {"status": exc.code, "headers": dict(exc.headers.items()) if exc.headers else {}, "body_preview": detail[:800]},
+        }
+    except Exception as exc:
+        return f"Error: local_curl failed: {exc}", {
+            "tool": "local_curl",
+            "input": args,
+            "request": {"method": method, "url": url, "headers": _redacted_headers(headers), "timeout_seconds": timeout_seconds},
+            "error": str(exc),
+        }
+
+
 def _tool_mcp_call(tool_name: str, tool_input: dict, mcp_client) -> tuple[str, dict]:
     try:
         result = mcp_client.tools_call(tool_name, tool_input or {})
@@ -592,8 +910,19 @@ def _tool_mcp_call(tool_name: str, tool_input: dict, mcp_client) -> tuple[str, d
     }
 
 
-def run_tool(tool_name: str, tool_input: dict, mcp_client=None) -> tuple[str, dict]:
-    tool = (tool_name or "").strip()
+def run_tool(
+    tool_name: str,
+    tool_input: dict,
+    mcp_client=None,
+    *,
+    local_tasks_enabled: bool = False,
+) -> tuple[str, dict]:
+    tool = _canonical_tool_name((tool_name or "").strip())
+    if tool in LOCAL_TASK_TOOL_NAMES and not local_tasks_enabled:
+        return (
+            f"Error: local task tool `{tool}` is disabled for this request.",
+            {"tool": tool, "input": tool_input, "error": "local_tasks_disabled"},
+        )
     if tool == "calculator":
         return _tool_calculator(tool_input)
     if tool == "weather":
@@ -618,6 +947,16 @@ def run_tool(tool_name: str, tool_input: dict, mcp_client=None) -> tuple[str, di
         return _tool_uuid_generate(tool_input)
     if tool == "base64_codec":
         return _tool_base64_codec(tool_input)
+    if tool == "local_whoami":
+        return _tool_local_whoami(tool_input)
+    if tool == "local_pwd":
+        return _tool_local_pwd(tool_input)
+    if tool == "local_ls":
+        return _tool_local_ls(tool_input)
+    if tool == "local_file_sizes":
+        return _tool_local_file_sizes(tool_input)
+    if tool == "local_curl":
+        return _tool_local_curl(tool_input)
     if mcp_client is not None:
         return _tool_mcp_call(tool, tool_input, mcp_client)
     return (
@@ -631,6 +970,7 @@ def run_agentic_turn(
     conversation_messages: list[dict],
     provider_messages_call: Callable[[list[dict]], tuple[str | None, dict]],
     tools_enabled: bool,
+    local_tasks_enabled: bool = False,
 ) -> tuple[dict, int]:
     agent_trace: list[dict] = []
     work_messages = list(conversation_messages)
@@ -645,6 +985,13 @@ def run_agentic_turn(
             try:
                 mcp_client.start()
                 mcp_tools = mcp_client.tools_list()
+                if not local_tasks_enabled:
+                    mcp_tools = [
+                        t
+                        for t in mcp_tools
+                        if isinstance(t, dict)
+                        and str(t.get("name") or "").strip() not in LOCAL_TASK_TOOL_NAMES
+                    ]
                 agent_trace.append(
                     {
                         "kind": "mcp",
@@ -680,12 +1027,14 @@ def run_agentic_turn(
     system_prompt = (
         "You are a helpful agent. "
         "When tools are enabled and useful, decide whether to call a tool.\n"
+        f"TOOLS_ENABLED={str(bool(tools_enabled)).lower()} | LOCAL_TASKS_ENABLED={str(bool(local_tasks_enabled)).lower()}\n"
         "Return ONLY JSON in one of these shapes:\n"
         '{"type":"final","response":"..."}\n'
         '{"type":"tool","tool":"calculator","input":{"expression":"2+2"}}\n'
         'IMPORTANT: "type" must be exactly "final" or "tool". Put the tool name in the "tool" field, not in "type".\n'
+        'IMPORTANT: If choosing a local network request, use tool name "local_curl" (not "curl").\n'
         "Available tools:\n"
-        + _tool_catalog_text(mcp_tools)
+        + _tool_catalog_text(mcp_tools, local_tasks_enabled=local_tasks_enabled)
         + "\nIf tools are disabled, always return type=final."
     )
 
@@ -708,6 +1057,11 @@ def run_agentic_turn(
                     {
                         "error": llm_meta.get("error", "Agent LLM call failed."),
                         "details": llm_meta.get("details"),
+                        **(
+                            {"proxy_guardrails_block": llm_meta.get("proxy_guardrails_block")}
+                            if isinstance(llm_meta.get("proxy_guardrails_block"), dict)
+                            else {}
+                        ),
                         "agent_trace": agent_trace,
                         "trace": {"steps": [llm_meta.get("trace_step", {})]},
                     },
@@ -716,7 +1070,14 @@ def run_agentic_turn(
 
             decision = _normalize_agent_decision(
                 _extract_json(llm_text),
-                known_tools=set(TOOLS.keys()) | {str((t or {}).get("name") or "").strip() for t in mcp_tools if isinstance(t, dict)},
+                known_tools=(
+                    {
+                        name
+                        for name in TOOLS.keys()
+                        if local_tasks_enabled or name not in LOCAL_TASK_TOOL_NAMES
+                    }
+                    | {str((t or {}).get("name") or "").strip() for t in mcp_tools if isinstance(t, dict)}
+                ),
             )
             if not isinstance(decision, dict):
                 # Fallback: treat raw model text as final response.
@@ -783,7 +1144,12 @@ def run_agentic_turn(
                         200,
                     )
 
-                tool_output, tool_meta = run_tool(tool_name, tool_input, mcp_client=mcp_client)
+                tool_output, tool_meta = run_tool(
+                    tool_name,
+                    tool_input,
+                    mcp_client=mcp_client,
+                    local_tasks_enabled=local_tasks_enabled,
+                )
                 seen_tool_signatures.add(tool_signature)
                 tool_outputs_by_signature[tool_signature] = str(tool_output)
                 agent_trace.append(

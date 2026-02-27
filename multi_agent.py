@@ -74,6 +74,7 @@ def run_multi_agent_turn(
     conversation_messages: list[dict],
     provider_messages_call: Callable[[list[dict]], tuple[str | None, dict]],
     tools_enabled: bool,
+    local_tasks_enabled: bool = False,
 ) -> tuple[dict, int]:
     agent_trace: list[dict] = []
     latest_user = _latest_user_prompt(conversation_messages).strip()
@@ -99,6 +100,7 @@ def run_multi_agent_turn(
             "agent": "orchestrator",
             "agents": ["orchestrator", "researcher", "reviewer", "finalizer"],
             "tools_enabled": bool(tools_enabled),
+            "local_tasks_enabled": bool(local_tasks_enabled),
         }
     )
     planner_text, planner_meta, planner_trace = _llm_agent_step(
@@ -114,6 +116,11 @@ def run_multi_agent_turn(
             {
                 "error": planner_meta.get("error", "Orchestrator agent failed."),
                 "details": planner_meta.get("details"),
+                **(
+                    {"proxy_guardrails_block": planner_meta.get("proxy_guardrails_block")}
+                    if isinstance(planner_meta.get("proxy_guardrails_block"), dict)
+                    else {}
+                ),
                 "agent_trace": agent_trace,
                 "trace": {"steps": [planner_meta.get("trace_step", {})]},
                 "multi_agent": {"enabled": True, "implemented": True},
@@ -149,6 +156,7 @@ def run_multi_agent_turn(
             conversation_messages=research_messages,
             provider_messages_call=provider_messages_call,
             tools_enabled=tools_enabled and needs_tools,
+            local_tasks_enabled=local_tasks_enabled,
         )
         round_trace = list(research_payload.get("agent_trace", []) or [])
         for item in round_trace:
@@ -208,6 +216,11 @@ def run_multi_agent_turn(
             {
                 "error": reviewer_meta.get("error", "Reviewer agent failed."),
                 "details": reviewer_meta.get("details"),
+                **(
+                    {"proxy_guardrails_block": reviewer_meta.get("proxy_guardrails_block")}
+                    if isinstance(reviewer_meta.get("proxy_guardrails_block"), dict)
+                    else {}
+                ),
                 "agent_trace": agent_trace,
                 "trace": {"steps": [reviewer_meta.get("trace_step", {})]},
                 "multi_agent": {"enabled": True, "implemented": True, "failed_agent": "reviewer"},
@@ -249,6 +262,11 @@ def run_multi_agent_turn(
             {
                 "error": final_meta.get("error", "Finalizer agent failed."),
                 "details": final_meta.get("details"),
+                **(
+                    {"proxy_guardrails_block": final_meta.get("proxy_guardrails_block")}
+                    if isinstance(final_meta.get("proxy_guardrails_block"), dict)
+                    else {}
+                ),
                 "agent_trace": agent_trace,
                 "trace": {"steps": [final_meta.get("trace_step", {})]},
                 "multi_agent": {"enabled": True, "implemented": True, "failed_agent": "finalizer"},

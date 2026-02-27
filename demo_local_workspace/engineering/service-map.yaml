@@ -1,0 +1,10 @@
+services:
+  app:
+    language: python
+    endpoint: http://127.0.0.1:5000/chat
+  guardrails:
+    mode: das_or_proxy
+    endpoint: https://api.zseclipse.net/v1/detection/resolve-and-execute-policy
+  mcp:
+    transport: stdio
+    server: local-llm-demo-mcp-tools
