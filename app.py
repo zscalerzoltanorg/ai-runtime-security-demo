@@ -4368,13 +4368,13 @@ def _is_local_admin_request(handler: BaseHTTPRequestHandler) -> bool:
 SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_DEMO_NAME", "label": "App Demo Name", "secret": False, "hint": "Browser/page title and app card heading"},
     {"group": "App", "key": "PORT", "label": "App Port", "secret": False, "hint": "Requires restart to bind a different port"},
-    {"group": "Ollama", "key": "OLLAMA_URL", "label": "Ollama Base URL", "secret": False, "hint": "Local Ollama runtime URL"},
+    {"group": "Ollama", "key": "OLLAMA_URL", "label": "Ollama Base URL", "secret": False, "hint": "Default http://127.0.0.1:11434"},
     {"group": "Ollama", "key": "OLLAMA_MODEL", "label": "Ollama Model", "secret": False, "hint": "Default local model"},
     {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Direct Anthropic SDK auth"},
     {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
     {"group": "OpenAI", "key": "OPENAI_API_KEY", "label": "OpenAI API Key", "secret": True, "hint": "Direct OpenAI SDK auth"},
     {"group": "OpenAI", "key": "OPENAI_MODEL", "label": "OpenAI Model", "secret": False, "hint": "Default OpenAI model"},
-    {"group": "LiteLLM", "key": "LITELLM_BASE_URL", "label": "LiteLLM Base URL", "secret": False, "hint": "LiteLLM gateway /v1 base URL"},
+    {"group": "LiteLLM", "key": "LITELLM_BASE_URL", "label": "LiteLLM Base URL", "secret": False, "hint": "Default http://127.0.0.1:4000/v1"},
     {"group": "LiteLLM", "key": "LITELLM_API_KEY", "label": "LiteLLM API Key", "secret": True, "hint": "LiteLLM virtual key"},
     {"group": "LiteLLM", "key": "LITELLM_MODEL", "label": "LiteLLM Model", "secret": False, "hint": "Requested model sent to LiteLLM"},
     {"group": "AWS Bedrock", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Default us-east-1; AWS auth via local credentials/SSO"},
@@ -4383,21 +4383,21 @@ SETTINGS_SCHEMA = [
     {"group": "AWS Bedrock Agent", "key": "BEDROCK_AGENT_ALIAS_ID", "label": "Bedrock Agent Alias ID", "secret": False, "hint": "Required for Bedrock Agent provider"},
     {"group": "Perplexity", "key": "PERPLEXITY_API_KEY", "label": "Perplexity API Key", "secret": True, "hint": "OpenAI-compatible auth"},
     {"group": "Perplexity", "key": "PERPLEXITY_MODEL", "label": "Perplexity Model", "secret": False, "hint": "Default sonar"},
-    {"group": "Perplexity", "key": "PERPLEXITY_BASE_URL", "label": "Perplexity Base URL", "secret": False, "hint": "Defaults to api.perplexity.ai"},
+    {"group": "Perplexity", "key": "PERPLEXITY_BASE_URL", "label": "Perplexity Base URL", "secret": False, "hint": "Default https://api.perplexity.ai"},
     {"group": "xAI", "key": "XAI_API_KEY", "label": "xAI API Key", "secret": True, "hint": "Grok provider auth"},
     {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default grok model"},
-    {"group": "xAI", "key": "XAI_BASE_URL", "label": "xAI Base URL", "secret": False, "hint": "Defaults to https://api.x.ai/v1"},
+    {"group": "xAI", "key": "XAI_BASE_URL", "label": "xAI Base URL", "secret": False, "hint": "Default https://api.x.ai/v1"},
     {"group": "Gemini", "key": "GEMINI_API_KEY", "label": "Gemini API Key", "secret": True, "hint": "Google Generative Language API key"},
     {"group": "Gemini", "key": "GEMINI_MODEL", "label": "Gemini Model", "secret": False, "hint": "Default Gemini model"},
-    {"group": "Gemini", "key": "GEMINI_BASE_URL", "label": "Gemini Base URL", "secret": False, "hint": "Optional override"},
+    {"group": "Gemini", "key": "GEMINI_BASE_URL", "label": "Gemini Base URL", "secret": False, "hint": "Default https://generativelanguage.googleapis.com"},
     {"group": "Google Vertex", "key": "VERTEX_PROJECT_ID", "label": "Vertex Project ID", "secret": False, "hint": "Required for Vertex provider"},
     {"group": "Google Vertex", "key": "VERTEX_LOCATION", "label": "Vertex Location", "secret": False, "hint": "Default us-central1"},
     {"group": "Google Vertex", "key": "VERTEX_MODEL", "label": "Vertex Model", "secret": False, "hint": "Gemini model on Vertex"},
     {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_API_KEY", "label": "Azure AI Foundry API Key", "secret": True, "hint": "OpenAI-compatible inference key"},
-    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_BASE_URL", "label": "Azure AI Foundry Base URL", "secret": False, "hint": "OpenAI-compatible /v1 endpoint"},
+    {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_BASE_URL", "label": "Azure AI Foundry Base URL", "secret": False, "hint": "Default https://example.inference.ai.azure.com/v1 (replace with your endpoint)"},
     {"group": "Azure AI Foundry", "key": "AZURE_AI_FOUNDRY_MODEL", "label": "Azure AI Foundry Model", "secret": False, "hint": "Deployment/model name"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard API Key", "secret": True, "hint": "Resolve policy endpoint auth"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Resolve-and-execute-policy endpoint"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Default https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Custom header name forwarded to AI Guard"},
     {"group": "Zscaler AI Guard Proxy", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
@@ -4434,6 +4434,18 @@ SETTINGS_SCHEMA = [
     {"group": "Local TLS (Corp)", "key": "REQUESTS_CA_BUNDLE", "label": "REQUESTS_CA_BUNDLE", "secret": False, "hint": "Optional custom CA bundle (requests/urllib)"},
 ]
 
+SETTINGS_DEFAULT_VALUES = {
+    "OLLAMA_URL": "http://127.0.0.1:11434",
+    "LITELLM_BASE_URL": "http://127.0.0.1:4000/v1",
+    "PERPLEXITY_BASE_URL": "https://api.perplexity.ai",
+    "XAI_BASE_URL": "https://api.x.ai/v1",
+    "GEMINI_BASE_URL": "https://generativelanguage.googleapis.com",
+    "AZURE_AI_FOUNDRY_BASE_URL": "https://example.inference.ai.azure.com/v1",
+    "ZS_GUARDRAILS_URL": "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy",
+    "ZS_PROXY_BASE_URL": "https://proxy.zseclipse.net",
+    "BRAVE_SEARCH_BASE_URL": "https://api.search.brave.com",
+}
+
 
 def _env_local_read_lines() -> list[str]:
     try:
@@ -4469,7 +4481,8 @@ def _settings_values() -> dict[str, str]:
     values: dict[str, str] = {}
     for item in SETTINGS_SCHEMA:
         key = str(item["key"])
-        values[key] = str(file_map.get(key, os.getenv(key, "")) or "")
+        default_value = str(SETTINGS_DEFAULT_VALUES.get(key, ""))
+        values[key] = str(file_map.get(key, os.getenv(key, default_value)) or default_value)
     return values
 
 
