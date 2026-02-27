@@ -42,15 +42,15 @@ This project is designed to run directly with Python.
 1. Install prerequisites:
    - Python 3.11+
    - Git
-   - Ollama ([download](https://ollama.com/download))
 2. Clone:
    - `git clone https://github.com/zscalerzoltanorg/local-llm-demo.git`
    - `cd local-llm-demo`
 3. Bootstrap:
    - `./scripts/bootstrap_mac_linux.sh`
-   - This script installs Ollama when possible, starts `ollama serve`, and pulls `llama3.2:1b`
-4. Start Ollama runtime if not already running:
-   - `ollama serve`
+   - This script creates `.venv`, installs Python deps, creates `.env.local` (if missing), installs Ollama when possible, starts `ollama serve`, and pulls `llama3.2:1b`.
+4. If bootstrap cannot install Ollama, install it manually:
+   - [https://ollama.com/download](https://ollama.com/download)
+   - Then run: `ollama serve` and `ollama pull llama3.2:1b`
 5. Run app:
    - `set -a; source .env.local; set +a`
    - `python app.py`
@@ -62,14 +62,15 @@ This project is designed to run directly with Python.
 1. Install prerequisites:
    - Python 3.11+
    - Git for Windows
-   - Ollama ([download](https://ollama.com/download))
 2. Clone:
    - `git clone https://github.com/zscalerzoltanorg/local-llm-demo.git`
    - `cd local-llm-demo`
 3. Bootstrap:
    - `./scripts/bootstrap_windows.ps1`
-   - This script installs Ollama (via winget when available), starts `ollama serve`, and pulls `llama3.2:1b`
-4. Start Ollama app/service
+   - This script creates `.venv`, installs Python deps, creates `.env.local` (if missing), installs Ollama via winget when possible, starts `ollama serve`, and pulls `llama3.2:1b`.
+4. If bootstrap cannot install Ollama, install it manually:
+   - [https://ollama.com/download](https://ollama.com/download)
+   - Then run: `ollama serve` and `ollama pull llama3.2:1b`
 5. Run app:
    - `python app.py`
 6. Open:
@@ -154,12 +155,40 @@ All model overrides are optional and can be configured later.
 
 ---
 
-## Docker?
+## Docker Option (Optional)
 
-Not required.
+Native install is still the simplest path.  
+If you want a containerized setup, this repo now includes `Dockerfile` + `docker-compose.yml`.
 
-Best path today:
-- Native Python + `.env.local` + Ollama local runtime
+What Docker runs:
+- `app` container: this demo app server + bundled MCP tool server/client code
+- `ollama` container: local Ollama runtime
 
-Optional future enhancement:
-- Add Docker/Compose for reproducible team onboarding
+### Docker prerequisites
+
+- Docker Desktop (Mac/Windows) or Docker Engine + Compose plugin (Linux)
+
+### Run with Docker Compose
+
+1. Create local config file if missing:
+   - `cp .env.example .env.local`
+2. Build and start:
+   - `docker compose up -d --build`
+3. Pull the default Ollama model inside the Ollama container:
+   - `docker compose exec ollama ollama pull llama3.2:1b`
+4. Open app:
+   - [http://127.0.0.1:5000](http://127.0.0.1:5000)
+
+### Stop / cleanup
+
+- Stop:
+  - `docker compose down`
+- Stop + remove Ollama model volume:
+  - `docker compose down -v`
+
+### Docker notes
+
+- In Docker mode, the app uses `OLLAMA_URL=http://ollama:11434`.
+- You can still edit provider keys/models via in-app Settings; values persist in `.env.local`.
+- If you change settings that need restart, use the app restart prompt or run:
+  - `docker compose restart app`

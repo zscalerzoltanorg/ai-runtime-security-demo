@@ -28,7 +28,7 @@ def _str_env(name: str, default: str) -> str:
     return raw or default
 
 
-HOST = "127.0.0.1"
+HOST = _str_env("HOST", "127.0.0.1")
 PORT = _int_env("PORT", 5000)
 OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = _str_env("OLLAMA_MODEL", "llama3.2:1b")

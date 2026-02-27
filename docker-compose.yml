@@ -1,0 +1,29 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: local-llm-demo-app
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5000
+      OLLAMA_URL: http://ollama:11434
+    env_file:
+      - .env.local
+    ports:
+      - "5000:5000"
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: local-llm-demo-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
