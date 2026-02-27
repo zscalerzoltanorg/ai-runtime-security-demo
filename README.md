@@ -101,6 +101,8 @@ MCP_SERVER_COMMAND=
 MCP_TIMEOUT_SECONDS=15
 MCP_PROTOCOL_VERSION=2024-11-05
 MAX_REQUEST_BYTES=1000000
+SSL_CERT_FILE=certs/combined-ca-bundle.pem
+REQUESTS_CA_BUNDLE=certs/combined-ca-bundle.pem
 ```
 
 When `MCP_SERVER_COMMAND` is empty, the app automatically uses the bundled local MCP server.

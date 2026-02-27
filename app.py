@@ -9,6 +9,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib import error as urlerror, request as urlrequest
 
+_BUNDLED_CA_PATH = Path(__file__).with_name("certs").joinpath("combined-ca-bundle.pem")
+if _BUNDLED_CA_PATH.exists():
+    os.environ.setdefault("SSL_CERT_FILE", str(_BUNDLED_CA_PATH))
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", str(_BUNDLED_CA_PATH))
+
 import agentic
 import multi_agent
 import providers
