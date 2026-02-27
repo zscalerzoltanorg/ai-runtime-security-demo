@@ -2,6 +2,7 @@ import ast
 import ipaddress
 import json
 import os
+import subprocess
 import sys
 import threading
 from datetime import datetime
@@ -63,10 +64,57 @@ ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
 OPENAI_MODEL = _str_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
+UI_THEME = _str_env("UI_THEME", "zscaler_blue")
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 _RESTART_LOCK = threading.Lock()
 _RESTART_PENDING = False
+
+
+def _build_badge_text() -> str:
+    repo_root = Path(__file__).resolve().parent
+    try:
+        tag_exact = subprocess.check_output(
+            ["git", "describe", "--tags", "--exact-match", "HEAD"],
+            cwd=repo_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=1.0,
+        ).strip()
+        sha = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=1.0,
+        ).strip()
+        commit_date = subprocess.check_output(
+            ["git", "show", "-s", "--date=format:%m-%d-%y", "--format=%cd", "HEAD"],
+            cwd=repo_root,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=1.0,
+        ).strip()
+        if commit_date:
+            if tag_exact:
+                return f"{tag_exact} ({commit_date})"
+            if sha:
+                latest_tag = subprocess.check_output(
+                    ["git", "describe", "--tags", "--abbrev=0"],
+                    cwd=repo_root,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1.0,
+                ).strip()
+                if latest_tag:
+                    return f"{latest_tag}+{sha} ({commit_date})"
+                return f"dev+{sha} ({commit_date})"
+    except Exception:
+        pass
+    return datetime.now().strftime("build %m-%d-%y")
+
+
+BUILD_BADGE = _build_badge_text()
 
 
 def _schedule_self_restart(delay_seconds: float = 0.8) -> bool:
@@ -105,14 +153,16 @@ HTML = f"""<!doctype html>
         --accent-2: #115e59;
         --border: #d6d3d1;
         --sidebar: #f8fafc;
+        --bg-grad-1: #d1fae5;
+        --bg-grad-2: #fde68a;
       }}
       * {{ box-sizing: border-box; }}
       body {{
         margin: 0;
         font-family: ui-sans-serif, system-ui, sans-serif;
         background:
-          radial-gradient(circle at 10% 10%, #d1fae5 0%, transparent 45%),
-          radial-gradient(circle at 90% 20%, #fde68a 0%, transparent 35%),
+          radial-gradient(circle at 10% 10%, var(--bg-grad-1) 0%, transparent 45%),
+          radial-gradient(circle at 90% 20%, var(--bg-grad-2) 0%, transparent 35%),
           var(--bg);
         color: var(--ink);
       }}
@@ -149,6 +199,28 @@ HTML = f"""<!doctype html>
         margin-top: 20px;
       }}
       h1 {{ margin: 0 0 8px; font-size: 1.5rem; }}
+      .app-title-row {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 8px;
+        flex-wrap: wrap;
+      }}
+      .app-title-row h1 {{
+        margin: 0;
+      }}
+      .build-badge {{
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 9px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 82%, var(--accent) 18%);
+        color: var(--ink);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }}
       .sub {{ margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }}
       textarea {{
         width: 100%;
@@ -1051,6 +1123,24 @@ HTML = f"""<!doctype html>
         border-bottom: 1px solid var(--border);
         background: #f8fafc;
       }}
+      .settings-theme-bar {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: #ffffff;
+        flex-wrap: wrap;
+      }}
+      .settings-theme-label {{
+        font-size: 0.84rem;
+        color: var(--muted);
+        font-weight: 700;
+      }}
+      .settings-theme-note {{
+        font-size: 0.78rem;
+        color: var(--muted);
+      }}
       .settings-status {{
         margin-left: auto;
         color: var(--muted);
@@ -1168,6 +1258,43 @@ HTML = f"""<!doctype html>
         display: flex;
         gap: 8px;
       }}
+      .confirm-modal {{
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+        z-index: 80;
+      }}
+      .confirm-modal.open {{
+        display: flex;
+      }}
+      .confirm-dialog {{
+        width: min(460px, 92vw);
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: 0 20px 60px rgba(2, 6, 23, 0.25);
+        overflow: hidden;
+      }}
+      .confirm-head {{
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        font-weight: 700;
+      }}
+      .confirm-body {{
+        padding: 12px 14px;
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .confirm-actions {{
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 10px 14px 14px;
+      }}
       .toggle-wrap.disabled {{
         opacity: 0.55;
         cursor: not-allowed;
@@ -1200,13 +1327,283 @@ HTML = f"""<!doctype html>
           max-height: 300px;
         }}
       }}
+      body[data-theme="dark"] .card,
+      body[data-theme="dark"] .code-panel,
+      body[data-theme="dark"] .log-item,
+      body[data-theme="dark"] .agent-step,
+      body[data-theme="dark"] .settings-dialog,
+      body[data-theme="dark"] .settings-subgroup,
+      body[data-theme="dark"] .meta-pill,
+      body[data-theme="dark"] .provider-select,
+      body[data-theme="dark"] .composer-shell,
+      body[data-theme="dark"] .response,
+      body[data-theme="dark"] .conversation,
+      body[data-theme="dark"] textarea,
+      body[data-theme="dark"] .settings-input-wrap input {{
+        background: #0f172a;
+        color: #e2e8f0;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .chat-transcript {{
+        background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+      }}
+      body[data-theme="dark"] .msg-assistant {{
+        background: #111827;
+        border-color: #374151;
+        color: #e5e7eb;
+      }}
+      body[data-theme="dark"] .msg-user {{
+        background: #0b2a3a;
+        border-color: #155e75;
+        color: #e2e8f0;
+      }}
+      body[data-theme="dark"] .msg-pending {{
+        background: #0f172a;
+        border-color: #475569;
+      }}
+      body[data-theme="dark"] .code-panel-head,
+      body[data-theme="dark"] .settings-sub,
+      body[data-theme="dark"] .settings-group-head,
+      body[data-theme="dark"] .settings-subgroup-title {{
+        background: #111827;
+        color: #cbd5e1;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .settings-theme-bar,
+      body[data-theme="dark"] .settings-foot {{
+        background: #0b1220;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .settings-body,
+      body[data-theme="dark"] .settings-group,
+      body[data-theme="dark"] .settings-group-body {{
+        background: #0b1220;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .toggle-section {{
+        background: #0f172a;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .status-pill {{
+        background: #111827;
+        border-color: #334155;
+        color: #cbd5e1;
+      }}
+      body[data-theme="dark"] .status-pill.pill-tested {{
+        background: #082f49;
+        border-color: #38bdf8;
+        color: #bae6fd;
+      }}
+      body[data-theme="dark"] .status-pill.pill-untested {{
+        background: #3f2100;
+        border-color: #f59e0b;
+        color: #fed7aa;
+      }}
+      body[data-theme="dark"] .code-panel-explain {{
+        background: #0f172a;
+        color: #cbd5e1;
+      }}
+      body[data-theme="dark"] .flow-pill {{
+        background: #0f172a;
+        border-color: #334155;
+        color: #cbd5e1;
+      }}
+      body[data-theme="dark"] .settings-mini-btn,
+      body[data-theme="dark"] button.secondary,
+      body[data-theme="dark"] .icon-btn,
+      body[data-theme="dark"] .mode-toggle-btn {{
+        background: #111827;
+        color: #e2e8f0;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .mode-toggle {{
+        background: #0b1220;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .mode-toggle-btn.active {{
+        background: #082f49;
+        border-color: #38bdf8;
+        color: #bae6fd;
+      }}
+      body[data-theme="dark"] .toggle-track {{
+        background: #1f2937;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] pre,
+      body[data-theme="dark"] .code-pre {{
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .hint,
+      body[data-theme="dark"] .sub,
+      body[data-theme="dark"] .status,
+      body[data-theme="dark"] .composer-hint,
+      body[data-theme="dark"] .settings-theme-note {{
+        color: #94a3b8;
+      }}
+      body[data-theme="dark"] .meta-pill-label {{
+        color: #cbd5e1;
+      }}
+      body[data-theme="dark"] textarea::placeholder,
+      body[data-theme="dark"] .settings-input-wrap input::placeholder {{
+        color: #64748b;
+      }}
+      body[data-theme="dark"] .settings-modal {{
+        background: rgba(2, 6, 23, 0.72);
+      }}
+      body[data-theme="dark"] .settings-dialog,
+      body[data-theme="dark"] .settings-head,
+      body[data-theme="dark"] .settings-sub,
+      body[data-theme="dark"] .settings-theme-bar {{
+        background: #0b1220;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .settings-group-head,
+      body[data-theme="dark"] .settings-subgroup-title {{
+        background: #111827;
+        border-color: #334155;
+        color: #cbd5e1;
+      }}
+      body[data-theme="dark"] .confirm-modal {{
+        background: rgba(2, 6, 23, 0.72);
+      }}
+      body[data-theme="dark"] .confirm-dialog {{
+        background: #0f172a;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .confirm-head {{
+        border-color: #334155;
+      }}
+      body[data-theme="fun"] .card,
+      body[data-theme="fun"] .code-panel,
+      body[data-theme="fun"] .log-item,
+      body[data-theme="fun"] .agent-step,
+      body[data-theme="fun"] .settings-dialog,
+      body[data-theme="fun"] .settings-subgroup,
+      body[data-theme="fun"] .meta-pill,
+      body[data-theme="fun"] .provider-select,
+      body[data-theme="fun"] .composer-shell,
+      body[data-theme="fun"] .response,
+      body[data-theme="fun"] .conversation,
+      body[data-theme="fun"] textarea,
+      body[data-theme="fun"] .settings-input-wrap input {{
+        background: #110d1f;
+        color: #e9e7ff;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .chat-transcript {{
+        background: radial-gradient(circle at 22% 18%, rgba(155, 92, 255, 0.26), transparent 48%),
+                    radial-gradient(circle at 82% 82%, rgba(68, 255, 153, 0.2), transparent 44%),
+                    linear-gradient(180deg, #0d0a19 0%, #090713 100%);
+      }}
+      body[data-theme="fun"] .msg-assistant {{
+        background: #161127;
+        border-color: #4a3574;
+        color: #ecebff;
+      }}
+      body[data-theme="fun"] .msg-user {{
+        background: #10221c;
+        border-color: #1f8f5a;
+        color: #eafff5;
+      }}
+      body[data-theme="fun"] .msg-pending {{
+        background: #130f23;
+        border-color: #5b4390;
+      }}
+      body[data-theme="fun"] .code-panel-head,
+      body[data-theme="fun"] .settings-sub,
+      body[data-theme="fun"] .settings-group-head,
+      body[data-theme="fun"] .settings-subgroup-title {{
+        background: #17122b;
+        color: #d9d3ff;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .settings-theme-bar,
+      body[data-theme="fun"] .settings-foot,
+      body[data-theme="fun"] .settings-body,
+      body[data-theme="fun"] .settings-group,
+      body[data-theme="fun"] .settings-group-body {{
+        background: #110d1f;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .toggle-section,
+      body[data-theme="fun"] .status-pill,
+      body[data-theme="fun"] .flow-pill,
+      body[data-theme="fun"] .code-panel-explain {{
+        background: #17122b;
+        border-color: #3b2e5f;
+        color: #d9d3ff;
+      }}
+      body[data-theme="fun"] .status-pill.pill-tested {{
+        background: #143225;
+        border-color: #44ff99;
+        color: #b8ffd8;
+      }}
+      body[data-theme="fun"] .status-pill.pill-untested {{
+        background: #3d1333;
+        border-color: #d946ef;
+        color: #f5c2ff;
+      }}
+      body[data-theme="fun"] .settings-mini-btn,
+      body[data-theme="fun"] button.secondary,
+      body[data-theme="fun"] .icon-btn,
+      body[data-theme="fun"] .mode-toggle-btn {{
+        background: #17122b;
+        color: #e9e7ff;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .mode-toggle {{
+        background: #110d1f;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .mode-toggle-btn.active {{
+        background: #281842;
+        border-color: #9b5cff;
+        color: #f0e7ff;
+      }}
+      body[data-theme="fun"] .toggle-track {{
+        background: #17122b;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] pre,
+      body[data-theme="fun"] .code-pre {{
+        background: #17122b;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .hint,
+      body[data-theme="fun"] .sub,
+      body[data-theme="fun"] .status,
+      body[data-theme="fun"] .composer-hint,
+      body[data-theme="fun"] .settings-theme-note {{
+        color: #b6afd8;
+      }}
+      body[data-theme="fun"] .meta-pill-label {{
+        color: #d9d3ff;
+      }}
+      body[data-theme="fun"] textarea::placeholder,
+      body[data-theme="fun"] .settings-input-wrap input::placeholder {{
+        color: #8f86b6;
+      }}
+      body[data-theme="fun"] .settings-modal,
+      body[data-theme="fun"] .confirm-modal {{
+        background: rgba(2, 1, 8, 0.78);
+      }}
+      body[data-theme="fun"] .confirm-dialog {{
+        background: #110d1f;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .confirm-head {{
+        border-color: #3b2e5f;
+      }}
     </style>
   </head>
   <body>
     <main class="wrap">
       <div class="layout">
         <section class="card">
-          <h1>{APP_DEMO_NAME}</h1>
+          <div class="app-title-row">
+            <h1>{APP_DEMO_NAME}</h1>
+            <span class="build-badge" title="Auto-generated from git metadata when available">{BUILD_BADGE}</span>
+          </div>
           <div class="chat-meta-row">
             <div class="chat-meta-info">
               <div class="meta-pill">
@@ -1461,6 +1858,18 @@ HTML = f"""<!doctype html>
             <button id="settingsCloseBtn" class="icon-btn" type="button" title="Close Settings">✕</button>
           </div>
           <p class="settings-sub">Secrets are masked by default. Saving updates local `.env.local`. Some server-side settings may require restarting the app to fully apply.</p>
+          <div class="settings-theme-bar">
+            <span class="settings-theme-label">Theme</span>
+            <div id="settingsThemeWrap" class="mode-toggle" title="Choose a visual theme for this demo UI.">
+              <div class="mode-toggle-buttons">
+                <button id="themeClassicBtn" class="mode-toggle-btn active" type="button">Classic</button>
+                <button id="themeZscalerBtn" class="mode-toggle-btn" type="button">Zscaler Blue</button>
+                <button id="themeDarkBtn" class="mode-toggle-btn" type="button">Dark</button>
+                <button id="themeFunBtn" class="mode-toggle-btn" type="button">Neon</button>
+              </div>
+            </div>
+            <span class="settings-theme-note">Saved as <code>UI_THEME</code>.</span>
+          </div>
           <div class="settings-body">
             <div id="settingsGroups" class="settings-groups">
               <div class="settings-group">
@@ -1475,6 +1884,17 @@ HTML = f"""<!doctype html>
               <button id="settingsReloadBtn" class="secondary" type="button" title="Reload settings from backend (.env.local + env). Unsaved edits in this dialog will be replaced.">Reload From Source</button>
               <button id="settingsSaveBtn" type="button">Save Settings</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="restartConfirmModal" class="confirm-modal" aria-hidden="true">
+        <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="restartConfirmTitle">
+          <div id="restartConfirmTitle" class="confirm-head">Restart Required</div>
+          <div class="confirm-body">Settings were saved locally. Restart the demo app now to fully apply server-side configuration changes?</div>
+          <div class="confirm-actions">
+            <button id="restartConfirmCancelBtn" class="secondary" type="button">Not now</button>
+            <button id="restartConfirmOkBtn" type="button">Restart now</button>
           </div>
         </div>
       </div>
@@ -1512,9 +1932,17 @@ HTML = f"""<!doctype html>
       const currentModelTextEl = document.getElementById("currentModelText");
       const settingsBtnEl = document.getElementById("settingsBtn");
       const settingsModalEl = document.getElementById("settingsModal");
+      const restartConfirmModalEl = document.getElementById("restartConfirmModal");
+      const restartConfirmOkBtnEl = document.getElementById("restartConfirmOkBtn");
+      const restartConfirmCancelBtnEl = document.getElementById("restartConfirmCancelBtn");
       const settingsCloseBtnEl = document.getElementById("settingsCloseBtn");
       const settingsReloadBtnEl = document.getElementById("settingsReloadBtn");
       const settingsSaveBtnEl = document.getElementById("settingsSaveBtn");
+      const settingsThemeWrapEl = document.getElementById("settingsThemeWrap");
+      const themeClassicBtnEl = document.getElementById("themeClassicBtn");
+      const themeZscalerBtnEl = document.getElementById("themeZscalerBtn");
+      const themeDarkBtnEl = document.getElementById("themeDarkBtn");
+      const themeFunBtnEl = document.getElementById("themeFunBtn");
       const settingsGroupsEl = document.getElementById("settingsGroups");
       const settingsStatusTextEl = document.getElementById("settingsStatusText");
       const settingsFootNoteEl = document.getElementById("settingsFootNote");
@@ -1617,12 +2045,104 @@ HTML = f"""<!doctype html>
         "bedrock_invoke",
         "bedrock_agent"
       ]);
+      const themePresets = {{
+        classic: {{
+          "--bg": "#f4f1ea",
+          "--panel": "#fffdf8",
+          "--ink": "#1f2937",
+          "--muted": "#6b7280",
+          "--accent": "#0f766e",
+          "--accent-2": "#115e59",
+          "--border": "#d6d3d1",
+          "--sidebar": "#f8fafc",
+          "--bg-grad-1": "#d1fae5",
+          "--bg-grad-2": "#fde68a",
+        }},
+        zscaler_blue: {{
+          "--bg": "#dbeafe",
+          "--panel": "#f8fbff",
+          "--ink": "#0b2540",
+          "--muted": "#3d5f80",
+          "--accent": "#009cda",
+          "--accent-2": "#006f9e",
+          "--border": "#90b7dc",
+          "--sidebar": "#e8f3ff",
+          "--bg-grad-1": "#b8d2ee",
+          "--bg-grad-2": "#6c98c9",
+        }},
+        dark: {{
+          "--bg": "#020617",
+          "--panel": "#0b1220",
+          "--ink": "#e2e8f0",
+          "--muted": "#94a3b8",
+          "--accent": "#38bdf8",
+          "--accent-2": "#0ea5e9",
+          "--border": "#334155",
+          "--sidebar": "#0f172a",
+          "--bg-grad-1": "#0f172a",
+          "--bg-grad-2": "#1e293b",
+        }},
+        fun: {{
+          "--bg": "#090713",
+          "--panel": "#110d1f",
+          "--ink": "#e9e7ff",
+          "--muted": "#b6afd8",
+          "--accent": "#44ff99",
+          "--accent-2": "#9b5cff",
+          "--border": "#3b2e5f",
+          "--sidebar": "#0d0a19",
+          "--bg-grad-1": "#7c3aed",
+          "--bg-grad-2": "#22c55e",
+        }},
+      }};
+      const initialUiTheme = "{UI_THEME}";
+      let activeUiTheme = "zscaler_blue";
 
       function pretty(obj) {{
         try {{
           return JSON.stringify(obj, null, 2);
         }} catch {{
           return String(obj);
+        }}
+      }}
+
+      function normalizeUiTheme(themeName) {{
+        const key = String(themeName || "").trim().toLowerCase();
+        if (key in themePresets) return key;
+        if (key === "zscaler" || key === "zscaler-blue") return "zscaler_blue";
+        if (key === "neon") return "fun";
+        return "classic";
+      }}
+
+      function syncThemeButtons(themeName) {{
+        const current = normalizeUiTheme(themeName);
+        const byTheme = {{
+          classic: themeClassicBtnEl,
+          zscaler_blue: themeZscalerBtnEl,
+          dark: themeDarkBtnEl,
+          fun: themeFunBtnEl,
+        }};
+        for (const [name, btn] of Object.entries(byTheme)) {{
+          if (!btn) continue;
+          btn.classList.toggle("active", name === current);
+        }}
+      }}
+
+      function applyUiTheme(themeName, markUnsaved = false) {{
+        const current = normalizeUiTheme(themeName);
+        const preset = themePresets[current] || themePresets.classic;
+        const root = document.documentElement;
+        document.body.setAttribute("data-theme", current);
+        for (const [key, value] of Object.entries(preset)) {{
+          root.style.setProperty(key, value);
+        }}
+        activeUiTheme = current;
+        settingsValues.UI_THEME = current;
+        const uiThemeInput = settingsGroupsEl.querySelector('[data-settings-key="UI_THEME"]');
+        if (uiThemeInput) uiThemeInput.value = current;
+        syncThemeButtons(current);
+        if (markUnsaved) {{
+          settingsStatusTextEl.textContent = "Theme changed (unsaved)";
         }}
       }}
 
@@ -1808,7 +2328,9 @@ HTML = f"""<!doctype html>
           }});
 
           const subgroupBlocks = orderedSubgroups.map(([subgroupName, subgroupItems]) => {{
-            const sortedItems = _sortSettingsFields(groupName, subgroupItems);
+            const visibleItems = subgroupItems.filter((item) => !item.hidden_in_form);
+            if (!visibleItems.length) return "";
+            const sortedItems = _sortSettingsFields(groupName, visibleItems);
             const fields = sortedItems.map((item) => {{
             const key = String(item.key || "");
             const val = settingsValues[key] ?? "";
@@ -1849,7 +2371,7 @@ HTML = f"""<!doctype html>
             <div class="settings-group">
               <div class="settings-group-head">
                 <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
-                <span class="status">${{items.length}} variable${{items.length === 1 ? "" : "s"}}</span>
+                <span class="status">${{items.filter((item) => !item.hidden_in_form).length}} variable${{items.filter((item) => !item.hidden_in_form).length === 1 ? "" : "s"}}</span>
               </div>
               <div class="settings-group-body">${{subgroupBlocks}}</div>
             </div>
@@ -1865,12 +2387,25 @@ HTML = f"""<!doctype html>
           if (!res.ok) throw new Error(data.error || "Failed to load settings");
           settingsSchema = Array.isArray(data.schema) ? data.schema : [];
           settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
+          applyUiTheme(settingsValues.UI_THEME || initialUiTheme, false);
           _renderSettingsGroups();
           settingsStatusTextEl.textContent = `Loaded from ${{data.env_file || ".env.local"}}`;
           settingsFootNoteEl.textContent = data.note || "Save writes to local .env.local. Restart may be required for some settings.";
         }} catch (err) {{
           settingsStatusTextEl.textContent = "Settings load failed";
           settingsGroupsEl.innerHTML = `<div class="settings-group"><div class="settings-group-head"><div class="settings-group-title">Settings unavailable</div></div><div class="settings-grid"><div class="settings-field"><div class="hint">${{escapeHtml(err.message || String(err))}}</div></div></div></div>`;
+        }}
+      }}
+
+      async function loadUiThemeFromSettings() {{
+        try {{
+          const res = await fetch("/settings");
+          const data = await res.json();
+          if (!res.ok) return;
+          const values = (data.values && typeof data.values === "object") ? data.values : {{}};
+          applyUiTheme(values.UI_THEME || initialUiTheme, false);
+        }} catch {{
+          // Theme fallback stays on injected default when settings endpoint is unavailable.
         }}
       }}
 
@@ -1885,12 +2420,33 @@ HTML = f"""<!doctype html>
         settingsModalEl.setAttribute("aria-hidden", "true");
       }}
 
+      function showRestartConfirmModal() {{
+        return new Promise((resolve) => {{
+          const close = (value) => {{
+            restartConfirmModalEl.classList.remove("open");
+            restartConfirmModalEl.setAttribute("aria-hidden", "true");
+            restartConfirmOkBtnEl.onclick = null;
+            restartConfirmCancelBtnEl.onclick = null;
+            restartConfirmModalEl.onclick = null;
+            resolve(value);
+          }};
+          restartConfirmModalEl.classList.add("open");
+          restartConfirmModalEl.setAttribute("aria-hidden", "false");
+          restartConfirmOkBtnEl.onclick = () => close(true);
+          restartConfirmCancelBtnEl.onclick = () => close(false);
+          restartConfirmModalEl.onclick = (e) => {{
+            if (e.target === restartConfirmModalEl) close(false);
+          }};
+        }});
+      }}
+
       async function saveSettingsModal() {{
         const values = {{}};
         settingsGroupsEl.querySelectorAll("[data-settings-key]").forEach((input) => {{
           const key = input.getAttribute("data-settings-key");
           if (key) values[key] = input.value ?? "";
         }});
+        values.UI_THEME = normalizeUiTheme(activeUiTheme);
         settingsSaveBtnEl.disabled = true;
         settingsStatusTextEl.textContent = "Saving settings...";
         try {{
@@ -1908,7 +2464,7 @@ HTML = f"""<!doctype html>
           refreshOllamaStatus();
           refreshLiteLlmStatus();
           if (data.restart_recommended) {{
-            const shouldRestart = window.confirm("Settings saved locally. Restart the demo app now to fully apply server-side changes?");
+            const shouldRestart = await showRestartConfirmModal();
             if (shouldRestart) {{
               settingsStatusTextEl.textContent = "Restarting app...";
               settingsFootNoteEl.textContent = "The app is restarting. This page will auto-refresh in a few seconds.";
@@ -4058,6 +4614,10 @@ HTML = f"""<!doctype html>
       settingsCloseBtnEl.addEventListener("click", closeSettingsModal);
       settingsReloadBtnEl.addEventListener("click", () => loadSettingsModal("Reloading from backend source (.env.local + env)..."));
       settingsSaveBtnEl.addEventListener("click", saveSettingsModal);
+      themeClassicBtnEl.addEventListener("click", () => applyUiTheme("classic", true));
+      themeZscalerBtnEl.addEventListener("click", () => applyUiTheme("zscaler_blue", true));
+      themeDarkBtnEl.addEventListener("click", () => applyUiTheme("dark", true));
+      themeFunBtnEl.addEventListener("click", () => applyUiTheme("fun", true));
       settingsModalEl.addEventListener("click", (e) => {{
         if (e.target === settingsModalEl) closeSettingsModal();
       }});
@@ -4224,11 +4784,17 @@ HTML = f"""<!doctype html>
         }}
       }});
       document.addEventListener("keydown", (e) => {{
+        if (e.key === "Escape" && restartConfirmModalEl.classList.contains("open")) {{
+          restartConfirmCancelBtnEl.click();
+          return;
+        }}
         if (e.key === "Escape" && settingsModalEl.classList.contains("open")) {{
           closeSettingsModal();
         }}
       }});
       renderPresetCatalog();
+      applyUiTheme(initialUiTheme, false);
+      loadUiThemeFromSettings();
       refreshCurrentModelText();
       refreshProviderValidationText();
       renderConversation();
@@ -4688,6 +5254,7 @@ def _is_local_admin_request(handler: BaseHTTPRequestHandler) -> bool:
 
 SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_DEMO_NAME", "label": "App Demo Name", "secret": False, "hint": "Browser/page title and app card heading"},
+    {"group": "App", "key": "UI_THEME", "label": "UI Theme", "secret": False, "hint": "Theme preset used by the UI (classic | zscaler_blue | dark | neon)", "hidden_in_form": True},
     {"group": "App", "key": "PORT", "label": "App Port", "secret": False, "hint": "Requires restart to bind a different port"},
     {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Provider credential used for direct Anthropic SDK calls"},
     {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
@@ -4763,6 +5330,7 @@ SETTINGS_SCHEMA = [
 ]
 
 SETTINGS_DEFAULT_VALUES = {
+    "UI_THEME": "zscaler_blue",
     "OLLAMA_URL": "http://127.0.0.1:11434",
     "LITELLM_BASE_URL": "http://127.0.0.1:4000/v1",
     "PERPLEXITY_BASE_URL": "https://api.perplexity.ai",
