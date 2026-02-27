@@ -64,4 +64,7 @@ fi
 
 echo "Bootstrap complete."
 echo "Next:"
-echo "  1) Load env + run app: set -a; source .env.local; set +a; python app.py"
+echo "  1) Activate virtualenv: source .venv/bin/activate"
+echo "  2) Load env: set -a; source .env.local; set +a"
+echo "  3) Run app: python3 app.py"
+echo "  Note: if Ollama is already running, do not start a second 'ollama serve'."

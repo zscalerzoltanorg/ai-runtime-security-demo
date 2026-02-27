@@ -52,8 +52,10 @@ This project is designed to run directly with Python.
    - [https://ollama.com/download](https://ollama.com/download)
    - Then run: `ollama serve` and `ollama pull llama3.2:1b`
 5. Run app:
+   - `source .venv/bin/activate`
    - `set -a; source .env.local; set +a`
-   - `python app.py`
+   - `python3 app.py`
+   - If `ollama serve` says port `11434` is already in use, Ollama is already running; continue without starting another one.
 6. Open:
    - [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
@@ -72,6 +74,7 @@ This project is designed to run directly with Python.
    - [https://ollama.com/download](https://ollama.com/download)
    - Then run: `ollama serve` and `ollama pull llama3.2:1b`
 5. Run app:
+   - `.\.venv\Scripts\Activate.ps1`
    - `python app.py`
 6. Open:
    - [http://127.0.0.1:5000](http://127.0.0.1:5000)
@@ -95,6 +98,7 @@ Your `.env.local` should at least have:
 
 ```env
 PORT=5000
+APP_DEMO_NAME='AI Runtime Security Demo'
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=llama3.2:1b
 MCP_SERVER_COMMAND=
