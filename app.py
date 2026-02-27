@@ -3370,6 +3370,20 @@ HTML = f"""<!doctype html>
         return meta;
       }}
 
+      function _providerUpstreamEndpoint(providerId) {{
+        const pid = String(providerId || "").toLowerCase();
+        if (pid === "anthropic") return "https://api.anthropic.com";
+        if (pid === "openai") return "https://api.openai.com";
+        if (pid === "perplexity") return "https://api.perplexity.ai";
+        if (pid === "xai") return "https://api.x.ai";
+        if (pid === "gemini") return "https://generativelanguage.googleapis.com";
+        if (pid === "vertex") return "https://aiplatform.googleapis.com";
+        if (pid === "azure_foundry") return "https://<your-resource>.services.ai.azure.com";
+        if (pid === "bedrock_invoke") return "https://bedrock-runtime.<region>.amazonaws.com";
+        if (pid === "bedrock_agent") return "https://bedrock-agent-runtime.<region>.amazonaws.com";
+        return "";
+      }}
+
       function _safeUrlForParsing(value) {{
         const raw = String(value || "").trim();
         if (!raw) return "";
@@ -3470,6 +3484,21 @@ HTML = f"""<!doctype html>
         const guardrailsEnabled = !!entry.guardrailsEnabled || !!guardrails.enabled;
         const guardrailsBlocked = !!guardrails.blocked;
         const guardrailsBlockStage = String(guardrails.stage || "").toUpperCase();
+        const responseTextForStage = String(body.response || body.error || "").toLowerCase();
+        const inferPromptBlockedByText =
+          responseTextForStage.includes("this prompt was blocked by ai guard")
+          || responseTextForStage.includes("prompt was blocked by zscaler ai guard");
+        const inferResponseBlockedByText =
+          responseTextForStage.includes("this response was blocked by ai guard")
+          || responseTextForStage.includes("response was blocked by zscaler ai guard");
+        const proxyPromptBlocked = proxyMode && guardrailsEnabled && guardrailsBlocked && (
+          guardrailsBlockStage === "IN"
+          || (guardrailsBlockStage !== "OUT" && inferPromptBlockedByText && !inferResponseBlockedByText)
+        );
+        const proxyResponseBlocked = proxyMode && guardrailsEnabled && guardrailsBlocked && (
+          guardrailsBlockStage === "OUT"
+          || (guardrailsBlockStage !== "IN" && inferResponseBlockedByText)
+        );
         const hasAiGuardIn = traceSteps.some((s) => String((s || {{}}).name || "").includes("AI Guard (IN)"));
         const hasAiGuardOut = traceSteps.some((s) => String((s || {{}}).name || "").includes("AI Guard (OUT)"));
         const dasApiMode = guardrailsEnabled && !proxyMode;
@@ -3529,10 +3558,12 @@ HTML = f"""<!doctype html>
           // Keep DAS/API calls visually off the inline provider path.
           nextCol = 3;
         }} else if (proxyMode && guardrailsEnabled) {{
+          const upstreamEndpoint = _providerUpstreamEndpoint(providerId);
           addNode("aiguard_proxy", "Zscaler AI Guard", "aiguard", nextCol++, 2, {{
             "Mode": "Proxy",
             "Base URL": String(guardrails.proxy_base_url || ""),
             "Provider": providerLabel,
+            ...(upstreamEndpoint ? {{ "Next Hop (Upstream Provider)": upstreamEndpoint }} : {{}}),
             ..._transportMetaFromUrl(String(guardrails.proxy_base_url || ""), {{
               note: "Proxy mode inline hop between app and provider"
             }}),
@@ -3611,6 +3642,10 @@ HTML = f"""<!doctype html>
           "URL": ((providerStep.request || {{}}).url || ""),
           "Model": (((providerStep.request || {{}}).payload || {{}}).model || ""),
           "Status": ((providerStep.response || {{}}).status ?? ""),
+          ...(() => {{
+            const hint = _providerUpstreamEndpoint(providerId);
+            return hint ? {{ "Default Provider Endpoint": hint }} : {{}};
+          }})(),
           ..._transportMetaFromUrl(((providerStep.request || {{}}).url || ""), {{
             note: "Provider request as observed by the demo app trace"
           }}),
@@ -3618,12 +3653,24 @@ HTML = f"""<!doctype html>
         }} : {{
           "Provider": providerLabel,
           "Mode": proxyMode ? "Proxy" : "Direct",
+          ...(() => {{
+            const hint = _providerUpstreamEndpoint(providerId);
+            return hint ? {{ "Default Provider Endpoint": hint }} : {{}};
+          }})(),
         }};
         const inBlockedBeforeProvider = dasApiMode && guardrailsBlocked && guardrailsBlockStage === "IN" && !providerStep;
-        const shouldShowProvider = !inBlockedBeforeProvider;
+        const shouldShowProvider = true;
+        const shouldConnectProviderRequest = !proxyPromptBlocked && !inBlockedBeforeProvider;
         if (shouldShowProvider) {{
+          if (!shouldConnectProviderRequest) {{
+            providerMeta["Flow Note"] = inBlockedBeforeProvider
+              ? "Blocked at AI Guard (IN) before provider call in DAS/API flow"
+              : "Blocked at AI Guard before upstream provider delivery";
+          }}
           addNode(providerNodeId, providerLabel + (proxyMode ? " (via Proxy)" : ""), "provider", nextCol++, 2, providerMeta);
-          addEdge(providerRequestSourceNode, providerNodeId, "request");
+          if (shouldConnectProviderRequest) {{
+            addEdge(providerRequestSourceNode, providerNodeId, "request");
+          }}
         }}
 
         const mcpEvents = agentTrace.filter((i) => (i && i.kind) === "mcp");
@@ -3714,7 +3761,7 @@ HTML = f"""<!doctype html>
             addEdge(netId, id, "response");
           }}
         }});
-        if ((toolIds.length || mcpEvents.length) && shouldShowProvider) {{
+        if ((toolIds.length || mcpEvents.length) && shouldShowProvider && shouldConnectProviderRequest) {{
           nextCol += 2 + Math.max(1, toolIds.length + toolNetworkIds.length);
           const returnNode = toolIds.length ? toolIds[toolIds.length - 1] : "mcp";
           addEdge(returnNode, providerNodeId, "response");
@@ -3738,10 +3785,12 @@ HTML = f"""<!doctype html>
           addEdge("aiguard_out", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
         }}
 
-        if (proxyMode && guardrailsEnabled && shouldShowProvider) {{
-          addEdge(providerNodeId, "aiguard_proxy", "response", {{ danger: guardrailsBlocked }});
+        if (proxyMode && guardrailsEnabled) {{
+          if (shouldShowProvider && shouldConnectProviderRequest) {{
+            addEdge(providerNodeId, "aiguard_proxy", "response", {{ danger: guardrailsBlocked && proxyResponseBlocked }});
+          }}
           addEdge("aiguard_proxy", "app", "response", {{ danger: guardrailsBlocked }});
-        }} else if (shouldShowProvider) {{
+        }} else if (shouldShowProvider && shouldConnectProviderRequest) {{
           addEdge(providerNodeId, "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
         }}
         addEdge("app", "client", "response", {{

@@ -64,6 +64,30 @@ def _triggered_detectors(block_body: dict) -> list[str]:
     return detectors
 
 
+def _is_blocked_guardrails_body(body: object) -> bool:
+    if not isinstance(body, dict):
+        return False
+
+    # Primary top-level indicators
+    for key in ("action", "decision", "verdict", "policyAction"):
+        value = str(body.get(key, "")).strip().upper()
+        if value == "BLOCK":
+            return True
+    if body.get("blocked") is True:
+        return True
+
+    # Fallback: detector-level block actions
+    detector_responses = body.get("detectorResponses")
+    if isinstance(detector_responses, dict):
+        for details in detector_responses.values():
+            if not isinstance(details, dict):
+                continue
+            detector_action = str(details.get("action", "")).strip().upper()
+            if detector_action == "BLOCK":
+                return True
+    return False
+
+
 def _block_message(stage: str, block_body: object) -> str:
     if not isinstance(block_body, dict):
         return f"Blocked by AI Guard ({stage.lower()})."
@@ -72,7 +96,7 @@ def _block_message(stage: str, block_body: object) -> str:
     policy_name = block_body.get("policyName") or "n/a"
     policy_id = block_body.get("policyId")
     severity = block_body.get("severity") or "n/a"
-    masked_content = block_body.get("maskedContent") or "(not provided)"
+    masked_content = "[redacted]"
     detectors = _triggered_detectors(block_body)
     detectors_text = ", ".join(detectors) if detectors else "n/a"
     policy_id_text = str(policy_id) if policy_id is not None else "n/a"
@@ -89,6 +113,48 @@ def _block_message(stage: str, block_body: object) -> str:
         f"- maskedContent: {masked_content}\n"
         f"- triggeredDetectors: {detectors_text}"
     )
+
+
+def _redact_block_body_for_client(block_body: object) -> object:
+    if not isinstance(block_body, dict):
+        return block_body
+    redacted = dict(block_body)
+    if "maskedContent" in redacted:
+        redacted["maskedContent"] = "[redacted]"
+    return redacted
+
+
+def _redact_trace_for_out_block(trace_steps: list[dict]) -> list[dict]:
+    safe_steps: list[dict] = []
+    for step in trace_steps:
+        if not isinstance(step, dict):
+            safe_steps.append(step)
+            continue
+        step_copy = dict(step)
+        req = step_copy.get("request")
+        res = step_copy.get("response")
+        if isinstance(req, dict):
+            req_copy = dict(req)
+            payload = req_copy.get("payload")
+            if isinstance(payload, dict) and str(payload.get("direction", "")).upper() == "OUT":
+                req_payload = dict(payload)
+                req_payload["content"] = "[redacted]"
+                req_copy["payload"] = req_payload
+            step_copy["request"] = req_copy
+        if isinstance(res, dict):
+            res_copy = dict(res)
+            body = res_copy.get("body")
+            if isinstance(body, dict):
+                body_copy = dict(body)
+                body_copy = _redact_block_body_for_client(body_copy)
+                # Strip common raw provider text fields from trace payloads.
+                for field in ("text", "response", "output", "content", "assistant_text"):
+                    if field in body_copy and isinstance(body_copy[field], str):
+                        body_copy[field] = "[redacted]"
+                res_copy["body"] = body_copy
+            step_copy["response"] = res_copy
+        safe_steps.append(step_copy)
+    return safe_steps
 
 
 def _zag_check(
@@ -186,9 +252,7 @@ def _zag_check(
             },
         }
 
-    blocked = False
-    if isinstance(body, dict):
-        blocked = body.get("blocked") is True or str(body.get("action", "")).upper() == "BLOCK"
+    blocked = _is_blocked_guardrails_body(body)
 
     return blocked, {
         "trace_step": {
@@ -261,11 +325,13 @@ def guarded_chat(
         )
     if out_blocked:
         out_block_body = (out_meta.get("trace_step") or {}).get("response", {}).get("body")
+        safe_trace_steps = _redact_trace_for_out_block(trace_steps)
+        safe_block_body = _redact_block_body_for_client(out_block_body)
         return (
             {
-                "response": _block_message("Response", out_block_body),
+                "response": _block_message("Response", safe_block_body),
                 "guardrails": {"enabled": True, "blocked": True, "stage": "OUT"},
-                "trace": {"steps": trace_steps},
+                "trace": {"steps": safe_trace_steps},
             },
             200,
         )

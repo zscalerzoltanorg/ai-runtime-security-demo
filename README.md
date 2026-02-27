@@ -2,6 +2,19 @@
 
 Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy), agentic/multi-agent workflows, MCP/tools, and rich traces.
 
+## What's New (Recent)
+
+- `v1.0.2` (02-27-26)
+  - Fixed flow graph behavior for AI Guard block paths (Proxy + DAS/API) so edges reflect real request flow.
+  - Added provider/upstream endpoint hints in flow graph tooltips.
+  - Fixed DAS/API `OUT` block handling so blocked model output is redacted from user-visible block responses and trace payload previews.
+- `v1.0.1` (02-27-26)
+  - Added UI themes (Classic, Zscaler Blue, Dark, Neon) with persistent selection.
+  - Improved dark/neon modal and panel styling.
+  - Added auto build/version badge near title (git tag/commit based).
+
+Note: this section is intentionally compact. Keep only recent releases here and avoid a long historical changelog in this repo.
+
 ## What You Can Demo
 
 - Multi-provider chat (local + cloud)
