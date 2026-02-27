@@ -154,6 +154,99 @@ All model overrides are optional and can be configured later.
 
 ---
 
+## MCP Toolset Snapshot + Provider Tool Wiring
+
+### Why guardrails did not see "available tools" before
+
+Before this change, Anthropic requests were built in `providers.py` (`_anthropic_generate` and `_anthropic_chat_messages`) with:
+- `model`
+- `messages`
+- `temperature`
+- `max_tokens`
+
+No `tools` field was attached to provider payloads.  
+MCP tool discovery happened only inside the agent loop (`agentic.py`) for local execution planning, so proxy/guardrails could not observe an "available tools" manifest on normal provider calls.
+
+### What changed
+
+- Added `tooling.py`:
+  - canonical internal model: `ToolDef { id, name, description, input_schema, source_server }`
+  - MCP discovery from configured server(s)
+  - structured telemetry event: `type="toolset.snapshot"`
+- `/chat` now:
+  - emits a toolset snapshot at chat start
+  - emits another snapshot immediately before each LLM call
+  - includes these events in response payload as `toolset_events` so the UI trace/flow graph can render them
+- `providers.py` now includes a provider adapter scaffold:
+  - `ProviderAdapter` interface with `build_request`, `parse_response`, `tool_call_to_mcp`
+  - implemented `AnthropicAdapter`
+  - OpenAI/Bedrock extension notes are included as stubs/comments
+- Anthropic request builder now supports attaching mapped tool definitions (behind flags).
+
+### New env knobs
+
+- `TOOLSET_DEBUG_LOGS=true|false`
+- `INCLUDE_TOOLS_IN_LLM_REQUEST=true|false` (default `false`)
+- `MAX_TOOLS_IN_REQUEST` (default `20`)
+- `TOOL_INCLUDE_MODE=all|allowlist|progressive`
+- `TOOL_ALLOWLIST=comma,separated,names-or-ids`
+- `TOOL_PROGRESSIVE_COUNT` (used when `TOOL_INCLUDE_MODE=progressive`)
+- `TOOL_NAME_PREFIX_STRATEGY=serverPrefix|hash|none`
+
+### Universal vs provider-specific
+
+Universal:
+- `ToolDef` internal schema (`tooling.py`)
+- `toolset.snapshot` event schema and emission timing
+- MCP discovery and normalization
+
+Provider-specific:
+- payload wiring (`tools` field shape and constraints)
+- tool name normalization and reversible mapping
+- tool-call parsing format (`tool_use` vs function-calls vs Bedrock-specific shapes)
+
+---
+
+## Update Existing Deployment
+
+If you already have this app running and want the latest GitHub changes, use this sequence.
+
+### Native Python deployment
+
+1. Pull latest code:
+   - `git fetch origin`
+   - `git pull --ff-only origin main`
+2. Activate venv:
+   - macOS/Linux: `source .venv/bin/activate`
+   - Windows PowerShell: `.\.venv\Scripts\Activate.ps1`
+3. Sync dependencies:
+   - `python -m pip install -r requirements.txt`
+4. Merge new env defaults without overwriting your secrets:
+   - compare `.env.example` vs your `.env.local`
+   - add only new keys you need (leave existing real keys as-is)
+5. Restart app process:
+   - stop old `python app.py`
+   - restart with your normal command (`python3 app.py` or `python app.py`)
+
+### Docker Compose deployment
+
+1. Pull latest code:
+   - `git fetch origin`
+   - `git pull --ff-only origin main`
+2. Rebuild + restart:
+   - `docker compose up -d --build`
+3. Verify:
+   - `docker compose ps`
+   - open [http://127.0.0.1:5000](http://127.0.0.1:5000)
+
+### Recommended quick checks after any update
+
+- Open **Settings (⚙)** and confirm expected provider/model values.
+- Send a simple prompt with your usual provider.
+- If using guardrails proxy mode, run one blocked and one allowed prompt to confirm behavior.
+
+---
+
 ## Security Notes
 
 - `.env`, `.env.*` are git-ignored (`!.env.example` is allowed)

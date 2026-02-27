@@ -1,8 +1,13 @@
 import ast
 import json
 import os
+import re
+from dataclasses import dataclass
+from hashlib import sha1
 from typing import Any
 from urllib import error, request
+
+from tooling import ToolDef
 
 
 def _env_or_default(name: str, default: str) -> str:
@@ -24,6 +29,34 @@ DEFAULT_AZURE_AI_FOUNDRY_MODEL = _env_or_default("AZURE_AI_FOUNDRY_MODEL", "gpt-
 DEFAULT_ZS_PROXY_BASE_URL = _env_or_default("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = _env_or_default("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
 DEMO_USER_HEADER_NAME = "X-Demo-User"
+DEFAULT_INCLUDE_TOOLS_IN_LLM_REQUEST = False
+DEFAULT_MAX_TOOLS_IN_REQUEST = 20
+DEFAULT_TOOL_INCLUDE_MODE = "all"
+DEFAULT_TOOL_NAME_PREFIX_STRATEGY = "serverPrefix"
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _csv_env(name: str) -> set[str]:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return set()
+    return {part.strip() for part in raw.split(",") if part.strip()}
 
 
 def _proxy_guardrails_block_from_error(
@@ -87,6 +120,203 @@ def available_providers() -> list[dict[str, str]]:
         {"id": "litellm", "label": "LiteLLM"},
         {"id": "azure_foundry", "label": "Azure AI Foundry"},
     ]
+
+
+@dataclass
+class ProviderToolingContext:
+    include_tools: bool
+    include_mode: str
+    max_tools: int
+    name_strategy: str
+    available_count: int
+    included_count: int
+    dropped_count: int
+    supported: bool
+    reason: str
+    provider_tool_map: dict[str, dict[str, Any]]
+    provider_tools_payload: list[dict[str, Any]]
+
+
+class ProviderAdapter:
+    provider_id = "base"
+
+    def build_request(
+        self,
+        *,
+        messages: list[dict],
+        model: str,
+        tool_defs: list[ToolDef] | None,
+        settings: ProviderToolingContext,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def parse_response(self, provider_response: Any) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def tool_call_to_mcp(self, tool_call: dict[str, Any], settings: ProviderToolingContext) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+
+def _sanitize_provider_tool_name(raw: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", str(raw or "tool"))
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned[:64] or "tool"
+
+
+def _anthropic_tool_name(tool: ToolDef, strategy: str) -> str:
+    base = _sanitize_provider_tool_name(tool.name)
+    if strategy == "none":
+        return base
+    if strategy == "hash":
+        digest = sha1(tool.id.encode("utf-8")).hexdigest()[:12]
+        return f"t_{digest}"
+    server = _sanitize_provider_tool_name(tool.source_server)[:18] or "mcp"
+    suffix = sha1(tool.id.encode("utf-8")).hexdigest()[:6]
+    combined = f"{server}_{base}"
+    if len(combined) > 56:
+        combined = combined[:56]
+    return f"{combined}_{suffix}"
+
+
+def _select_tool_defs(tool_defs: list[ToolDef], include_mode: str, max_tools: int) -> tuple[list[ToolDef], str]:
+    selected = list(tool_defs or [])
+    mode = (include_mode or DEFAULT_TOOL_INCLUDE_MODE).strip().lower()
+    if mode not in {"all", "allowlist", "progressive"}:
+        mode = DEFAULT_TOOL_INCLUDE_MODE
+    reason = f"mode={mode}"
+    if mode == "allowlist":
+        allowlist = _csv_env("TOOL_ALLOWLIST")
+        if allowlist:
+            selected = [t for t in selected if t.name in allowlist or t.id in allowlist]
+        else:
+            selected = []
+        reason = f"{reason},allowlist={len(allowlist)}"
+    elif mode == "progressive":
+        progressive_count = _int_env("TOOL_PROGRESSIVE_COUNT", min(5, max_tools))
+        selected = selected[: max(0, progressive_count)]
+        reason = f"{reason},progressive_count={progressive_count}"
+    return selected[: max(0, max_tools)], reason
+
+
+def _build_anthropic_tool_payload(
+    tool_defs: list[ToolDef] | None,
+) -> ProviderToolingContext:
+    include_tools = _bool_env("INCLUDE_TOOLS_IN_LLM_REQUEST", DEFAULT_INCLUDE_TOOLS_IN_LLM_REQUEST)
+    include_mode = str(os.getenv("TOOL_INCLUDE_MODE", DEFAULT_TOOL_INCLUDE_MODE)).strip() or DEFAULT_TOOL_INCLUDE_MODE
+    max_tools = max(0, _int_env("MAX_TOOLS_IN_REQUEST", DEFAULT_MAX_TOOLS_IN_REQUEST))
+    name_strategy = (
+        str(os.getenv("TOOL_NAME_PREFIX_STRATEGY", DEFAULT_TOOL_NAME_PREFIX_STRATEGY)).strip()
+        or DEFAULT_TOOL_NAME_PREFIX_STRATEGY
+    )
+    available = list(tool_defs or [])
+    if not include_tools:
+        return ProviderToolingContext(
+            include_tools=False,
+            include_mode=include_mode,
+            max_tools=max_tools,
+            name_strategy=name_strategy,
+            available_count=len(available),
+            included_count=0,
+            dropped_count=len(available),
+            supported=True,
+            reason="INCLUDE_TOOLS_IN_LLM_REQUEST=false",
+            provider_tool_map={},
+            provider_tools_payload=[],
+        )
+
+    selected, reason = _select_tool_defs(available, include_mode, max_tools)
+    provider_tools: list[dict[str, Any]] = []
+    provider_tool_map: dict[str, dict[str, Any]] = {}
+    used_names: set[str] = set()
+    for idx, tool in enumerate(selected):
+        provider_name = _anthropic_tool_name(tool, name_strategy)
+        if provider_name in used_names:
+            provider_name = f"{provider_name[:52]}_{idx:02d}"
+        used_names.add(provider_name)
+        provider_tools.append(
+            {
+                "name": provider_name,
+                "description": tool.description,
+                "input_schema": tool.input_schema or {"type": "object", "properties": {}},
+            }
+        )
+        provider_tool_map[provider_name] = {
+            "mcp_tool_id": tool.id,
+            "mcp_tool_name": tool.name,
+            "source_server": tool.source_server,
+        }
+    return ProviderToolingContext(
+        include_tools=True,
+        include_mode=include_mode,
+        max_tools=max_tools,
+        name_strategy=name_strategy,
+        available_count=len(available),
+        included_count=len(provider_tools),
+        dropped_count=max(0, len(available) - len(provider_tools)),
+        supported=True,
+        reason=reason,
+        provider_tool_map=provider_tool_map,
+        provider_tools_payload=provider_tools,
+    )
+
+
+class AnthropicAdapter(ProviderAdapter):
+    provider_id = "anthropic"
+
+    def build_request(
+        self,
+        *,
+        messages: list[dict],
+        model: str,
+        tool_defs: list[ToolDef] | None,
+        settings: ProviderToolingContext,
+    ) -> dict[str, Any]:
+        payload = {
+            "model": model,
+            "max_tokens": 400,
+            "temperature": 0.2,
+            "messages": messages,
+        }
+        if settings.provider_tools_payload:
+            payload["tools"] = settings.provider_tools_payload
+        return payload
+
+    def parse_response(self, provider_response: Any) -> dict[str, Any]:
+        text = "".join(
+            block.text
+            for block in getattr(provider_response, "content", [])
+            if getattr(block, "type", None) == "text"
+        ).strip()
+        tool_calls: list[dict[str, Any]] = []
+        for block in getattr(provider_response, "content", []):
+            if getattr(block, "type", None) != "tool_use":
+                continue
+            tool_calls.append(
+                {
+                    "id": getattr(block, "id", None),
+                    "name": getattr(block, "name", None),
+                    "args": getattr(block, "input", {}) or {},
+                }
+            )
+        return {"assistant_text": text, "tool_calls": tool_calls}
+
+    def tool_call_to_mcp(self, tool_call: dict[str, Any], settings: ProviderToolingContext) -> dict[str, Any] | None:
+        provider_name = str(tool_call.get("name") or "").strip()
+        mapped = settings.provider_tool_map.get(provider_name)
+        if not mapped:
+            return None
+        return {
+            "mcp_server": mapped.get("source_server"),
+            "tool_name": mapped.get("mcp_tool_name"),
+            "args": tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {},
+        }
+
+
+# Stub adapter notes for extension:
+# - OpenAI-style tools use `tools=[{\"type\":\"function\",\"function\":{...}}]` and tool calls
+#   appear in `choices[0].message.tool_calls[*].function`.
+# - Bedrock tool formats vary by API (Converse vs Agent Runtime), with provider-specific schema
+#   wrappers and different tool-call response shapes.
 
 
 def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[int, object]:
@@ -413,6 +643,7 @@ def _anthropic_generate(
     proxy_mode: bool = False,
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    tool_defs: list[ToolDef] | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, proxy_key_source = _zscaler_proxy_sdk_config(
@@ -421,12 +652,14 @@ def _anthropic_generate(
         demo_user,
     )
     effective_api_key = proxy_key if proxy_mode else api_key
-    request_payload = {
-        "model": anthropic_model,
-        "max_tokens": 400,
-        "temperature": 0.2,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    tooling_ctx = _build_anthropic_tool_payload(tool_defs)
+    adapter = AnthropicAdapter()
+    request_payload = adapter.build_request(
+        messages=[{"role": "user", "content": prompt}],
+        model=anthropic_model,
+        tool_defs=tool_defs,
+        settings=tooling_ctx,
+    )
     trace_headers: dict[str, str] = {
         "x-api-key": "***redacted***" if effective_api_key else "***missing***"
     }
@@ -448,7 +681,22 @@ def _anthropic_generate(
         ),
         "headers": trace_headers,
         "payload": request_payload,
+        "tooling": {
+            "available_tools": tooling_ctx.available_count,
+            "included_tools": tooling_ctx.included_count,
+            "dropped_tools": tooling_ctx.dropped_count,
+            "include_mode": tooling_ctx.include_mode,
+            "include_tools": tooling_ctx.include_tools,
+            "tool_name_prefix_strategy": tooling_ctx.name_strategy,
+            "reason": tooling_ctx.reason,
+        },
     }
+    if _bool_env("TOOLSET_DEBUG_LOGS", False):
+        print(
+            "[toolset.debug] provider_call=anthropic "
+            f"tools_available={tooling_ctx.available_count} tools_included={tooling_ctx.included_count} "
+            f"include_mode={tooling_ctx.include_mode} include_flag={tooling_ctx.include_tools}"
+        )
 
     if not effective_api_key:
         return None, {
@@ -502,11 +750,8 @@ def _anthropic_generate(
                 default_headers=({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None),
             )
         resp = client.messages.create(**request_payload)
-        text = "".join(
-            block.text
-            for block in getattr(resp, "content", [])
-            if getattr(block, "type", None) == "text"
-        ).strip()
+        parsed = adapter.parse_response(resp)
+        text = str(parsed.get("assistant_text") or "").strip()
         response_body: dict[str, Any] = {
             "id": getattr(resp, "id", None),
             "model": getattr(resp, "model", anthropic_model),
@@ -516,6 +761,8 @@ def _anthropic_generate(
             if hasattr(getattr(resp, "usage", None), "model_dump")
             else None,
             "text": text,
+            "tool_calls": parsed.get("tool_calls", []),
+            "tool_name_map": tooling_ctx.provider_tool_map,
         }
     except Exception as exc:
         err_status = getattr(exc, "status_code", None)
@@ -573,6 +820,7 @@ def _anthropic_chat_messages(
     proxy_mode: bool = False,
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    tool_defs: list[ToolDef] | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, proxy_key_source = _zscaler_proxy_sdk_config(
@@ -583,12 +831,14 @@ def _anthropic_chat_messages(
     effective_api_key = proxy_key if proxy_mode else api_key
     normalized = _normalize_messages(messages)
     system_blocks = [m["content"] for m in normalized if m["role"] == "system" and m["content"].strip()]
-    request_payload = {
-        "model": anthropic_model,
-        "max_tokens": 400,
-        "temperature": 0.2,
-        "messages": [m for m in normalized if m["role"] in {"user", "assistant"}],
-    }
+    tooling_ctx = _build_anthropic_tool_payload(tool_defs)
+    adapter = AnthropicAdapter()
+    request_payload = adapter.build_request(
+        messages=[m for m in normalized if m["role"] in {"user", "assistant"}],
+        model=anthropic_model,
+        tool_defs=tool_defs,
+        settings=tooling_ctx,
+    )
     if system_blocks:
         request_payload["system"] = "\n\n".join(system_blocks)
     trace_headers: dict[str, str] = {
@@ -612,7 +862,22 @@ def _anthropic_chat_messages(
         ),
         "headers": trace_headers,
         "payload": request_payload,
+        "tooling": {
+            "available_tools": tooling_ctx.available_count,
+            "included_tools": tooling_ctx.included_count,
+            "dropped_tools": tooling_ctx.dropped_count,
+            "include_mode": tooling_ctx.include_mode,
+            "include_tools": tooling_ctx.include_tools,
+            "tool_name_prefix_strategy": tooling_ctx.name_strategy,
+            "reason": tooling_ctx.reason,
+        },
     }
+    if _bool_env("TOOLSET_DEBUG_LOGS", False):
+        print(
+            "[toolset.debug] provider_call=anthropic "
+            f"tools_available={tooling_ctx.available_count} tools_included={tooling_ctx.included_count} "
+            f"include_mode={tooling_ctx.include_mode} include_flag={tooling_ctx.include_tools}"
+        )
 
     if not effective_api_key:
         return None, {
@@ -666,11 +931,8 @@ def _anthropic_chat_messages(
                 default_headers=({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None),
             )
         resp = client.messages.create(**request_payload)
-        text = "".join(
-            block.text
-            for block in getattr(resp, "content", [])
-            if getattr(block, "type", None) == "text"
-        ).strip()
+        parsed = adapter.parse_response(resp)
+        text = str(parsed.get("assistant_text") or "").strip()
         response_body: dict[str, Any] = {
             "id": getattr(resp, "id", None),
             "model": getattr(resp, "model", anthropic_model),
@@ -680,6 +942,8 @@ def _anthropic_chat_messages(
             if hasattr(getattr(resp, "usage", None), "model_dump")
             else None,
             "text": text,
+            "tool_calls": parsed.get("tool_calls", []),
+            "tool_name_map": tooling_ctx.provider_tool_map,
         }
     except Exception as exc:
         err_status = getattr(exc, "status_code", None)
@@ -1229,8 +1493,16 @@ def call_provider_messages(
     zscaler_proxy_mode: bool = False,
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    tool_defs: list[ToolDef] | None = None,
 ) -> tuple[str | None, dict]:
     provider = (provider_id or "ollama").strip().lower()
+    if _bool_env("TOOLSET_DEBUG_LOGS", False):
+        include_flag = _bool_env("INCLUDE_TOOLS_IN_LLM_REQUEST", DEFAULT_INCLUDE_TOOLS_IN_LLM_REQUEST)
+        print(
+            "[toolset.debug] llm_call "
+            f"provider={provider} mcp_tools_available={len(tool_defs or [])} "
+            f"include_tools_flag={include_flag} provider_supports_tools={provider == 'anthropic'}"
+        )
     aws_region = os.getenv("AWS_REGION", DEFAULT_AWS_REGION).strip() or DEFAULT_AWS_REGION
     if zscaler_proxy_mode and provider not in {"anthropic", "openai"}:
         return None, {
@@ -1249,6 +1521,7 @@ def call_provider_messages(
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
             demo_user=demo_user,
+            tool_defs=tool_defs,
         )
     if provider == "openai":
         return _openai_chat_messages(
@@ -1354,6 +1627,7 @@ def call_provider(
     zscaler_proxy_mode: bool = False,
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    tool_defs: list[ToolDef] | None = None,
 ) -> tuple[str | None, dict]:
     return call_provider_messages(
         provider_id,
@@ -1365,4 +1639,5 @@ def call_provider(
         zscaler_proxy_mode=zscaler_proxy_mode,
         conversation_id=conversation_id,
         demo_user=demo_user,
+        tool_defs=tool_defs,
     )

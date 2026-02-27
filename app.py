@@ -8,15 +8,35 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib import error as urlerror, request as urlrequest
+from uuid import uuid4
 
 _BUNDLED_CA_PATH = Path(__file__).with_name("certs").joinpath("combined-ca-bundle.pem")
 if _BUNDLED_CA_PATH.exists():
     os.environ.setdefault("SSL_CERT_FILE", str(_BUNDLED_CA_PATH))
     os.environ.setdefault("REQUESTS_CA_BUNDLE", str(_BUNDLED_CA_PATH))
 
+
+def _normalize_ca_env_path(var_name: str) -> None:
+    raw = str(os.getenv(var_name, "")).strip()
+    if not raw:
+        return
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd().joinpath(candidate)
+    if candidate.exists():
+        return
+    if _BUNDLED_CA_PATH.exists():
+        os.environ[var_name] = str(_BUNDLED_CA_PATH)
+        print(f"[startup] {var_name} path not found; falling back to bundled cert at {_BUNDLED_CA_PATH}")
+
+
+_normalize_ca_env_path("SSL_CERT_FILE")
+_normalize_ca_env_path("REQUESTS_CA_BUNDLE")
+
 import agentic
 import multi_agent
 import providers
+import tooling
 
 
 def _int_env(name: str, default: int) -> int:
@@ -2182,7 +2202,10 @@ HTML = f"""<!doctype html>
         const seen = new Set();
         const body = (entry && typeof entry.body === "object") ? entry.body : {{}};
         const traceSteps = Array.isArray(body?.trace?.steps) ? body.trace.steps : [];
-        const agentTrace = Array.isArray(body.agent_trace) ? body.agent_trace : [];
+        const agentTrace = [
+          ...(Array.isArray(body.toolset_events) ? body.toolset_events : []),
+          ...(Array.isArray(body.agent_trace) ? body.agent_trace : [])
+        ];
 
         const pushSection = (s) => {{
           if (!s || !String(s.content || "").trim()) return;
@@ -2601,7 +2624,10 @@ HTML = f"""<!doctype html>
         const body = entry.body && typeof entry.body === "object" ? entry.body : {{}};
         const trace = body.trace && typeof body.trace === "object" ? body.trace : {{}};
         const traceSteps = Array.isArray(trace.steps) ? trace.steps : [];
-        const agentTrace = Array.isArray(body.agent_trace) ? body.agent_trace : [];
+        const agentTrace = [
+          ...(Array.isArray(body.toolset_events) ? body.toolset_events : []),
+          ...(Array.isArray(body.agent_trace) ? body.agent_trace : [])
+        ];
         const guardrails = body.guardrails && typeof body.guardrails === "object" ? body.guardrails : {{}};
         const proxyMode = !!entry.zscalerProxyMode || String(guardrails.mode || "") === "proxy";
         const guardrailsEnabled = !!entry.guardrailsEnabled || !!guardrails.enabled;
@@ -2763,11 +2789,19 @@ HTML = f"""<!doctype html>
         const toolEvents = agentTrace.filter((i) => (i && i.kind) === "tool");
         const toolAnchor = pipelineStart ? "researcher" : (entry.agenticEnabled ? "agent" : providerNodeId);
         if (mcpEvents.length) {{
-          const toolsListEvent = mcpEvents.find((i) => i.event === "tools_list") || mcpEvents[0];
+          const toolsListEvent =
+            mcpEvents.find((i) => i.event === "toolset.snapshot")
+            || mcpEvents.find((i) => i.event === "tools_list")
+            || mcpEvents[0];
+          const snapshotCounts = (toolsListEvent && toolsListEvent.counts && typeof toolsListEvent.counts === "object")
+            ? toolsListEvent.counts
+            : {{}};
           addNode("mcp", "MCP Server", "tool", nextCol, 0, {{
             "Server": (toolsListEvent.server_info || {{}}).name || "bundled/local",
-            "Tool Count": toolsListEvent.tool_count ?? "",
+            "Tool Count": snapshotCounts.tools ?? toolsListEvent.tool_count ?? "",
+            "Server Count": snapshotCounts.servers ?? "",
             "Event": toolsListEvent.event || "",
+            "Stage": toolsListEvent.stage || "",
             "Transport Type": "MCP over stdio (local process)",
             "Traffic Class": "Local IPC / stdio (not HTTP)",
             "Port": "N/A",
@@ -3594,7 +3628,11 @@ HTML = f"""<!doctype html>
             }})
           }});
           const data = await res.json();
-          renderAgentTrace(data.agent_trace || []);
+          const combinedAgentTrace = [
+            ...(Array.isArray(data.toolset_events) ? data.toolset_events : []),
+            ...(Array.isArray(data.agent_trace) ? data.agent_trace : [])
+          ];
+          renderAgentTrace(combinedAgentTrace);
           addTrace({{
             prompt,
             provider: providerSelectEl.value,
@@ -4294,6 +4332,13 @@ SETTINGS_SCHEMA = [
     {"group": "Tools / MCP", "key": "MCP_SERVER_COMMAND", "label": "MCP Server Command", "secret": False, "hint": "Optional custom MCP stdio command"},
     {"group": "Tools / MCP", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Optional MCP timeout"},
     {"group": "Tools / MCP", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Optional MCP protocol override"},
+    {"group": "Tools / MCP", "key": "TOOLSET_DEBUG_LOGS", "label": "Toolset Debug Logs", "secret": False, "hint": "When true, prints MCP servers/tools and per-call tool inclusion metadata"},
+    {"group": "Tools / MCP", "key": "INCLUDE_TOOLS_IN_LLM_REQUEST", "label": "Include Tools In LLM Request", "secret": False, "hint": "When true, provider payloads include tool definitions (if provider supports it)"},
+    {"group": "Tools / MCP", "key": "MAX_TOOLS_IN_REQUEST", "label": "Max Tools In Request", "secret": False, "hint": "Maximum number of tool defs attached to each LLM request"},
+    {"group": "Tools / MCP", "key": "TOOL_INCLUDE_MODE", "label": "Tool Include Mode", "secret": False, "hint": "all | allowlist | progressive"},
+    {"group": "Tools / MCP", "key": "TOOL_ALLOWLIST", "label": "Tool Allowlist", "secret": False, "hint": "Comma-separated tool names/ids used when TOOL_INCLUDE_MODE=allowlist"},
+    {"group": "Tools / MCP", "key": "TOOL_PROGRESSIVE_COUNT", "label": "Tool Progressive Count", "secret": False, "hint": "How many tools to include when TOOL_INCLUDE_MODE=progressive"},
+    {"group": "Tools / MCP", "key": "TOOL_NAME_PREFIX_STRATEGY", "label": "Tool Name Prefix Strategy", "secret": False, "hint": "serverPrefix | hash | none"},
     {"group": "Agentic / Multi-Agent", "key": "AGENTIC_MAX_STEPS", "label": "Agentic Max Steps", "secret": False, "hint": "Optional single-agent loop cap"},
     {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "How many researcher rounds to allow (default 1 if empty)"},
     {"group": "Local TLS (Corp)", "key": "SSL_CERT_FILE", "label": "SSL_CERT_FILE", "secret": False, "hint": "Optional custom CA bundle (local corp envs)"},
@@ -4778,6 +4823,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "Not found"}, status=404)
             return
 
+        raw_send_json = self._send_json
+        chat_trace_id = ""
+        toolset_events: list[dict] = []
+
+        def _send_json_with_toolset(payload, status=200):
+            if isinstance(payload, dict):
+                if chat_trace_id:
+                    payload.setdefault("trace_id", chat_trace_id)
+                if toolset_events:
+                    existing_events = payload.get("toolset_events")
+                    if isinstance(existing_events, list):
+                        payload["toolset_events"] = list(toolset_events) + existing_events
+                    else:
+                        payload["toolset_events"] = list(toolset_events)
+            raw_send_json(payload, status=status)
+
+        self._send_json = _send_json_with_toolset
+
         data = self._read_json_body_limited()
         if data is None:
             return
@@ -4792,6 +4855,15 @@ class Handler(BaseHTTPRequestHandler):
         tools_enabled = bool(data.get("tools_enabled"))
         agentic_enabled = bool(data.get("agentic_enabled"))
         multi_agent_enabled = bool(data.get("multi_agent_enabled"))
+        chat_trace_id = str(data.get("trace_id") or "").strip() or uuid4().hex
+
+        mcp_tool_defs: list[tooling.ToolDef] = []
+        mcp_servers: list[dict] = []
+        if tools_enabled:
+            mcp_tool_defs, mcp_servers, startup_snapshot_event = tooling.discover_mcp_toolset(trace_id=chat_trace_id)
+            toolset_events.append(startup_snapshot_event)
+        llm_call_index = 0
+
         if not prompt:
             self._send_json({"error": "Prompt is required."}, status=400)
             return
@@ -4808,6 +4880,16 @@ class Handler(BaseHTTPRequestHandler):
             messages_for_provider = [{"role": "user", "content": prompt}]
 
         def _provider_messages_call(msgs: list[dict]):
+            nonlocal llm_call_index
+            llm_call_index += 1
+            if tools_enabled:
+                pre_call_snapshot = tooling.make_toolset_snapshot_event(
+                    trace_id=chat_trace_id,
+                    servers=mcp_servers,
+                    tools=mcp_tool_defs,
+                    stage=f"before_llm_call_{llm_call_index}",
+                )
+                toolset_events.append(pre_call_snapshot)
             return providers.call_provider_messages(
                 provider_id,
                 msgs,
@@ -4818,6 +4900,7 @@ class Handler(BaseHTTPRequestHandler):
                 zscaler_proxy_mode=zscaler_proxy_mode,
                 conversation_id=conversation_id,
                 demo_user=demo_user,
+                tool_defs=mcp_tool_defs,
             )
 
         if multi_agent_enabled:
