@@ -4,6 +4,12 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `branch: codex/low-risk-learning-features` (preview, not merged)
+  - Added flow replay controls (`Prev Trace` / `Next Trace`) to inspect prior captured runs in-session.
+  - Added `Export Evidence` to download a JSON evidence pack (selected trace + explainer summary + flow graph nodes/edges).
+  - Enhanced Flow Explainer with `Performance & Cost Signals` (token totals, estimated latency, AI Guard check/block counts).
+  - Added `Attack Sandbox (Learning)` prompt preset pack for safe policy/testing demos.
+
 - `v1.0.3` (02-28-26)
   - Added a new **Flow Explainer** modal (theme-aware) with deterministic, trace-driven summaries:
     - what happened
