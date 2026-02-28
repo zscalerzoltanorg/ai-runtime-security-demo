@@ -4,6 +4,15 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.0.3` (02-28-26)
+  - Added a new **Flow Explainer** modal (theme-aware) with deterministic, trace-driven summaries:
+    - what happened
+    - security outcome (allow/block + stage/mode)
+    - tool activity (local vs network, errors)
+    - step-by-step timeline
+  - Reworked **Prompt Presets** into a modal workflow with in-modal config (gear icon), persisted custom detector prompts, reset-to-defaults, and cleaner grouped/collapsible layout.
+  - Improved UI/UX polish across themes (especially Dark/Neon), plus modal consistency and save behaviors in settings/preset flows.
+  - Refined graph/guardrails behavior for clearer proxy vs DAS/API path visualization and endpoint transparency.
 - `v1.0.2` (02-27-26)
   - Fixed flow graph behavior for AI Guard block paths (Proxy + DAS/API) so edges reflect real request flow.
   - Added provider/upstream endpoint hints in flow graph tooltips.
