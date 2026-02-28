@@ -75,6 +75,7 @@ def run_multi_agent_turn(
     provider_messages_call: Callable[[list[dict]], tuple[str | None, dict]],
     tools_enabled: bool,
     local_tasks_enabled: bool = False,
+    tool_permission_profile: str = "standard",
 ) -> tuple[dict, int]:
     agent_trace: list[dict] = []
     latest_user = _latest_user_prompt(conversation_messages).strip()
@@ -157,6 +158,7 @@ def run_multi_agent_turn(
             provider_messages_call=provider_messages_call,
             tools_enabled=tools_enabled and needs_tools,
             local_tasks_enabled=local_tasks_enabled,
+            tool_permission_profile=tool_permission_profile,
         )
         round_trace = list(research_payload.get("agent_trace", []) or [])
         for item in round_trace:

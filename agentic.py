@@ -127,6 +127,22 @@ LOCAL_TASK_TOOL_NAMES = {
     "local_curl",
 }
 
+NETWORK_TOOL_NAMES = {
+    "weather",
+    "web_fetch",
+    "brave_search",
+    "dns_lookup",
+    "http_head",
+    "local_curl",
+}
+
+TOOL_PERMISSION_PROFILES = {
+    "standard",
+    "read_only",
+    "local_only",
+    "network_open",
+}
+
 TOOL_NAME_ALIASES = {
     "curl": "local_curl",
     "http_get": "local_curl",
@@ -145,6 +161,39 @@ TOOL_NAME_ALIASES = {
 def _canonical_tool_name(name: str) -> str:
     key = str(name or "").strip().lower()
     return TOOL_NAME_ALIASES.get(key, key)
+
+
+def _normalize_tool_permission_profile(profile: str | None) -> str:
+    val = str(profile or "").strip().lower().replace("-", "_")
+    if val in TOOL_PERMISSION_PROFILES:
+        return val
+    return "standard"
+
+
+def _is_tool_allowed_by_profile(tool: str, tool_input: dict, profile: str, *, local_tasks_enabled: bool) -> tuple[bool, str]:
+    if tool in LOCAL_TASK_TOOL_NAMES and not local_tasks_enabled:
+        return False, "local_tasks_disabled"
+
+    if profile in {"standard", "network_open"}:
+        return True, ""
+
+    if profile == "local_only":
+        if tool in NETWORK_TOOL_NAMES:
+            return False, "blocked_by_profile_local_only"
+        if tool not in TOOLS:
+            return False, "blocked_mcp_in_local_only"
+        return True, ""
+
+    if profile == "read_only":
+        if tool == "local_curl":
+            method = str((tool_input or {}).get("method") or "GET").strip().upper() or "GET"
+            if method == "POST":
+                return False, "blocked_local_curl_post_read_only"
+        if tool not in TOOLS:
+            return False, "blocked_mcp_in_read_only"
+        return True, ""
+
+    return True, ""
 
 
 def _resolve_local_tasks_base_dir() -> Path:
@@ -916,12 +965,15 @@ def run_tool(
     mcp_client=None,
     *,
     local_tasks_enabled: bool = False,
+    tool_permission_profile: str = "standard",
 ) -> tuple[str, dict]:
     tool = _canonical_tool_name((tool_name or "").strip())
-    if tool in LOCAL_TASK_TOOL_NAMES and not local_tasks_enabled:
+    profile = _normalize_tool_permission_profile(tool_permission_profile)
+    allowed, reason = _is_tool_allowed_by_profile(tool, tool_input or {}, profile, local_tasks_enabled=local_tasks_enabled)
+    if not allowed:
         return (
-            f"Error: local task tool `{tool}` is disabled for this request.",
-            {"tool": tool, "input": tool_input, "error": "local_tasks_disabled"},
+            f"Error: tool `{tool}` blocked by tool permission profile `{profile}` ({reason}).",
+            {"tool": tool, "input": tool_input, "error": reason, "tool_permission_profile": profile},
         )
     if tool == "calculator":
         return _tool_calculator(tool_input)
@@ -971,7 +1023,9 @@ def run_agentic_turn(
     provider_messages_call: Callable[[list[dict]], tuple[str | None, dict]],
     tools_enabled: bool,
     local_tasks_enabled: bool = False,
+    tool_permission_profile: str = "standard",
 ) -> tuple[dict, int]:
+    profile = _normalize_tool_permission_profile(tool_permission_profile)
     agent_trace: list[dict] = []
     work_messages = list(conversation_messages)
     seen_tool_signatures: set[str] = set()
@@ -992,6 +1046,8 @@ def run_agentic_turn(
                         if isinstance(t, dict)
                         and str(t.get("name") or "").strip() not in LOCAL_TASK_TOOL_NAMES
                     ]
+                if profile in {"local_only", "read_only"}:
+                    mcp_tools = []
                 agent_trace.append(
                     {
                         "kind": "mcp",
@@ -1028,6 +1084,7 @@ def run_agentic_turn(
         "You are a helpful agent. "
         "When tools are enabled and useful, decide whether to call a tool.\n"
         f"TOOLS_ENABLED={str(bool(tools_enabled)).lower()} | LOCAL_TASKS_ENABLED={str(bool(local_tasks_enabled)).lower()}\n"
+        f"TOOL_PERMISSION_PROFILE={profile}\n"
         "Return ONLY JSON in one of these shapes:\n"
         '{"type":"final","response":"..."}\n'
         '{"type":"tool","tool":"calculator","input":{"expression":"2+2"}}\n'
@@ -1074,7 +1131,8 @@ def run_agentic_turn(
                     {
                         name
                         for name in TOOLS.keys()
-                        if local_tasks_enabled or name not in LOCAL_TASK_TOOL_NAMES
+                        if (local_tasks_enabled or name not in LOCAL_TASK_TOOL_NAMES)
+                        and _is_tool_allowed_by_profile(name, {}, profile, local_tasks_enabled=local_tasks_enabled)[0]
                     }
                     | {str((t or {}).get("name") or "").strip() for t in mcp_tools if isinstance(t, dict)}
                 ),
@@ -1149,6 +1207,7 @@ def run_agentic_turn(
                     tool_input,
                     mcp_client=mcp_client,
                     local_tasks_enabled=local_tasks_enabled,
+                    tool_permission_profile=profile,
                 )
                 seen_tool_signatures.add(tool_signature)
                 tool_outputs_by_signature[tool_signature] = str(tool_output)

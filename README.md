@@ -9,6 +9,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
   - Added `Export Evidence` to download a JSON evidence pack (selected trace + explainer summary + flow graph nodes/edges).
   - Enhanced Flow Explainer with `Performance & Cost Signals` (token totals, estimated latency, AI Guard check/block counts).
   - Added `Attack Sandbox (Learning)` prompt preset pack for safe policy/testing demos.
+  - Added `Determinism Lab` to run the same request multiple times and compare fingerprints/outcomes.
+  - Added `Policy Replay Comparison` to re-check selected trace content against AI Guard (`as_is`, `normalized`, `redacted`) without re-calling providers/tools.
+  - Added `Tool Permission Profile` control for agentic runs (`standard`, `read_only`, `local_only`, `network_open`).
 
 - `v1.0.3` (02-28-26)
   - Added a new **Flow Explainer** modal (theme-aware) with deterministic, trace-driven summaries:
@@ -39,6 +42,26 @@ Note: this section is intentionally compact. Keep only recent releases here and 
 - Tools/MCP behavior
 - HTTP trace + agent/tool trace + prompt/instruction inspector
 - Flow graph and code path viewer
+
+## Learning Labs (Branch Preview)
+
+- **Determinism Lab**
+  - Purpose: estimate output consistency under repeated identical inputs.
+  - Method: executes the same `/chat` payload N times (from selected trace or current form) and reports response fingerprints, block stage, status, and tool-call counts.
+  - Use it for: spotting provider drift, prompt instability, or policy variability.
+
+- **Policy Replay Comparison**
+  - Purpose: compare how AI Guard policy decisions change with content normalization/redaction transforms.
+  - Method: runs AI Guard checks only (IN/OUT) on selected trace content variants: `as_is`, `normalized`, `redacted`.
+  - Important: does **not** call LLM providers or MCP tools again.
+
+- **Tool Permission Profile**
+  - Purpose: constrain agentic tool behavior during demos.
+  - Profiles:
+    - `standard`: default behavior.
+    - `read_only`: blocks mutating local HTTP usage (e.g. `local_curl` POST) and external MCP tools.
+    - `local_only`: allows bundled local/safe tools, blocks network-bound tools.
+    - `network_open`: permissive profile for network tooling demos.
 
 ## Provider Validation Status
 

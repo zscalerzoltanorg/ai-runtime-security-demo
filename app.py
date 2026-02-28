@@ -3,6 +3,7 @@ import copy
 import ipaddress
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -1439,6 +1440,7 @@ HTML = f"""<!doctype html>
       }}
       .explain-body {{
         overflow: auto;
+        overscroll-behavior: contain;
         padding: 12px 14px;
         display: grid;
         gap: 10px;
@@ -1528,6 +1530,12 @@ HTML = f"""<!doctype html>
         padding: 8px;
         font-size: 0.8rem;
         line-height: 1.35;
+      }}
+      #policyReplayOutput,
+      #determinismOutput {{
+        max-height: 52vh;
+        overflow: auto;
+        overscroll-behavior: contain;
       }}
       @media (max-width: 900px) {{
         .layout {{
@@ -1998,6 +2006,16 @@ HTML = f"""<!doctype html>
               <span class="toggle-track" aria-hidden="true"></span>
               <span class="toggle-label">Local Tasks</span>
             </label>
+            <div id="toolProfileWrap" class="mode-toggle" title="Tool permission profile for Agentic/Multi-Agent tool execution.">
+              <span class="mode-toggle-label">Tool Profile</span>
+              <div class="mode-toggle-buttons">
+                <button id="toolProfileStandardBtn" class="mode-toggle-btn active" type="button" title="Default behavior: all enabled tools can run (subject to Local Tasks toggle and guardrails).">Standard</button>
+                <button id="toolProfileReadOnlyBtn" class="mode-toggle-btn" type="button" title="Blocks mutating local HTTP actions (for example local_curl POST) and blocks external MCP tools.">Read-Only</button>
+                <button id="toolProfileLocalOnlyBtn" class="mode-toggle-btn" type="button" title="Allows only bundled local/safe tools. Network-bound tools are blocked.">Local-Only</button>
+                <button id="toolProfileNetworkOpenBtn" class="mode-toggle-btn" type="button" title="Most permissive profile in this demo; network tools are allowed.">Network-Open</button>
+              </div>
+              <input id="toolProfileInput" type="hidden" value="standard" />
+            </div>
             <div id="chatModeWrap" class="mode-toggle" title="Single Turn sends only the latest prompt. Multi Turn keeps conversation history.">
               <span class="mode-toggle-label">Chat Context</span>
               <div class="mode-toggle-buttons">
@@ -2131,6 +2149,8 @@ HTML = f"""<!doctype html>
             <button id="flowReplayPrevBtn" class="secondary" type="button" title="Show previous captured trace">Prev Trace</button>
             <button id="flowReplayNextBtn" class="secondary" type="button" title="Show newer captured trace">Next Trace</button>
             <button id="flowExportBtn" class="secondary" type="button" title="Download evidence pack for the currently selected trace">Export Evidence</button>
+            <button id="flowPolicyReplayBtn" class="secondary" type="button" title="Re-run AI Guard checks for selected trace content variants (as_is/normalized/redacted) without re-calling provider/tools">Policy Replay</button>
+            <button id="flowDeterminismBtn" class="secondary" type="button" title="Run the same /chat payload multiple times and compare fingerprints, block stage, and tool calls">Determinism Lab</button>
             <span id="flowReplayStatus" class="flow-replay-status">Trace replay: none</span>
           </div>
           <div id="flowToolbarStatus" class="flow-toolbar-status">Latest flow graph: none</div>
@@ -2268,6 +2288,85 @@ HTML = f"""<!doctype html>
           </div>
         </div>
       </div>
+      <div id="policyReplayModal" class="explain-modal" aria-hidden="true">
+        <div class="explain-dialog" role="dialog" aria-modal="true" aria-labelledby="policyReplayTitle">
+          <div class="explain-head">
+            <h2 id="policyReplayTitle">Policy Replay Comparison</h2>
+            <button id="policyReplayCloseBtn" class="icon-btn" type="button" title="Close Policy Replay">✕</button>
+          </div>
+          <div class="explain-body">
+            <div class="explain-card">
+              <div class="explain-card-head">Inputs</div>
+              <div class="explain-card-body">
+                <div class="explain-grid">
+                  <div class="explain-kv"><div class="k">Trace Source</div><div id="policyReplayTraceLabel" class="v">No trace selected</div></div>
+                  <div class="explain-kv"><div class="k">Replay Variants (fixed)</div><div class="v">as_is + normalized + redacted</div></div>
+                </div>
+                <p class="sub" style="margin:8px 0 0;">Uses the currently selected replay trace from Flow Graph (<code>Prev Trace</code>/<code>Next Trace</code>). Re-evaluates only AI Guard decisions (IN/OUT), without re-calling model or tools.</p>
+              </div>
+            </div>
+            <div class="explain-card">
+              <div class="explain-card-head">Results</div>
+              <div class="explain-card-body">
+                <pre id="policyReplayOutput">Select a trace, then run policy replay.</pre>
+              </div>
+            </div>
+          </div>
+          <div class="explain-foot">
+            <div class="settings-actions">
+              <button id="policyReplayRunBtn" class="secondary" type="button">Run Replay</button>
+              <button id="policyReplayDoneBtn" type="button">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="determinismModal" class="explain-modal" aria-hidden="true">
+        <div class="explain-dialog" role="dialog" aria-modal="true" aria-labelledby="determinismTitle">
+          <div class="explain-head">
+            <h2 id="determinismTitle">Determinism Lab</h2>
+            <button id="determinismCloseBtn" class="icon-btn" type="button" title="Close Determinism Lab">✕</button>
+          </div>
+          <div class="explain-body">
+            <div class="explain-card">
+              <div class="explain-card-head">Run Settings</div>
+              <div class="explain-card-body">
+                <div class="settings-grid" style="padding:0;">
+                  <div class="settings-field">
+                    <label for="determinismRunsInput">Runs</label>
+                    <div class="settings-input-wrap">
+                      <input id="determinismRunsInput" type="number" min="2" max="10" value="3" />
+                    </div>
+                    <div class="hint">How many repeated calls to run with same payload.</div>
+                  </div>
+                  <div class="settings-field">
+                    <label for="determinismDelayInput">Delay (ms)</label>
+                    <div class="settings-input-wrap">
+                      <input id="determinismDelayInput" type="number" min="0" max="5000" value="250" />
+                    </div>
+                    <div class="hint">Pause between runs to reduce rate spikes.</div>
+                  </div>
+                </div>
+                <div class="explain-grid" style="margin-top:8px;">
+                  <div class="explain-kv"><div class="k">Request Source</div><div id="determinismSourceLabel" class="v">Selected replay trace</div></div>
+                </div>
+                <p class="sub" style="margin:8px 0 0;">Runs the same request payload N times from the current replay selection (or current form if no trace is selected), then compares fingerprints, block stage, status, and tool-call counts.</p>
+              </div>
+            </div>
+            <div class="explain-card">
+              <div class="explain-card-head">Results</div>
+              <div class="explain-card-body">
+                <pre id="determinismOutput">Run the lab to compare repeated outcomes.</pre>
+              </div>
+            </div>
+          </div>
+          <div class="explain-foot">
+            <div class="settings-actions">
+              <button id="determinismRunBtn" class="secondary" type="button">Run Lab</button>
+              <button id="determinismDoneBtn" type="button">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
     </main>
 
@@ -2333,6 +2432,12 @@ HTML = f"""<!doctype html>
       const toolsToggleEl = document.getElementById("toolsToggle");
       const localTasksToggleWrapEl = document.getElementById("localTasksToggleWrap");
       const localTasksToggleEl = document.getElementById("localTasksToggle");
+      const toolProfileWrapEl = document.getElementById("toolProfileWrap");
+      const toolProfileStandardBtnEl = document.getElementById("toolProfileStandardBtn");
+      const toolProfileReadOnlyBtnEl = document.getElementById("toolProfileReadOnlyBtn");
+      const toolProfileLocalOnlyBtnEl = document.getElementById("toolProfileLocalOnlyBtn");
+      const toolProfileNetworkOpenBtnEl = document.getElementById("toolProfileNetworkOpenBtn");
+      const toolProfileInputEl = document.getElementById("toolProfileInput");
       const mcpStatusPillEl = document.getElementById("mcpStatusPill");
       const mcpStatusDotEl = document.getElementById("mcpStatusDot");
       const mcpStatusTextEl = document.getElementById("mcpStatusText");
@@ -2376,12 +2481,28 @@ HTML = f"""<!doctype html>
       const flowReplayPrevBtn = document.getElementById("flowReplayPrevBtn");
       const flowReplayNextBtn = document.getElementById("flowReplayNextBtn");
       const flowExportBtn = document.getElementById("flowExportBtn");
+      const flowPolicyReplayBtn = document.getElementById("flowPolicyReplayBtn");
+      const flowDeterminismBtn = document.getElementById("flowDeterminismBtn");
       const flowReplayStatusEl = document.getElementById("flowReplayStatus");
       const flowToolbarStatusEl = document.getElementById("flowToolbarStatus");
       const flowExplainModalEl = document.getElementById("flowExplainModal");
       const flowExplainCloseBtnEl = document.getElementById("flowExplainCloseBtn");
       const flowExplainDoneBtnEl = document.getElementById("flowExplainDoneBtn");
       const flowExplainBodyEl = document.getElementById("flowExplainBody");
+      const policyReplayModalEl = document.getElementById("policyReplayModal");
+      const policyReplayCloseBtnEl = document.getElementById("policyReplayCloseBtn");
+      const policyReplayDoneBtnEl = document.getElementById("policyReplayDoneBtn");
+      const policyReplayRunBtnEl = document.getElementById("policyReplayRunBtn");
+      const policyReplayOutputEl = document.getElementById("policyReplayOutput");
+      const policyReplayTraceLabelEl = document.getElementById("policyReplayTraceLabel");
+      const determinismModalEl = document.getElementById("determinismModal");
+      const determinismCloseBtnEl = document.getElementById("determinismCloseBtn");
+      const determinismDoneBtnEl = document.getElementById("determinismDoneBtn");
+      const determinismRunBtnEl = document.getElementById("determinismRunBtn");
+      const determinismRunsInputEl = document.getElementById("determinismRunsInput");
+      const determinismDelayInputEl = document.getElementById("determinismDelayInput");
+      const determinismOutputEl = document.getElementById("determinismOutput");
+      const determinismSourceLabelEl = document.getElementById("determinismSourceLabel");
 
       let traceCount = 0;
       let codeViewMode = "auto";
@@ -2923,6 +3044,43 @@ HTML = f"""<!doctype html>
           : "Local Tasks requires Tools (MCP) and Agentic or Multi-Agent mode.";
         if (!eligible) {{
           localTasksToggleEl.checked = false;
+        }}
+      }}
+
+      function currentToolPermissionProfile() {{
+        const raw = String(toolProfileInputEl.value || "standard").trim().toLowerCase().replaceAll("-", "_");
+        if (["standard", "read_only", "local_only", "network_open"].includes(raw)) return raw;
+        return "standard";
+      }}
+
+      function setToolPermissionProfile(profile) {{
+        const normalized = String(profile || "standard").trim().toLowerCase().replaceAll("-", "_");
+        const mode = ["standard", "read_only", "local_only", "network_open"].includes(normalized)
+          ? normalized
+          : "standard";
+        toolProfileInputEl.value = mode;
+        toolProfileStandardBtnEl.classList.toggle("active", mode === "standard");
+        toolProfileReadOnlyBtnEl.classList.toggle("active", mode === "read_only");
+        toolProfileLocalOnlyBtnEl.classList.toggle("active", mode === "local_only");
+        toolProfileNetworkOpenBtnEl.classList.toggle("active", mode === "network_open");
+      }}
+
+      function syncToolPermissionProfileState() {{
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        const isBedrockAgentProvider = provider === "bedrock_agent";
+        const toolsEligible = !isBedrockAgentProvider && (!!agenticToggleEl.checked || !!multiAgentToggleEl.checked);
+        toolProfileWrapEl.classList.toggle("disabled", !toolsEligible);
+        toolProfileStandardBtnEl.disabled = !toolsEligible;
+        toolProfileReadOnlyBtnEl.disabled = !toolsEligible;
+        toolProfileLocalOnlyBtnEl.disabled = !toolsEligible;
+        toolProfileNetworkOpenBtnEl.disabled = !toolsEligible;
+        toolProfileWrapEl.title = isBedrockAgentProvider
+          ? "Tool profile is disabled for Bedrock Agent provider (app-side tools/orchestration disabled)."
+          : toolsEligible
+          ? "Choose tool permission profile: Standard, Read-Only, Local-Only, or Network-Open."
+          : "Tool profile takes effect when Agentic or Multi-Agent mode is enabled.";
+        if (!toolsEligible) {{
+          setToolPermissionProfile("standard");
         }}
       }}
 
@@ -4079,6 +4237,7 @@ HTML = f"""<!doctype html>
           "Multi-Agent": !!entry.multiAgentEnabled,
           "Tools": !!entry.toolsEnabled,
           "Local Tasks": !!entry.localTasksEnabled,
+          "Tool Permission Profile": String(entry.toolPermissionProfile || "standard"),
           ..._transportMetaFromUrl(`${{window.location.origin}}/chat`, {{
             note: "Browser -> local demo app request"
           }}),
@@ -4977,6 +5136,208 @@ HTML = f"""<!doctype html>
         }}, 1200);
       }}
 
+      function _simpleTextFingerprint(text) {{
+        const s = String(text || "");
+        let h = 2166136261;
+        for (let i = 0; i < s.length; i += 1) {{
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }}
+        return (h >>> 0).toString(16).padStart(8, "0");
+      }}
+
+      function openPolicyReplayModal() {{
+        const selected = getSelectedTraceEntry();
+        policyReplayTraceLabelEl.textContent = selected
+          ? `#${{selectedTraceIndex + 1}} (${{_providerLabel(selected.provider || "ollama")}})`
+          : "No trace selected (run a prompt first)";
+        policyReplayOutputEl.textContent = "Click Run Replay to evaluate the currently selected replay trace.";
+        policyReplayModalEl.classList.add("open");
+        policyReplayModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closePolicyReplayModal() {{
+        policyReplayModalEl.classList.remove("open");
+        policyReplayModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      async function runPolicyReplay() {{
+        const selected = getSelectedTraceEntry();
+        if (!selected) {{
+          policyReplayOutputEl.textContent = "No selected trace.";
+          return;
+        }}
+        policyReplayRunBtnEl.disabled = true;
+        policyReplayOutputEl.textContent = "Running policy replay...";
+        try {{
+          const res = await fetch("/policy-replay", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+              trace_entry: selected,
+              conversation_id: selected.conversationId || clientConversationId,
+              demo_user: selected.demoUser || currentDemoUser() || "",
+            }}),
+          }});
+          const data = await res.json();
+          policyReplayOutputEl.textContent = pretty(data);
+        }} catch (err) {{
+          policyReplayOutputEl.textContent = `Policy replay failed: ${{err?.message || err}}`;
+        }} finally {{
+          policyReplayRunBtnEl.disabled = false;
+        }}
+      }}
+
+      function openDeterminismModal() {{
+        const selected = getSelectedTraceEntry();
+        determinismSourceLabelEl.textContent = selected
+          ? `Replay trace #${{selectedTraceIndex + 1}}`
+          : "Current form state (no replay trace selected)";
+        determinismOutputEl.textContent = "Run the lab to compare repeated outcomes.";
+        determinismModalEl.classList.add("open");
+        determinismModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeDeterminismModal() {{
+        determinismModalEl.classList.remove("open");
+        determinismModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      function _determinismBaseRequest() {{
+        const selected = getSelectedTraceEntry();
+        if (selected) {{
+          return {{
+            prompt: String(selected.prompt || ""),
+            provider: String(selected.provider || "ollama"),
+            chat_mode: String(selected.chatMode || "single"),
+            messages: Array.isArray(selected.messages) ? selected.messages : undefined,
+            conversation_id: clientConversationId,
+            guardrails_enabled: !!selected.guardrailsEnabled,
+            zscaler_proxy_mode: !!selected.zscalerProxyMode,
+            agentic_enabled: !!selected.agenticEnabled,
+            tools_enabled: !!selected.toolsEnabled,
+            local_tasks_enabled: !!selected.localTasksEnabled,
+            multi_agent_enabled: !!selected.multiAgentEnabled,
+            tool_permission_profile: String(selected.toolPermissionProfile || "standard"),
+            demoUser: selected.demoUser || "",
+          }};
+        }}
+        return {{
+          prompt: String(promptEl.value || "").trim(),
+          provider: providerSelectEl.value || "ollama",
+          chat_mode: currentChatMode(),
+          messages: undefined,
+          conversation_id: clientConversationId,
+          guardrails_enabled: guardrailsToggleEl.checked,
+          zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
+          agentic_enabled: agenticToggleEl.checked,
+          tools_enabled: toolsToggleEl.checked,
+          local_tasks_enabled: localTasksToggleEl.checked,
+          multi_agent_enabled: multiAgentToggleEl.checked,
+          tool_permission_profile: currentToolPermissionProfile(),
+          demoUser: currentDemoUser() || "",
+        }};
+      }}
+
+      async function runDeterminismLab() {{
+        const runs = Math.max(2, Math.min(10, Number(determinismRunsInputEl.value || 3) || 3));
+        const delayMs = Math.max(0, Math.min(5000, Number(determinismDelayInputEl.value || 250) || 0));
+        const base = _determinismBaseRequest();
+        if (!String(base.prompt || "").trim()) {{
+          determinismOutputEl.textContent = "Prompt is required (selected trace or prompt box).";
+          return;
+        }}
+        determinismRunBtnEl.disabled = true;
+        const rows = [];
+        const buckets = new Map();
+        determinismOutputEl.textContent = `Running determinism lab (${{runs}} runs)...`;
+        for (let i = 0; i < runs; i += 1) {{
+          try {{
+            const res = await fetch("/chat", {{
+              method: "POST",
+              headers: {{
+                "Content-Type": "application/json",
+                ...(base.demoUser ? {{ "X-Demo-User": base.demoUser }} : {{}}),
+              }},
+              body: JSON.stringify({{
+                prompt: base.prompt,
+                provider: base.provider,
+                chat_mode: base.chat_mode,
+                messages: base.messages,
+                conversation_id: base.conversation_id,
+                guardrails_enabled: base.guardrails_enabled,
+                zscaler_proxy_mode: base.zscaler_proxy_mode,
+                agentic_enabled: base.agentic_enabled,
+                tools_enabled: base.tools_enabled,
+                local_tasks_enabled: base.local_tasks_enabled,
+                multi_agent_enabled: base.multi_agent_enabled,
+                tool_permission_profile: base.tool_permission_profile,
+              }}),
+            }});
+            const data = await res.json();
+            const responseText = String(data?.response || data?.error || "");
+            const fp = _simpleTextFingerprint(responseText);
+            const blocked = !!(data?.guardrails && data.guardrails.blocked);
+            const stage = String(data?.guardrails?.stage || "");
+            const toolCalls = Array.isArray(data?.agent_trace)
+              ? data.agent_trace.filter((x) => x && x.kind === "tool").length
+              : 0;
+            const row = {{
+              run: i + 1,
+              status: res.status,
+              blocked,
+              stage,
+              fingerprint: fp,
+              tool_calls: toolCalls,
+              preview: _short(responseText, 120),
+            }};
+            rows.push(row);
+            buckets.set(fp, (buckets.get(fp) || 0) + 1);
+            addTrace({{
+              prompt: base.prompt,
+              provider: base.provider,
+              demoUser: base.demoUser,
+              chatMode: base.chat_mode,
+              messages: base.messages,
+              conversationId: base.conversation_id,
+              guardrailsEnabled: base.guardrails_enabled,
+              zscalerProxyMode: base.zscaler_proxy_mode,
+              agenticEnabled: base.agentic_enabled,
+              toolsEnabled: base.tools_enabled,
+              localTasksEnabled: base.local_tasks_enabled,
+              multiAgentEnabled: base.multi_agent_enabled,
+              toolPermissionProfile: base.tool_permission_profile,
+              status: res.status,
+              body: data,
+            }});
+          }} catch (err) {{
+            rows.push({{
+              run: i + 1,
+              status: "error",
+              blocked: false,
+              stage: "",
+              fingerprint: "n/a",
+              tool_calls: 0,
+              preview: `Request failed: ${{err?.message || err}}`,
+            }});
+          }}
+          determinismOutputEl.textContent = pretty({{
+            progress: `${{i + 1}}/${{runs}}`,
+            rows,
+          }});
+          if (i < runs - 1 && delayMs > 0) {{
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }}
+        }}
+        determinismOutputEl.textContent = pretty({{
+          runs,
+          unique_fingerprints: buckets.size,
+          fingerprint_distribution: Object.fromEntries(buckets.entries()),
+          rows,
+        }});
+        determinismRunBtnEl.disabled = false;
+      }}
+
       function flowZoomBy(multiplier) {{
         if (!flowGraphState) return;
         flowGraphState.scale = Math.max(0.55, Math.min(2.4, flowGraphState.scale * multiplier));
@@ -5028,6 +5389,7 @@ HTML = f"""<!doctype html>
             `multi_agent_enabled = ${{multiAgentOn}}`,
             `tools_enabled = ${{toolsOn}}`,
             `local_tasks_enabled = ${{localTasksOn}}`,
+            `tool_permission_profile = "${{currentToolPermissionProfile()}}"`,
           ].join("\\n")
         }});
 
@@ -5244,7 +5606,8 @@ HTML = f"""<!doctype html>
             agentic_enabled: !!entry.agenticEnabled,
             tools_enabled: !!entry.toolsEnabled,
             local_tasks_enabled: !!entry.localTasksEnabled,
-            multi_agent_enabled: !!entry.multiAgentEnabled
+            multi_agent_enabled: !!entry.multiAgentEnabled,
+            tool_permission_profile: String(entry.toolPermissionProfile || "standard")
             ,
             zscaler_proxy_mode: !!entry.zscalerProxyMode
           }}
@@ -5346,6 +5709,8 @@ HTML = f"""<!doctype html>
       function clearViews() {{
         latestTraceEntry = null;
         closeFlowExplainModal();
+        closePolicyReplayModal();
+        closeDeterminismModal();
         promptEl.value = "";
         responseEl.textContent = "Response will appear here.";
         responseEl.classList.remove("error");
@@ -5419,7 +5784,8 @@ HTML = f"""<!doctype html>
               agentic_enabled: agenticToggleEl.checked,
               tools_enabled: toolsToggleEl.checked,
               local_tasks_enabled: localTasksToggleEl.checked,
-              multi_agent_enabled: multiAgentToggleEl.checked
+              multi_agent_enabled: multiAgentToggleEl.checked,
+              tool_permission_profile: currentToolPermissionProfile()
             }})
           }});
           const data = await res.json();
@@ -5441,6 +5807,7 @@ HTML = f"""<!doctype html>
             toolsEnabled: toolsToggleEl.checked,
             localTasksEnabled: localTasksToggleEl.checked,
             multiAgentEnabled: multiAgentToggleEl.checked,
+            toolPermissionProfile: currentToolPermissionProfile(),
             status: res.status,
             body: data
           }});
@@ -5558,11 +5925,25 @@ HTML = f"""<!doctype html>
       flowReplayPrevBtn.addEventListener("click", () => moveTraceReplay("older"));
       flowReplayNextBtn.addEventListener("click", () => moveTraceReplay("newer"));
       flowExportBtn.addEventListener("click", exportFlowEvidence);
+      flowPolicyReplayBtn.addEventListener("click", openPolicyReplayModal);
+      flowDeterminismBtn.addEventListener("click", openDeterminismModal);
       flowGraphWrapEl.addEventListener("mouseleave", () => _hideFlowTooltip());
       flowExplainCloseBtnEl.addEventListener("click", closeFlowExplainModal);
       flowExplainDoneBtnEl.addEventListener("click", closeFlowExplainModal);
       flowExplainModalEl.addEventListener("click", (e) => {{
         if (e.target === flowExplainModalEl) closeFlowExplainModal();
+      }});
+      policyReplayCloseBtnEl.addEventListener("click", closePolicyReplayModal);
+      policyReplayDoneBtnEl.addEventListener("click", closePolicyReplayModal);
+      policyReplayRunBtnEl.addEventListener("click", runPolicyReplay);
+      policyReplayModalEl.addEventListener("click", (e) => {{
+        if (e.target === policyReplayModalEl) closePolicyReplayModal();
+      }});
+      determinismCloseBtnEl.addEventListener("click", closeDeterminismModal);
+      determinismDoneBtnEl.addEventListener("click", closeDeterminismModal);
+      determinismRunBtnEl.addEventListener("click", runDeterminismLab);
+      determinismModalEl.addEventListener("click", (e) => {{
+        if (e.target === determinismModalEl) closeDeterminismModal();
       }});
       presetToggleBtn.addEventListener("click", openPresetModal);
       presetCloseBtnEl.addEventListener("click", closePresetModal);
@@ -5603,6 +5984,7 @@ HTML = f"""<!doctype html>
         syncAgentModeExclusivityState();
         syncToolsToggleState();
         syncLocalTasksToggleState();
+        syncToolPermissionProfileState();
         refreshCurrentModelText();
         refreshProviderValidationText();
         syncZscalerProxyModeState();
@@ -5661,6 +6043,7 @@ HTML = f"""<!doctype html>
       toolsToggleEl.addEventListener("change", () => {{
         // Valid state: tools OFF while agentic ON (agent will avoid tool execution).
         syncLocalTasksToggleState();
+        syncToolPermissionProfileState();
         renderCodeViewer();
       }});
       localTasksToggleEl.addEventListener("change", () => {{
@@ -5684,6 +6067,7 @@ HTML = f"""<!doctype html>
         syncAgentModeExclusivityState();
         syncToolsToggleState();
         syncLocalTasksToggleState();
+        syncToolPermissionProfileState();
         if (!agenticToggleEl.checked && !multiAgentToggleEl.checked) {{
           resetAgentTrace();
         }}
@@ -5692,6 +6076,10 @@ HTML = f"""<!doctype html>
       agentModeOffBtnEl.addEventListener("click", () => setAgentMode("off"));
       agentModeAgenticBtnEl.addEventListener("click", () => setAgentMode("agentic"));
       agentModeMultiBtnEl.addEventListener("click", () => setAgentMode("multi"));
+      toolProfileStandardBtnEl.addEventListener("click", () => setToolPermissionProfile("standard"));
+      toolProfileReadOnlyBtnEl.addEventListener("click", () => setToolPermissionProfile("read_only"));
+      toolProfileLocalOnlyBtnEl.addEventListener("click", () => setToolPermissionProfile("local_only"));
+      toolProfileNetworkOpenBtnEl.addEventListener("click", () => setToolPermissionProfile("network_open"));
       codeAutoBtn.addEventListener("click", () => {{
         codeViewMode = "auto";
         renderCodeViewer();
@@ -5725,6 +6113,14 @@ HTML = f"""<!doctype html>
           closeFlowExplainModal();
           return;
         }}
+        if (e.key === "Escape" && policyReplayModalEl.classList.contains("open")) {{
+          closePolicyReplayModal();
+          return;
+        }}
+        if (e.key === "Escape" && determinismModalEl.classList.contains("open")) {{
+          closeDeterminismModal();
+          return;
+        }}
         if (e.key === "Escape" && settingsModalEl.classList.contains("open")) {{
           closeSettingsModal();
         }}
@@ -5739,6 +6135,8 @@ HTML = f"""<!doctype html>
       syncAgentModeExclusivityState();
       syncToolsToggleState();
       syncLocalTasksToggleState();
+      setToolPermissionProfile("standard");
+      syncToolPermissionProfileState();
       syncZscalerProxyModeState();
       setHttpTraceCount(0);
       setAgentTraceCount(0);
@@ -7057,6 +7455,108 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if self.path == "/policy-replay":
+            if not self._require_local_admin():
+                return
+            data = self._read_json_body_limited()
+            if data is None:
+                return
+            trace_entry = data.get("trace_entry") if isinstance(data.get("trace_entry"), dict) else {}
+            trace_body = trace_entry.get("body") if isinstance(trace_entry.get("body"), dict) else {}
+            prompt_text = str(trace_entry.get("prompt") or "").strip()
+            response_text = str(trace_body.get("response") or "").strip()
+            conversation_id = str(data.get("conversation_id") or trace_entry.get("conversationId") or "").strip()
+            demo_user = str(data.get("demo_user") or trace_entry.get("demoUser") or self.headers.get("X-Demo-User") or "").strip()
+
+            if not prompt_text and not response_text:
+                self._send_json({"error": "trace_entry.prompt or trace_entry.body.response is required"}, status=400)
+                return
+            try:
+                import guardrails
+            except Exception as exc:
+                self._send_json({"error": "Guardrails module failed.", "details": str(exc)}, status=500)
+                return
+
+            def _normalize_content(text: str) -> str:
+                return re.sub(r"\s+", " ", str(text or "")).strip()
+
+            def _redact_tokens(text: str) -> str:
+                val = str(text or "")
+                patterns = [
+                    r"sk-[A-Za-z0-9_-]{12,}",
+                    r"ya29\.[A-Za-z0-9._-]{12,}",
+                    r"AKIA[0-9A-Z]{16}",
+                    r"ASIA[0-9A-Z]{16}",
+                ]
+                for pat in patterns:
+                    val = re.sub(pat, "[redacted-token]", val)
+                return val
+
+            variants = [
+                ("as_is", lambda s: str(s or "").strip()),
+                ("normalized", _normalize_content),
+                ("redacted", _redact_tokens),
+            ]
+            results: dict[str, dict] = {}
+
+            for label, fn in variants:
+                in_content = fn(prompt_text)
+                out_content = fn(response_text)
+                variant_result: dict[str, dict] = {
+                    "IN": {"skipped": not bool(in_content)},
+                    "OUT": {"skipped": not bool(out_content)},
+                }
+                if in_content:
+                    blocked, meta = guardrails._zag_check(  # noqa: SLF001
+                        "IN", in_content, conversation_id=conversation_id, demo_user=demo_user
+                    )
+                    trace_step = meta.get("trace_step") if isinstance(meta.get("trace_step"), dict) else {}
+                    body = (trace_step.get("response") or {}).get("body") if isinstance(trace_step.get("response"), dict) else {}
+                    variant_result["IN"] = {
+                        "blocked": bool(blocked),
+                        "status_code": meta.get("status_code") or (trace_step.get("response") or {}).get("status"),
+                        "action": (body or {}).get("action"),
+                        "policy_name": (body or {}).get("policyName"),
+                        "policy_id": (body or {}).get("policyId"),
+                        "severity": (body or {}).get("severity"),
+                        "error": meta.get("error"),
+                    }
+                if out_content:
+                    blocked, meta = guardrails._zag_check(  # noqa: SLF001
+                        "OUT", out_content, conversation_id=conversation_id, demo_user=demo_user
+                    )
+                    trace_step = meta.get("trace_step") if isinstance(meta.get("trace_step"), dict) else {}
+                    body = (trace_step.get("response") or {}).get("body") if isinstance(trace_step.get("response"), dict) else {}
+                    variant_result["OUT"] = {
+                        "blocked": bool(blocked),
+                        "status_code": meta.get("status_code") or (trace_step.get("response") or {}).get("status"),
+                        "action": (body or {}).get("action"),
+                        "policy_name": (body or {}).get("policyName"),
+                        "policy_id": (body or {}).get("policyId"),
+                        "severity": (body or {}).get("severity"),
+                        "error": meta.get("error"),
+                    }
+                results[label] = variant_result
+
+            self._send_json(
+                {
+                    "ok": True,
+                    "source": {
+                        "provider": trace_entry.get("provider"),
+                        "chat_mode": trace_entry.get("chatMode"),
+                        "guardrails_enabled": bool(trace_entry.get("guardrailsEnabled")),
+                        "proxy_mode": bool(trace_entry.get("zscalerProxyMode")),
+                    },
+                    "content_lengths": {
+                        "prompt": len(prompt_text),
+                        "response": len(response_text),
+                    },
+                    "variants": results,
+                },
+                status=200,
+            )
+            return
+
         if self.path != "/chat":
             self._send_json({"error": "Not found"}, status=404)
             return
@@ -7092,6 +7592,9 @@ class Handler(BaseHTTPRequestHandler):
         zscaler_proxy_mode = bool(data.get("zscaler_proxy_mode")) and guardrails_enabled
         tools_enabled = bool(data.get("tools_enabled"))
         local_tasks_enabled = bool(data.get("local_tasks_enabled")) and tools_enabled
+        tool_permission_profile = str(data.get("tool_permission_profile") or "standard").strip().lower().replace("-", "_")
+        if tool_permission_profile not in {"standard", "read_only", "local_only", "network_open"}:
+            tool_permission_profile = "standard"
         agentic_enabled = bool(data.get("agentic_enabled"))
         multi_agent_enabled = bool(data.get("multi_agent_enabled"))
         if provider_id == "bedrock_agent":
@@ -7100,6 +7603,7 @@ class Handler(BaseHTTPRequestHandler):
             multi_agent_enabled = False
             tools_enabled = False
             local_tasks_enabled = False
+            tool_permission_profile = "standard"
         chat_trace_id = str(data.get("trace_id") or "").strip() or uuid4().hex
 
         mcp_tool_defs: list[tooling.ToolDef] = []
@@ -7155,6 +7659,7 @@ class Handler(BaseHTTPRequestHandler):
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
                     local_tasks_enabled=local_tasks_enabled,
+                    tool_permission_profile=tool_permission_profile,
                 )
                 proxy_block = _extract_proxy_block_info_from_payload(payload)
                 if proxy_block:
@@ -7252,6 +7757,7 @@ class Handler(BaseHTTPRequestHandler):
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
                     local_tasks_enabled=local_tasks_enabled,
+                    tool_permission_profile=tool_permission_profile,
                 )
                 agent_trace = payload.get("agent_trace", [])
                 payload_trace_steps = []
@@ -7308,6 +7814,7 @@ class Handler(BaseHTTPRequestHandler):
                 provider_messages_call=_provider_messages_call,
                 tools_enabled=tools_enabled,
                 local_tasks_enabled=local_tasks_enabled,
+                tool_permission_profile=tool_permission_profile,
             )
             if chat_mode == "multi" and status == 200 and payload.get("response"):
                 payload["conversation"] = messages_for_provider + [
@@ -7327,6 +7834,7 @@ class Handler(BaseHTTPRequestHandler):
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
                     local_tasks_enabled=local_tasks_enabled,
+                    tool_permission_profile=tool_permission_profile,
                 )
                 proxy_block = _extract_proxy_block_info_from_payload(payload)
                 if proxy_block:
@@ -7422,6 +7930,7 @@ class Handler(BaseHTTPRequestHandler):
                     provider_messages_call=_provider_messages_call,
                     tools_enabled=tools_enabled,
                     local_tasks_enabled=local_tasks_enabled,
+                    tool_permission_profile=tool_permission_profile,
                 )
                 agent_trace = payload.get("agent_trace", [])
                 payload_trace_steps = []
@@ -7477,6 +7986,7 @@ class Handler(BaseHTTPRequestHandler):
                 provider_messages_call=_provider_messages_call,
                 tools_enabled=tools_enabled,
                 local_tasks_enabled=local_tasks_enabled,
+                tool_permission_profile=tool_permission_profile,
             )
             if chat_mode == "multi" and status == 200 and payload.get("response"):
                 payload["conversation"] = messages_for_provider + [
