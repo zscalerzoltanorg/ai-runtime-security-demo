@@ -380,7 +380,34 @@ def _normalize_messages(messages: list[dict] | None) -> list[dict]:
         role = str(msg.get("role") or "").strip().lower()
         content = str(msg.get("content") or "")
         if role in {"user", "assistant", "system"}:
-            normalized.append({"role": role, "content": content})
+            item: dict[str, Any] = {"role": role, "content": content}
+            raw_attachments = msg.get("attachments")
+            if isinstance(raw_attachments, list):
+                cleaned = []
+                for raw in raw_attachments[:4]:
+                    if not isinstance(raw, dict):
+                        continue
+                    kind = str(raw.get("kind") or "").strip().lower()
+                    name = str(raw.get("name") or "attachment").strip()[:120]
+                    mime = str(raw.get("mime") or "").strip()[:120]
+                    if kind == "image":
+                        data_url = str(raw.get("data_url") or "")
+                        if data_url.startswith("data:image/") and len(data_url) <= 2_500_000:
+                            cleaned.append({"kind": "image", "name": name, "mime": mime, "data_url": data_url})
+                    elif kind == "text":
+                        text = str(raw.get("text") or "")
+                        cleaned.append(
+                            {
+                                "kind": "text",
+                                "name": name,
+                                "mime": mime or "text/plain",
+                                "text": text[:16_000],
+                                "truncated": bool(raw.get("truncated")) or len(text) > 16_000,
+                            }
+                        )
+                if cleaned:
+                    item["attachments"] = cleaned
+            normalized.append(item)
     return normalized
 
 
@@ -416,6 +443,137 @@ def _zscaler_proxy_sdk_config(
     if demo_user:
         headers[DEMO_USER_HEADER_NAME] = str(demo_user)
     return proxy_key or None, base_url, api_key_header_name, headers, proxy_key_source
+
+
+def _attachment_text_suffix(msg: dict[str, Any]) -> str:
+    attachments = msg.get("attachments")
+    if not isinstance(attachments, list):
+        return ""
+    rows: list[str] = []
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        if str(att.get("kind") or "").strip().lower() != "text":
+            continue
+        name = str(att.get("name") or "attachment").strip()
+        text = str(att.get("text") or "")
+        if not text:
+            continue
+        rows.append(f"[Attachment: {name}]\n{text}")
+    return ("\n\n" + "\n\n".join(rows)) if rows else ""
+
+
+def _parse_image_data_url(data_url: str) -> tuple[str | None, str | None]:
+    raw = str(data_url or "")
+    m = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", raw, re.DOTALL)
+    if not m:
+        return None, None
+    return m.group(1), m.group(2)
+
+
+def _openai_messages_with_attachments(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for msg in normalized:
+        role = str(msg.get("role") or "user")
+        text = str(msg.get("content") or "") + _attachment_text_suffix(msg)
+        attachments = msg.get("attachments")
+        if role == "system" or not isinstance(attachments, list):
+            out.append({"role": role, "content": text})
+            continue
+        image_parts = []
+        for att in attachments:
+            if not isinstance(att, dict):
+                continue
+            if str(att.get("kind") or "").strip().lower() != "image":
+                continue
+            data_url = str(att.get("data_url") or "")
+            media_type, data_b64 = _parse_image_data_url(data_url)
+            if not media_type or not data_b64:
+                continue
+            image_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+        if image_parts:
+            parts = [{"type": "text", "text": text or "(image attachment)"}] + image_parts
+            out.append({"role": role, "content": parts})
+        else:
+            out.append({"role": role, "content": text})
+    return out
+
+
+def _anthropic_messages_with_attachments(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for msg in normalized:
+        role = str(msg.get("role") or "user")
+        text = str(msg.get("content") or "") + _attachment_text_suffix(msg)
+        attachments = msg.get("attachments")
+        if role == "system" or not isinstance(attachments, list):
+            out.append({"role": role, "content": text})
+            continue
+        content_blocks: list[dict[str, Any]] = []
+        if text:
+            content_blocks.append({"type": "text", "text": text})
+        if role == "user":
+            for att in attachments:
+                if not isinstance(att, dict):
+                    continue
+                if str(att.get("kind") or "").strip().lower() != "image":
+                    continue
+                media_type, data_b64 = _parse_image_data_url(str(att.get("data_url") or ""))
+                if not media_type or not data_b64:
+                    continue
+                content_blocks.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data_b64,
+                        },
+                    }
+                )
+        out.append({"role": role, "content": content_blocks if content_blocks else text})
+    return out
+
+
+def _ollama_messages_with_attachments(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for msg in normalized:
+        role = str(msg.get("role") or "user")
+        text = str(msg.get("content") or "") + _attachment_text_suffix(msg)
+        item: dict[str, Any] = {"role": role, "content": text}
+        attachments = msg.get("attachments")
+        if role == "user" and isinstance(attachments, list):
+            images: list[str] = []
+            for att in attachments:
+                if not isinstance(att, dict):
+                    continue
+                if str(att.get("kind") or "").strip().lower() != "image":
+                    continue
+                _media_type, data_b64 = _parse_image_data_url(str(att.get("data_url") or ""))
+                if data_b64:
+                    images.append(data_b64)
+            if images:
+                item["images"] = images
+        out.append(item)
+    return out
+
+
+def _gemini_parts_from_message(msg: dict[str, Any]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    text = str(msg.get("content") or "") + _attachment_text_suffix(msg)
+    if text:
+        parts.append({"text": text})
+    attachments = msg.get("attachments")
+    if isinstance(attachments, list):
+        for att in attachments:
+            if not isinstance(att, dict):
+                continue
+            if str(att.get("kind") or "").strip().lower() != "image":
+                continue
+            media_type, data_b64 = _parse_image_data_url(str(att.get("data_url") or ""))
+            if not media_type or not data_b64:
+                continue
+            parts.append({"inline_data": {"mime_type": media_type, "data": data_b64}})
+    return parts or [{"text": ""}]
 
 
 def _bedrock_client_auth_kwargs() -> tuple[dict[str, str], str]:
@@ -543,7 +701,7 @@ def _openai_compatible_chat_messages(
     normalized = _normalize_messages(messages)
     request_payload = {
         "model": model,
-        "messages": normalized,
+        "messages": _openai_messages_with_attachments(normalized),
         "temperature": 0.2,
     }
     if not str(model or "").strip():
@@ -786,7 +944,7 @@ def _ollama_generate(
 def _ollama_chat_messages(
     messages: list[dict], ollama_url: str, ollama_model: str, demo_user: str | None = None
 ) -> tuple[str | None, dict]:
-    payload = {"model": ollama_model, "messages": _normalize_messages(messages), "stream": False}
+    payload = {"model": ollama_model, "messages": _ollama_messages_with_attachments(_normalize_messages(messages)), "stream": False}
     url = f"{ollama_url}/api/chat"
     headers = {"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})}
 
@@ -1037,7 +1195,7 @@ def _anthropic_chat_messages(
     tooling_ctx = _build_anthropic_tool_payload(tool_defs)
     adapter = AnthropicAdapter()
     request_payload = adapter.build_request(
-        messages=[m for m in normalized if m["role"] in {"user", "assistant"}],
+        messages=_anthropic_messages_with_attachments([m for m in normalized if m["role"] in {"user", "assistant"}]),
         model=anthropic_model,
         tool_defs=tool_defs,
         settings=tooling_ctx,
@@ -1215,7 +1373,7 @@ def _openai_chat_messages(
     normalized = _normalize_messages(messages)
     request_payload = {
         "model": openai_model,
-        "messages": normalized,
+        "messages": _openai_messages_with_attachments(normalized),
         "temperature": 0.2,
     }
     trace_headers: dict[str, str] = {
@@ -1705,7 +1863,7 @@ def _gemini_chat_messages(
                 system_parts.append(content)
             continue
         gem_role = "user" if role == "user" else "model"
-        contents.append({"role": gem_role, "parts": [{"text": content}]})
+        contents.append({"role": gem_role, "parts": _gemini_parts_from_message(m)})
     payload: dict[str, Any] = {"contents": contents}
     if system_parts:
         payload["system_instruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
@@ -1784,7 +1942,7 @@ def _vertex_chat_messages(
                 system_parts.append(content)
             continue
         vertex_role = "user" if role == "user" else "model"
-        contents.append({"role": vertex_role, "parts": [{"text": content}]})
+        contents.append({"role": vertex_role, "parts": _gemini_parts_from_message(m)})
     payload: dict[str, Any] = {"contents": contents}
     if system_parts:
         payload["system_instruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}

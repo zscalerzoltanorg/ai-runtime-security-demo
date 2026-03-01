@@ -4,14 +4,18 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
-- `branch: codex/low-risk-learning-features` (preview, not merged)
-  - Added flow replay controls (`Prev Trace` / `Next Trace`) to inspect prior captured runs in-session.
-  - Added `Export Evidence` to download a JSON evidence pack (selected trace + explainer summary + flow graph nodes/edges).
-  - Enhanced Flow Explainer with `Performance & Cost Signals` (token totals, estimated latency, AI Guard check/block counts).
-  - Added `Attack Sandbox (Learning)` prompt preset pack for safe policy/testing demos.
-  - Added `Determinism Lab` to run the same request multiple times and compare fingerprints/outcomes.
-  - Added `Policy Replay Comparison` to re-check selected trace content against AI Guard (`as_is`, `normalized`, `redacted`) without re-calling providers/tools.
-  - Added `Tool Permission Profile` control for agentic runs (`standard`, `read_only`, `local_only`, `network_open`).
+- `branch: codex/low-risk-learning-features` (current feature branch)
+  - Added trace replay controls (`Prev Trace` / `Next Trace`) and `Export Evidence` for trace-backed demos.
+  - Added `Determinism Lab` and `Policy Replay Comparison` for repeatability and policy-variant checks.
+  - Added `Scenario Runner` for quick multi-provider prompt suite runs and summary outcomes.
+  - Added `Tool Permission Profile` for agentic runs (`standard`, `read_only`, `local_only`, `network_open`).
+  - Expanded `Execution Topology` modes:
+    - `Single Process`
+    - `Isolated Workers` (agent runtime in worker process)
+    - `Per-Role Workers` (multi-agent roles executed in separate worker processes)
+  - Added planned-flow preview mode in Flow Graph before first run and clearer process boundaries for isolated modes.
+  - Added provider-aware attachments (multimodal where supported) plus attachment filtering by provider/model capability.
+  - Improved explainers and UI polish across Flow Graph, Code Path Viewer, and themed modals.
 
 - `v1.0.3` (02-28-26)
   - Added a new **Flow Explainer** modal (theme-aware) with deterministic, trace-driven summaries:
@@ -42,6 +46,17 @@ Note: this section is intentionally compact. Keep only recent releases here and 
 - Tools/MCP behavior
 - HTTP trace + agent/tool trace + prompt/instruction inspector
 - Flow graph and code path viewer
+
+## Attachments (Multimodal) Support
+
+- Current supported attachment types in this demo UI:
+  - Images: `image/*` (provider/model dependent)
+  - Text/code files: `.txt`, `.md`, `.json`, `.csv`, `.log`, `.py`, `.js`, `.ts`, `.yaml`, `.yml`
+- Not currently supported in this demo attachment path:
+  - PDF, Office docs (`.docx`, `.pptx`, `.xlsx`), audio, and video
+- Provider/model notes:
+  - Ollama is model-dependent for image support. Text/code file attachments are allowed.
+  - Vision-capable Ollama models (for example LLaVA/vision-family models) can accept images; text-only models (such as `llama3.2:1b`) are treated as text-file-only.
 
 ## Learning Labs (Branch Preview)
 
