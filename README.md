@@ -4,6 +4,12 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5`
+  - App now checks GitHub for updates and supports in-app one-click update (with local-settings preservation).
+  - Added dynamic provider model catalog (startup + cached refresh) and manual `Refresh Models` in Settings.
+  - Improved model selection UX with editable suggested-model picklists and better provider config guidance.
+  - Enhanced Usage Dashboard with estimated cost + utilization visibility and additional UI/UX polish.
+
 - `v1.1.1`
   - Expanded adversarial Prompt Presets with attachable samples and auto multi-turn attack sequences.
   - Added multimodal attack examples (benign vs adversarial image samples) using provider-compatible attachments.
@@ -121,7 +127,7 @@ Recent `v1.1` update impact:
 - App now writes a local `usage_metrics.db` file in the repo root for usage/cost dashboard data.
 - New app setting keys are optional and default-safe:
   - `APP_RATE_LIMIT_CHAT_PER_MIN=30`
-  - `APP_RATE_LIMIT_ADMIN_PER_MIN=12`
+  - `APP_RATE_LIMIT_ADMIN_PER_MIN=20`
   - `APP_MAX_CONCURRENT_CHAT=3`
   - `USAGE_PRICE_OVERRIDES_JSON=` (optional)
 
@@ -188,7 +194,7 @@ Your `.env.local` should at least have:
 PORT=5000
 APP_DEMO_NAME='AI Runtime Security Demo'
 APP_RATE_LIMIT_CHAT_PER_MIN=30
-APP_RATE_LIMIT_ADMIN_PER_MIN=12
+APP_RATE_LIMIT_ADMIN_PER_MIN=20
 APP_MAX_CONCURRENT_CHAT=3
 USAGE_PRICE_OVERRIDES_JSON=
 OLLAMA_URL=http://127.0.0.1:11434
