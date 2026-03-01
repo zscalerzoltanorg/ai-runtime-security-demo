@@ -35,6 +35,23 @@ DEFAULT_MAX_TOOLS_IN_REQUEST = 20
 DEFAULT_TOOL_INCLUDE_MODE = "all"
 DEFAULT_TOOL_NAME_PREFIX_STRATEGY = "serverPrefix"
 
+_MODEL_ALIAS_MAP: dict[str, str] = {
+    "claude-3-5-haiku-latest": "claude-3-5-haiku-20241022",
+    "claude-3-5-sonnet-latest": "claude-3-5-sonnet-20241022",
+    "claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
+    "mistral-large-latest": "mistral-large-2407",
+}
+
+
+def _normalize_model_alias(model: str | None, *, fallback: str) -> str:
+    raw = str(model or "").strip()
+    if not raw:
+        return fallback
+    mapped = _MODEL_ALIAS_MAP.get(raw.lower())
+    if mapped:
+        return mapped
+    return raw
+
 
 def _bool_env(name: str, default: bool = False) -> bool:
     raw = str(os.getenv(name, "")).strip().lower()
@@ -2044,6 +2061,40 @@ def call_provider_messages(
             f"include_tools_flag={include_flag} provider_supports_tools={provider == 'anthropic'}"
         )
     aws_region = os.getenv("AWS_REGION", DEFAULT_AWS_REGION).strip() or DEFAULT_AWS_REGION
+    selected_anthropic_model = _normalize_model_alias(anthropic_model or DEFAULT_ANTHROPIC_MODEL, fallback=DEFAULT_ANTHROPIC_MODEL)
+    selected_openai_model = _normalize_model_alias(openai_model or DEFAULT_OPENAI_MODEL, fallback=DEFAULT_OPENAI_MODEL)
+    selected_bedrock_model = _normalize_model_alias(
+        os.getenv("BEDROCK_INVOKE_MODEL", DEFAULT_BEDROCK_INVOKE_MODEL).strip() or DEFAULT_BEDROCK_INVOKE_MODEL,
+        fallback=DEFAULT_BEDROCK_INVOKE_MODEL,
+    )
+    selected_perplexity_model = _normalize_model_alias(
+        os.getenv("PERPLEXITY_MODEL", DEFAULT_PERPLEXITY_MODEL).strip() or DEFAULT_PERPLEXITY_MODEL,
+        fallback=DEFAULT_PERPLEXITY_MODEL,
+    )
+    selected_xai_model = _normalize_model_alias(
+        os.getenv("XAI_MODEL", DEFAULT_XAI_MODEL).strip() or DEFAULT_XAI_MODEL,
+        fallback=DEFAULT_XAI_MODEL,
+    )
+    selected_gemini_model = _normalize_model_alias(
+        os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL,
+        fallback=DEFAULT_GEMINI_MODEL,
+    )
+    selected_vertex_model = _normalize_model_alias(
+        os.getenv("VERTEX_MODEL", DEFAULT_VERTEX_MODEL).strip() or DEFAULT_VERTEX_MODEL,
+        fallback=DEFAULT_VERTEX_MODEL,
+    )
+    selected_litellm_model = _normalize_model_alias(
+        os.getenv("LITELLM_MODEL", DEFAULT_LITELLM_MODEL).strip() or DEFAULT_LITELLM_MODEL,
+        fallback=DEFAULT_LITELLM_MODEL,
+    )
+    selected_kong_model = _normalize_model_alias(
+        os.getenv("KONG_MODEL", DEFAULT_KONG_MODEL).strip(),
+        fallback=DEFAULT_KONG_MODEL,
+    )
+    selected_azure_foundry_model = _normalize_model_alias(
+        os.getenv("AZURE_AI_FOUNDRY_MODEL", DEFAULT_AZURE_AI_FOUNDRY_MODEL).strip() or DEFAULT_AZURE_AI_FOUNDRY_MODEL,
+        fallback=DEFAULT_AZURE_AI_FOUNDRY_MODEL,
+    )
     if zscaler_proxy_mode:
         if provider in {"ollama", "litellm"}:
             return None, {
@@ -2078,7 +2129,7 @@ def call_provider_messages(
     if provider == "anthropic":
         return _anthropic_chat_messages(
             messages,
-            anthropic_model or DEFAULT_ANTHROPIC_MODEL,
+            selected_anthropic_model,
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
             demo_user=demo_user,
@@ -2087,7 +2138,7 @@ def call_provider_messages(
     if provider == "openai":
         return _openai_chat_messages(
             messages,
-            openai_model or DEFAULT_OPENAI_MODEL,
+            selected_openai_model,
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
             demo_user=demo_user,
@@ -2095,7 +2146,7 @@ def call_provider_messages(
     if provider == "bedrock_invoke":
         return _bedrock_invoke_chat_messages(
             messages,
-            os.getenv("BEDROCK_INVOKE_MODEL", DEFAULT_BEDROCK_INVOKE_MODEL).strip() or DEFAULT_BEDROCK_INVOKE_MODEL,
+            selected_bedrock_model,
             region=aws_region,
             proxy_mode=zscaler_proxy_mode,
             conversation_id=conversation_id,
@@ -2113,7 +2164,7 @@ def call_provider_messages(
         return _openai_compatible_chat_messages(
             provider_name="Perplexity",
             api_key_env="PERPLEXITY_API_KEY",
-            model=os.getenv("PERPLEXITY_MODEL", DEFAULT_PERPLEXITY_MODEL).strip() or DEFAULT_PERPLEXITY_MODEL,
+            model=selected_perplexity_model,
             default_base_url=os.getenv("PERPLEXITY_BASE_URL", "https://api.perplexity.ai").strip() or "https://api.perplexity.ai",
             base_url_env="PERPLEXITY_BASE_URL",
             messages=messages,
@@ -2126,7 +2177,7 @@ def call_provider_messages(
         return _openai_compatible_chat_messages(
             provider_name="xAI (Grok)",
             api_key_env="XAI_API_KEY",
-            model=os.getenv("XAI_MODEL", DEFAULT_XAI_MODEL).strip() or DEFAULT_XAI_MODEL,
+            model=selected_xai_model,
             default_base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").strip() or "https://api.x.ai/v1",
             base_url_env="XAI_BASE_URL",
             messages=messages,
@@ -2138,13 +2189,13 @@ def call_provider_messages(
     if provider == "gemini":
         return _gemini_chat_messages(
             messages,
-            os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL,
+            selected_gemini_model,
             demo_user=demo_user,
         )
     if provider == "vertex":
         return _vertex_chat_messages(
             messages,
-            os.getenv("VERTEX_MODEL", DEFAULT_VERTEX_MODEL).strip() or DEFAULT_VERTEX_MODEL,
+            selected_vertex_model,
             project_id=os.getenv("VERTEX_PROJECT_ID", "").strip(),
             location=os.getenv("VERTEX_LOCATION", DEFAULT_VERTEX_LOCATION).strip() or DEFAULT_VERTEX_LOCATION,
             demo_user=demo_user,
@@ -2153,7 +2204,7 @@ def call_provider_messages(
         return _openai_compatible_chat_messages(
             provider_name="LiteLLM",
             api_key_env="LITELLM_API_KEY",
-            model=os.getenv("LITELLM_MODEL", DEFAULT_LITELLM_MODEL).strip() or DEFAULT_LITELLM_MODEL,
+            model=selected_litellm_model,
             default_base_url=os.getenv("LITELLM_BASE_URL", "http://127.0.0.1:4000/v1").strip() or "http://127.0.0.1:4000/v1",
             base_url_env="LITELLM_BASE_URL",
             messages=messages,
@@ -2164,7 +2215,7 @@ def call_provider_messages(
         return _openai_compatible_chat_messages(
             provider_name="Kong Gateway",
             api_key_env="KONG_API_KEY",
-            model=os.getenv("KONG_MODEL", DEFAULT_KONG_MODEL).strip(),
+            model=selected_kong_model,
             default_base_url=os.getenv("KONG_BASE_URL", "").strip(),
             base_url_env="KONG_BASE_URL",
             messages=messages,
@@ -2177,7 +2228,7 @@ def call_provider_messages(
         return _openai_compatible_chat_messages(
             provider_name="Azure AI Foundry",
             api_key_env="AZURE_AI_FOUNDRY_API_KEY",
-            model=os.getenv("AZURE_AI_FOUNDRY_MODEL", DEFAULT_AZURE_AI_FOUNDRY_MODEL).strip() or DEFAULT_AZURE_AI_FOUNDRY_MODEL,
+            model=selected_azure_foundry_model,
             default_base_url=os.getenv("AZURE_AI_FOUNDRY_BASE_URL", "").strip() or "https://example.inference.ai.azure.com/v1",
             base_url_env="AZURE_AI_FOUNDRY_BASE_URL",
             messages=messages,

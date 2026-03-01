@@ -67,7 +67,7 @@ HOST = _str_env("HOST", "127.0.0.1")
 PORT = _int_env("PORT", 5000)
 MAX_REQUEST_BYTES = _int_env("MAX_REQUEST_BYTES", 1_000_000)
 APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", 30))
-APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", 12))
+APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", 20))
 APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", 3))
 OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = _str_env("OLLAMA_MODEL", "llama3.2:1b")
@@ -76,6 +76,9 @@ OPENAI_MODEL = _str_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
 UI_THEME = _str_env("UI_THEME", "zscaler_blue")
+UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", "origin")
+UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", "main")
+UPDATE_CHECK_INTERVAL_SECONDS = max(10, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", 3600))
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 PRESET_OVERRIDES_ENV_KEY = "AI_GUARD_PRESET_OVERRIDES_JSON"
@@ -89,6 +92,50 @@ _RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 _CHAT_CONCURRENCY_LOCK = threading.Lock()
 _CHAT_CONCURRENT = 0
 _USAGE_DB_LOCK = threading.Lock()
+_UPDATE_LOCK = threading.Lock()
+_UPDATE_RUNNING = False
+_MODEL_CATALOG_LOCK = threading.Lock()
+
+MODEL_CATALOG_TTL_SECONDS = max(300, _int_env("MODEL_CATALOG_TTL_SECONDS", 86400))
+MODEL_CATALOG_DYNAMIC_FETCH = _str_env("MODEL_CATALOG_DYNAMIC_FETCH", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
+
+MODEL_CATALOG_STATIC: dict[str, list[str]] = {
+    "OLLAMA_MODEL": ["llama3.2:1b", "llama3.2", "llama3.1:8b", "qwen2.5:7b", "gemma3:12b", "llava:7b"],
+    "OPENAI_MODEL": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "o4-mini"],
+    "ANTHROPIC_MODEL": [
+        "claude-3-haiku-20240307",
+        "claude-3-5-haiku-20241022",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-7-sonnet-20250219",
+        "claude-sonnet-4-20250514",
+    ],
+    "PERPLEXITY_MODEL": ["sonar", "sonar-pro", "sonar-reasoning", "sonar-deep-research", "r1-1776"],
+    "XAI_MODEL": ["grok-4", "grok-3", "grok-3-mini", "grok-2-vision-1212"],
+    "GEMINI_MODEL": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
+    "VERTEX_MODEL": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
+    "BEDROCK_INVOKE_MODEL": [
+        "amazon.nova-lite-v1:0",
+        "amazon.nova-pro-v1:0",
+        "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "meta.llama3-1-70b-instruct-v1:0",
+        "mistral.mistral-large-2407-v1:0",
+    ],
+    "AZURE_AI_FOUNDRY_MODEL": ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "phi-4"],
+    "LITELLM_MODEL": ["gpt-4o-mini", "gpt-4.1-mini", "claude-3-5-haiku-20241022", "gemini-2.5-flash", "mistral-large-2407"],
+    "KONG_MODEL": ["gpt-4o-mini", "gpt-4.1-mini", "claude-3-5-haiku-20241022", "gemini-2.5-flash", "mistral-large-2407"],
+}
+
+_MODEL_CATALOG_CACHE: dict[str, object] = {
+    "fetched_at": 0.0,
+    "ttl_seconds": int(MODEL_CATALOG_TTL_SECONDS),
+    "models": copy.deepcopy(MODEL_CATALOG_STATIC),
+    "source": "static",
+    "last_error": "",
+}
 
 DEFAULT_COST_PER_MILLION_TOKENS = {
     "openai": {"input": 0.15, "output": 0.60},
@@ -150,6 +197,396 @@ def _build_badge_text() -> str:
 
 
 BUILD_BADGE = _build_badge_text()
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _git_output(args: list[str], *, timeout: float = 4.0) -> str:
+    return subprocess.check_output(
+        ["git", *args],
+        cwd=_repo_root(),
+        text=True,
+        stderr=subprocess.DEVNULL,
+        timeout=timeout,
+    ).strip()
+
+
+def _git_run(args: list[str], *, timeout: float = 30.0) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _http_get_json(url: str, headers: dict[str, str] | None = None, timeout: float = 4.0) -> object:
+    req = urlrequest.Request(url, headers=headers or {}, method="GET")
+    with urlrequest.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+        if not body:
+            return {}
+        return json.loads(body)
+
+
+def _unique_models(values: list[str], max_items: int = 24) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        val = str(raw or "").strip()
+        if not val:
+            continue
+        # Avoid ambiguous alias-style names; prefer concrete, pinned model IDs.
+        if val.lower().endswith("-latest"):
+            continue
+        if val in seen:
+            continue
+        seen.add(val)
+        out.append(val)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _openai_style_model_ids(payload: object) -> list[str]:
+    out: list[str] = []
+    if not isinstance(payload, dict):
+        return out
+    rows = payload.get("data")
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        mid = str(row.get("id") or "").strip()
+        if mid:
+            out.append(mid)
+    return out
+
+
+def _merge_model_catalog(base: dict[str, list[str]], key: str, values: list[str]) -> None:
+    if not key:
+        return
+    existing = list(base.get(key) or [])
+    merged = _unique_models(existing + values)
+    if merged:
+        base[key] = merged
+
+
+def _refresh_model_catalog() -> None:
+    now = time.time()
+    with _MODEL_CATALOG_LOCK:
+        merged: dict[str, list[str]] = copy.deepcopy(MODEL_CATALOG_STATIC)
+        errors: list[str] = []
+        if MODEL_CATALOG_DYNAMIC_FETCH:
+            try:
+                ollama_url = str(os.getenv("OLLAMA_URL", OLLAMA_URL)).strip() or OLLAMA_URL
+                ollama_payload = _http_get_json(f"{ollama_url.rstrip('/')}/api/tags", timeout=2.5)
+                tags = []
+                if isinstance(ollama_payload, dict) and isinstance(ollama_payload.get("models"), list):
+                    for item in ollama_payload["models"]:
+                        if isinstance(item, dict):
+                            tags.append(str(item.get("name") or item.get("model") or "").strip())
+                _merge_model_catalog(merged, "OLLAMA_MODEL", tags)
+            except Exception as exc:
+                errors.append(f"ollama:{exc}")
+            try:
+                openai_key = str(os.getenv("OPENAI_API_KEY", "")).strip()
+                if openai_key:
+                    openai_payload = _http_get_json(
+                        "https://api.openai.com/v1/models",
+                        headers={"Authorization": f"Bearer {openai_key}"},
+                        timeout=3.5,
+                    )
+                    _merge_model_catalog(merged, "OPENAI_MODEL", _openai_style_model_ids(openai_payload))
+            except Exception as exc:
+                errors.append(f"openai:{exc}")
+            try:
+                anthropic_key = str(os.getenv("ANTHROPIC_API_KEY", "")).strip()
+                if anthropic_key:
+                    anthropic_payload = _http_get_json(
+                        "https://api.anthropic.com/v1/models",
+                        headers={
+                            "x-api-key": anthropic_key,
+                            "anthropic-version": "2023-06-01",
+                        },
+                        timeout=3.5,
+                    )
+                    _merge_model_catalog(merged, "ANTHROPIC_MODEL", _openai_style_model_ids(anthropic_payload))
+            except Exception as exc:
+                errors.append(f"anthropic:{exc}")
+            try:
+                perplexity_key = str(os.getenv("PERPLEXITY_API_KEY", "")).strip()
+                perplexity_base = str(os.getenv("PERPLEXITY_BASE_URL", providers.DEFAULT_PERPLEXITY_BASE_URL)).strip()
+                if perplexity_key and perplexity_base:
+                    payload = _http_get_json(
+                        f"{perplexity_base.rstrip('/')}/models",
+                        headers={"Authorization": f"Bearer {perplexity_key}"},
+                        timeout=3.0,
+                    )
+                    _merge_model_catalog(merged, "PERPLEXITY_MODEL", _openai_style_model_ids(payload))
+            except Exception as exc:
+                errors.append(f"perplexity:{exc}")
+            try:
+                xai_key = str(os.getenv("XAI_API_KEY", "")).strip()
+                xai_base = str(os.getenv("XAI_BASE_URL", providers.DEFAULT_XAI_BASE_URL)).strip()
+                if xai_key and xai_base:
+                    payload = _http_get_json(
+                        f"{xai_base.rstrip('/')}/models",
+                        headers={"Authorization": f"Bearer {xai_key}"},
+                        timeout=3.0,
+                    )
+                    _merge_model_catalog(merged, "XAI_MODEL", _openai_style_model_ids(payload))
+            except Exception as exc:
+                errors.append(f"xai:{exc}")
+            try:
+                gemini_key = str(os.getenv("GEMINI_API_KEY", "")).strip()
+                gemini_base = str(os.getenv("GEMINI_BASE_URL", providers.DEFAULT_GEMINI_BASE_URL)).strip()
+                if gemini_key and gemini_base:
+                    gemini_payload = _http_get_json(
+                        f"{gemini_base.rstrip('/')}/v1beta/models?key={urlparse.quote(gemini_key, safe='')}",
+                        timeout=3.0,
+                    )
+                    model_ids: list[str] = []
+                    if isinstance(gemini_payload, dict) and isinstance(gemini_payload.get("models"), list):
+                        for row in gemini_payload["models"]:
+                            if not isinstance(row, dict):
+                                continue
+                            name = str(row.get("name") or "").strip()
+                            if name.startswith("models/"):
+                                name = name.split("/", 1)[1]
+                            model_ids.append(name)
+                    _merge_model_catalog(merged, "GEMINI_MODEL", model_ids)
+                    _merge_model_catalog(merged, "VERTEX_MODEL", model_ids)
+            except Exception as exc:
+                errors.append(f"gemini:{exc}")
+            for model_key, base_key, token_key in (
+                ("LITELLM_MODEL", "LITELLM_BASE_URL", "LITELLM_API_KEY"),
+                ("KONG_MODEL", "KONG_BASE_URL", "KONG_API_KEY"),
+            ):
+                try:
+                    base = str(os.getenv(base_key, "")).strip()
+                    token = str(os.getenv(token_key, "")).strip()
+                    if not base:
+                        continue
+                    headers = {"Content-Type": "application/json"}
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+                    payload = _http_get_json(f"{base.rstrip('/')}/models", headers=headers, timeout=3.0)
+                    _merge_model_catalog(merged, model_key, _openai_style_model_ids(payload))
+                except Exception as exc:
+                    errors.append(f"{model_key.lower()}:{exc}")
+        _MODEL_CATALOG_CACHE.update(
+            {
+                "fetched_at": now,
+                "ttl_seconds": int(MODEL_CATALOG_TTL_SECONDS),
+                "models": merged,
+                "source": "dynamic" if MODEL_CATALOG_DYNAMIC_FETCH else "static",
+                "last_error": "; ".join(errors)[:1000],
+            }
+        )
+
+
+def _model_catalog_payload(*, force: bool = False) -> dict[str, object]:
+    now = time.time()
+    should_refresh = force
+    with _MODEL_CATALOG_LOCK:
+        fetched_at = float(_MODEL_CATALOG_CACHE.get("fetched_at") or 0.0)
+        ttl = int(_MODEL_CATALOG_CACHE.get("ttl_seconds") or MODEL_CATALOG_TTL_SECONDS)
+        if (now - fetched_at) >= max(60, ttl):
+            should_refresh = True
+    if should_refresh:
+        try:
+            _refresh_model_catalog()
+        except Exception:
+            pass
+    with _MODEL_CATALOG_LOCK:
+        models = copy.deepcopy(_MODEL_CATALOG_CACHE.get("models") or MODEL_CATALOG_STATIC)
+        return {
+            "ok": True,
+            "fetched_at": int(float(_MODEL_CATALOG_CACHE.get("fetched_at") or 0.0)),
+            "ttl_seconds": int(_MODEL_CATALOG_CACHE.get("ttl_seconds") or MODEL_CATALOG_TTL_SECONDS),
+            "source": str(_MODEL_CATALOG_CACHE.get("source") or "static"),
+            "last_error": str(_MODEL_CATALOG_CACHE.get("last_error") or ""),
+            "models": models,
+        }
+
+
+def _extract_whats_new_section(readme_text: str) -> str:
+    text = str(readme_text or "")
+    if not text:
+        return ""
+    lines = text.splitlines()
+    start = -1
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("##") and "what's new" in line.lower():
+            start = i
+            break
+    if start < 0:
+        return ""
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        line = lines[j].lstrip()
+        if line.startswith("## "):
+            end = j
+            break
+    section = "\n".join(lines[start:end]).strip()
+    if len(section) > 8000:
+        section = section[:8000].rstrip() + "\n..."
+    return section
+
+
+def _update_status_payload() -> dict[str, object]:
+    remote = str(UPDATE_REMOTE_NAME or "origin").strip() or "origin"
+    branch = str(UPDATE_BRANCH_NAME or "main").strip() or "main"
+    out: dict[str, object] = {
+        "ok": True,
+        "remote": remote,
+        "branch": branch,
+        "check_interval_seconds": int(max(10, UPDATE_CHECK_INTERVAL_SECONDS)),
+        "update_available": False,
+        "latest": False,
+        "can_update": False,
+        "reason": "",
+        "whats_new": "",
+    }
+    try:
+        local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
+        current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
+        is_clean = (_git_output(["status", "--porcelain"], timeout=2.0) == "")
+        local_tag = ""
+        try:
+            local_tag = _git_output(["describe", "--tags", "--exact-match", "HEAD"], timeout=1.5)
+        except Exception:
+            local_tag = ""
+        fetch_res = _git_run(["fetch", "--quiet", remote, branch], timeout=20.0)
+        if fetch_res.returncode != 0:
+            raise RuntimeError("Unable to reach remote repository")
+        remote_sha = _git_output(["rev-parse", f"{remote}/{branch}"], timeout=2.0)
+        ahead_str, behind_str = _git_output(
+            ["rev-list", "--left-right", "--count", f"HEAD...{remote}/{branch}"],
+            timeout=2.0,
+        ).split()
+        local_ahead = int(ahead_str)
+        remote_ahead = int(behind_str)
+        update_available = bool(remote_ahead > 0)
+        out.update(
+            {
+                "local_sha": local_sha[:12],
+                "remote_sha": remote_sha[:12],
+                "current_branch": current_branch,
+                "local_tag": local_tag,
+                "clean_worktree": is_clean,
+                "local_ahead": local_ahead,
+                "remote_ahead": remote_ahead,
+                "update_available": update_available,
+                "latest": not update_available,
+                "can_update": bool(
+                    update_available
+                    and local_ahead == 0
+                    and is_clean
+                    and current_branch == branch
+                    and not _UPDATE_RUNNING
+                ),
+                "reason": (
+                    "Local branch has unpushed commits; push/rebase first."
+                    if update_available and local_ahead > 0
+                    else "Working tree has local changes."
+                    if update_available and not is_clean
+                    else ("Switch to branch " + branch + " to apply update.")
+                    if update_available and current_branch != branch
+                    else ("Update already in progress." if _UPDATE_RUNNING else "")
+                ),
+            }
+        )
+        if not update_available:
+            out["reason"] = (
+                "Local branch is ahead of remote." if local_ahead > 0 else "Already up to date."
+            )
+        if update_available:
+            try:
+                remote_readme = _git_output(["show", f"{remote}/{branch}:README.md"], timeout=4.0)
+                out["whats_new"] = _extract_whats_new_section(remote_readme)
+            except Exception:
+                out["whats_new"] = ""
+        return out
+    except Exception as exc:
+        out.update(
+            {
+                "ok": False,
+                "latest": False,
+                "can_update": False,
+                "reason": str(exc),
+            }
+        )
+        return out
+
+
+def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
+    global _UPDATE_RUNNING
+    with _UPDATE_LOCK:
+        if _UPDATE_RUNNING:
+            return {"ok": False, "error": "Update already in progress."}
+        _UPDATE_RUNNING = True
+    try:
+        remote = str(UPDATE_REMOTE_NAME or "origin").strip() or "origin"
+        branch = str(UPDATE_BRANCH_NAME or "main").strip() or "main"
+        current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
+        if current_branch != branch:
+            return {"ok": False, "error": f"Current branch is {current_branch}; switch to {branch} to update."}
+        dirty = _git_output(["status", "--porcelain"], timeout=2.0)
+        if dirty:
+            return {
+                "ok": False,
+                "error": "Working tree has local changes. Commit/stash first to avoid overwrite.",
+            }
+        fetch_res = _git_run(["fetch", "--quiet", remote, branch], timeout=30.0)
+        if fetch_res.returncode != 0:
+            msg = (fetch_res.stderr or fetch_res.stdout or "").strip() or "git fetch failed"
+            return {"ok": False, "error": msg}
+        local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
+        remote_sha = _git_output(["rev-parse", f"{remote}/{branch}"], timeout=2.0)
+        if local_sha == remote_sha:
+            return {"ok": True, "updated": False, "message": "Already up to date."}
+        pull_res = _git_run(["pull", "--ff-only", remote, branch], timeout=60.0)
+        if pull_res.returncode != 0:
+            msg = (pull_res.stderr or pull_res.stdout or "").strip() or "git pull failed"
+            return {"ok": False, "error": msg}
+        deps_output = ""
+        if install_deps:
+            pip_res = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
+                cwd=_repo_root(),
+                capture_output=True,
+                text=True,
+                timeout=240.0,
+                check=False,
+            )
+            deps_output = (pip_res.stdout or "")[-1200:] + (pip_res.stderr or "")[-1200:]
+            if pip_res.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": "Dependency install failed after pull.",
+                    "details": deps_output[-1600:],
+                }
+        scheduled = _schedule_self_restart(delay_seconds=1.0)
+        return {
+            "ok": True,
+            "updated": True,
+            "scheduled_restart": scheduled,
+            "message": "Update applied. Restart scheduled." if scheduled else "Update applied. Restart already pending.",
+            "from_sha": local_sha[:12],
+            "to_sha": remote_sha[:12],
+            "deps_output_tail": deps_output[-800:] if deps_output else "",
+            "preserves_local_settings": True,
+        }
+    finally:
+        with _UPDATE_LOCK:
+            _UPDATE_RUNNING = False
 
 
 def _schedule_self_restart(delay_seconds: float = 0.8) -> bool:
@@ -572,8 +1009,21 @@ HTML = f"""<!doctype html>
       .app-title-row {{
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 10px;
         margin: 0 0 8px;
+        flex-wrap: wrap;
+      }}
+      .app-title-main {{
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
+      .app-title-actions {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
         flex-wrap: wrap;
       }}
       .app-title-row h1 {{
@@ -603,12 +1053,11 @@ HTML = f"""<!doctype html>
         background: #fff;
       }}
       .chat-meta-row {{
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+        gap: 10px;
         margin-bottom: 12px;
-        flex-wrap: wrap;
       }}
       .chat-meta-info {{
         display: grid;
@@ -646,7 +1095,16 @@ HTML = f"""<!doctype html>
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
-        justify-content: flex-end;
+        justify-content: flex-start;
+        width: 100%;
+        min-width: 0;
+      }}
+      .chat-meta-actions {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex: 0 0 auto;
       }}
       .icon-btn {{
         width: 34px;
@@ -679,6 +1137,25 @@ HTML = f"""<!doctype html>
         stroke-width: 1.8;
         stroke-linecap: round;
         stroke-linejoin: round;
+      }}
+      .header-action-btn {{
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--ink);
+        font-size: 0.84rem;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+      }}
+      .header-action-btn:hover {{
+        border-color: #99f6e4;
+        background: #f0fdfa;
+      }}
+      .header-action-btn:disabled {{
+        cursor: not-allowed;
       }}
       .provider-select {{
         border: 1px solid var(--border);
@@ -993,7 +1470,7 @@ HTML = f"""<!doctype html>
         cursor: pointer;
       }}
       button:hover {{ background: var(--accent-2); }}
-      button:disabled {{ opacity: 0.6; cursor: wait; }}
+      button:disabled {{ opacity: 0.6; cursor: not-allowed; }}
       button.secondary {{
         background: #e7e5e4;
         color: #1f2937;
@@ -1377,6 +1854,19 @@ HTML = f"""<!doctype html>
         margin-top: 8px;
         color: var(--muted);
         font-size: 0.85rem;
+      }}
+      .update-error-note {{
+        color: #b91c1c;
+        font-weight: 700;
+      }}
+      .provider-help {{
+        margin: 0 0 10px;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }}
+      .provider-help a {{
+        color: var(--accent-2);
+        text-decoration: underline;
       }}
       .agent-trace-card {{
         margin-top: 20px;
@@ -1812,6 +2302,9 @@ HTML = f"""<!doctype html>
         font-size: 0.75rem;
         color: var(--muted);
         min-height: 1.1em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }}
       .settings-input-wrap {{
         display: flex;
@@ -1829,6 +2322,86 @@ HTML = f"""<!doctype html>
       }}
       .settings-input-wrap input::placeholder {{
         color: #9ca3af;
+      }}
+      .settings-model-note {{
+        margin-top: 2px;
+        font-size: 0.74rem;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .settings-model-toggle {{
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--ink);
+        border-radius: 8px;
+        width: 34px;
+        height: 34px;
+        cursor: pointer;
+        line-height: 1;
+        font-size: 0.95rem;
+      }}
+      .settings-model-toggle:hover {{
+        background: #f8fafc;
+      }}
+      .settings-model-dropdown {{
+        margin-top: 4px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        max-height: 140px;
+        overflow: auto;
+        display: none;
+      }}
+      .settings-model-dropdown.open {{
+        display: block;
+      }}
+      .settings-model-option {{
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        text-align: left;
+        border: 0;
+        border-bottom: 1px solid #eef2f7;
+        background: transparent;
+        color: var(--ink);
+        padding: 7px 10px;
+        cursor: pointer;
+        font-size: 0.84rem;
+      }}
+      .settings-model-option:last-child {{
+        border-bottom: 0;
+      }}
+      .settings-model-option:hover {{
+        background: #f8fafc;
+      }}
+      .settings-model-option-label {{
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }}
+      .settings-model-remove {{
+        flex: 0 0 auto;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: #dc2626;
+        border-radius: 999px;
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.74rem;
+        line-height: 1;
+        cursor: pointer;
+      }}
+      .settings-model-remove:hover {{
+        background: #fef2f2;
+        border-color: #fca5a5;
       }}
       .settings-mini-btn {{
         border: 1px solid var(--border);
@@ -1879,6 +2452,9 @@ HTML = f"""<!doctype html>
         border-radius: 14px;
         box-shadow: 0 20px 60px rgba(2, 6, 23, 0.25);
         overflow: hidden;
+      }}
+      .update-confirm-dialog {{
+        width: min(760px, 94vw);
       }}
       .confirm-head {{
         padding: 12px 14px;
@@ -1991,15 +2567,15 @@ HTML = f"""<!doctype html>
         gap: 10px;
       }}
       .usage-dialog {{
-        width: min(1480px, 96vw);
-        max-height: 92vh;
+        width: min(1540px, 97vw);
+        max-height: 96vh;
       }}
       .usage-dialog .explain-body {{
         min-height: 0;
-        max-height: calc(92vh - 132px);
+        max-height: calc(96vh - 124px);
         overflow-y: auto;
         overflow-x: hidden;
-        padding-bottom: 16px;
+        padding-bottom: 24px;
       }}
       .usage-dialog .usage-grid {{
         grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2020,7 +2596,7 @@ HTML = f"""<!doctype html>
         font-weight: 700;
       }}
       .usage-table-wrap {{
-        max-height: 280px;
+        max-height: 240px;
         overflow: auto;
         border: 1px solid var(--border);
         border-radius: 10px;
@@ -2051,8 +2627,8 @@ HTML = f"""<!doctype html>
       .usage-bars {{
         display: grid;
         gap: 8px;
-        min-height: 320px;
-        max-height: 460px;
+        min-height: 360px;
+        max-height: 560px;
         overflow-x: auto;
         overflow-y: auto;
       }}
@@ -2172,6 +2748,9 @@ HTML = f"""<!doctype html>
         .chat-meta-controls {{
           justify-content: flex-start;
         }}
+        .chat-meta-actions {{
+          margin-left: 0;
+        }}
         .chat-transcript {{
           height: 300px;
           min-height: 300px;
@@ -2194,6 +2773,29 @@ HTML = f"""<!doctype html>
         background: #0f172a;
         color: #e2e8f0;
         border-color: #334155;
+      }}
+      body[data-theme="dark"] .settings-model-toggle,
+      body[data-theme="dark"] .settings-model-dropdown {{
+        background: #0f172a;
+        color: #e2e8f0;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .settings-model-option {{
+        color: #e2e8f0 !important;
+        border-bottom-color: #1e293b;
+      }}
+      body[data-theme="dark"] .settings-model-option:hover {{
+        background: #111d33;
+      }}
+      body[data-theme="dark"] .settings-model-remove {{
+        background: #0f172a;
+        border-color: #334155;
+        color: #fca5a5;
+      }}
+      body[data-theme="dark"] .settings-model-remove:hover {{
+        background: #2a1520;
+        border-color: #7f1d1d;
+        color: #fecaca;
       }}
       body[data-theme="dark"] .chat-transcript {{
         background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
@@ -2262,6 +2864,9 @@ HTML = f"""<!doctype html>
         background: #0f172a;
         color: #cbd5e1;
       }}
+      body[data-theme="dark"] .update-error-note {{
+        color: #fca5a5;
+      }}
       body[data-theme="dark"] .flow-pill {{
         background: #0f172a;
         border-color: #334155;
@@ -2270,6 +2875,7 @@ HTML = f"""<!doctype html>
       body[data-theme="dark"] .settings-mini-btn,
       body[data-theme="dark"] button.secondary,
       body[data-theme="dark"] .icon-btn,
+      body[data-theme="dark"] .header-action-btn,
       body[data-theme="dark"] .mode-toggle-btn {{
         background: #111827;
         color: #e2e8f0;
@@ -2415,6 +3021,29 @@ HTML = f"""<!doctype html>
         color: #e9e7ff;
         border-color: #3b2e5f;
       }}
+      body[data-theme="fun"] .settings-model-toggle,
+      body[data-theme="fun"] .settings-model-dropdown {{
+        background: #17122b;
+        color: #e9e7ff;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .settings-model-option {{
+        color: #e9e7ff !important;
+        border-bottom-color: #2b2346;
+      }}
+      body[data-theme="fun"] .settings-model-option:hover {{
+        background: #221b39;
+      }}
+      body[data-theme="fun"] .settings-model-remove {{
+        background: #110d1f;
+        border-color: #4b3a74;
+        color: #fda4af;
+      }}
+      body[data-theme="fun"] .settings-model-remove:hover {{
+        background: #2e1d2f;
+        border-color: #c084fc;
+        color: #ffe4e6;
+      }}
       body[data-theme="fun"] .chat-transcript {{
         background: radial-gradient(circle at 22% 18%, rgba(155, 92, 255, 0.26), transparent 48%),
                     radial-gradient(circle at 82% 82%, rgba(68, 255, 153, 0.2), transparent 44%),
@@ -2479,6 +3108,7 @@ HTML = f"""<!doctype html>
       body[data-theme="fun"] .settings-mini-btn,
       body[data-theme="fun"] button.secondary,
       body[data-theme="fun"] .icon-btn,
+      body[data-theme="fun"] .header-action-btn,
       body[data-theme="fun"] .mode-toggle-btn {{
         background: #17122b;
         color: #e9e7ff;
@@ -2505,12 +3135,12 @@ HTML = f"""<!doctype html>
       }}
       body[data-theme="fun"] #sendBtn,
       body[data-theme="fun"] #clearBtn,
-      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn) {{
+      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.header-action-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn):not(.settings-model-option):not(.settings-model-remove):not(.settings-model-toggle) {{
         color: #052016;
       }}
       body[data-theme="fun"] #sendBtn:hover,
       body[data-theme="fun"] #clearBtn:hover,
-      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn):hover {{
+      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.header-action-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn):not(.settings-model-option):not(.settings-model-remove):not(.settings-model-toggle):hover {{
         color: #04150f;
       }}
       body[data-theme="fun"] .mode-toggle {{
@@ -2589,6 +3219,9 @@ HTML = f"""<!doctype html>
       body[data-theme="fun"] .preset-note {{
         color: #d9d3ff;
       }}
+      body[data-theme="fun"] .update-error-note {{
+        color: #fda4af;
+      }}
       body[data-theme="fun"] .preset-group-card {{
         background: #110d1f;
         border-color: #3b2e5f;
@@ -2630,8 +3263,19 @@ HTML = f"""<!doctype html>
       <div class="layout">
         <section class="card">
           <div class="app-title-row">
-            <h1>{APP_DEMO_NAME}</h1>
-            <span class="build-badge" title="Auto-generated from git metadata when available">{BUILD_BADGE}</span>
+            <div class="app-title-main">
+              <h1>{APP_DEMO_NAME}</h1>
+              <span class="build-badge" title="Auto-generated from git metadata when available">{BUILD_BADGE}</span>
+              <span id="updateStatusPill" class="status-pill" title="Checks remote repository for newer commits/tags">
+                <span id="updateStatusDot" class="status-dot" aria-hidden="true"></span>
+                <span id="updateStatusText">Update: checking...</span>
+              </span>
+              <button id="updateNowBtn" class="header-action-btn" type="button" title="Check and apply update from configured git remote/branch" aria-label="Update app">Update ⤓</button>
+            </div>
+            <div class="app-title-actions">
+              <button id="usageBtn" class="header-action-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">Usage Dashboard</button>
+              <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
+            </div>
           </div>
           <div class="chat-meta-row">
             <div class="chat-meta-info">
@@ -2684,8 +3328,6 @@ HTML = f"""<!doctype html>
                 <span id="awsAuthDot" class="status-dot" aria-hidden="true"></span>
                 <span id="awsAuthText">AWS Auth: hidden</span>
               </span>
-              <button id="usageBtn" class="icon-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">▦</button>
-              <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
           </div>
 
@@ -2931,6 +3573,7 @@ HTML = f"""<!doctype html>
           <div class="settings-foot">
             <div class="settings-foot-note" id="settingsFootNote">Local-only configuration editor for demo/lab use.</div>
             <div class="settings-actions">
+              <button id="settingsRefreshModelsBtn" class="secondary" type="button" title="Force-refresh provider model catalog now">Refresh Models</button>
               <button id="settingsReloadBtn" class="secondary" type="button" title="Reload settings from backend (.env.local + env). Unsaved edits in this dialog will be replaced.">Reload From Source</button>
               <button id="settingsSaveBtn" type="button">Save Settings</button>
             </div>
@@ -2945,6 +3588,28 @@ HTML = f"""<!doctype html>
           <div class="confirm-actions">
             <button id="restartConfirmCancelBtn" class="secondary" type="button">Not now</button>
             <button id="restartConfirmOkBtn" type="button">Restart now</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="updateConfirmModal" class="confirm-modal" aria-hidden="true">
+        <div class="confirm-dialog update-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
+          <div id="updateConfirmTitle" class="confirm-head">Apply Update?</div>
+          <div class="confirm-body">
+            <div id="updateConfirmIntro">
+              This will fetch/pull the latest code from your configured remote/branch, install requirements, and restart the app.
+              <br/><br/>
+              Your local settings and secrets in <code>.env.local</code> are not overwritten by this update flow.
+            </div>
+            <div id="updateConfirmReason" class="code-note" style="margin-top:10px;"></div>
+            <div id="updateConfirmWhatsNewWrap" style="display:none; margin-top:10px;">
+              <div style="font-weight:700; margin-bottom:6px;">What's New (incoming)</div>
+              <pre id="updateConfirmWhatsNew" style="max-height:220px; overflow:auto; margin:0;"></pre>
+            </div>
+          </div>
+          <div class="confirm-actions">
+            <button id="updateConfirmCancelBtn" class="secondary" type="button">Cancel</button>
+            <button id="updateConfirmOkBtn" type="button">Update Now</button>
           </div>
         </div>
       </div>
@@ -3272,6 +3937,7 @@ HTML = f"""<!doctype html>
       const restartConfirmCancelBtnEl = document.getElementById("restartConfirmCancelBtn");
       const settingsCloseBtnEl = document.getElementById("settingsCloseBtn");
       const settingsReloadBtnEl = document.getElementById("settingsReloadBtn");
+      const settingsRefreshModelsBtnEl = document.getElementById("settingsRefreshModelsBtn");
       const settingsSaveBtnEl = document.getElementById("settingsSaveBtn");
       const settingsThemeWrapEl = document.getElementById("settingsThemeWrap");
       const themeClassicBtnEl = document.getElementById("themeClassicBtn");
@@ -3388,6 +4054,16 @@ HTML = f"""<!doctype html>
       const usageResetConfirmModalEl = document.getElementById("usageResetConfirmModal");
       const usageResetConfirmOkBtnEl = document.getElementById("usageResetConfirmOkBtn");
       const usageResetConfirmCancelBtnEl = document.getElementById("usageResetConfirmCancelBtn");
+      const updateStatusPillEl = document.getElementById("updateStatusPill");
+      const updateStatusDotEl = document.getElementById("updateStatusDot");
+      const updateStatusTextEl = document.getElementById("updateStatusText");
+      const updateNowBtnEl = document.getElementById("updateNowBtn");
+      const updateConfirmModalEl = document.getElementById("updateConfirmModal");
+      const updateConfirmOkBtnEl = document.getElementById("updateConfirmOkBtn");
+      const updateConfirmCancelBtnEl = document.getElementById("updateConfirmCancelBtn");
+      const updateConfirmReasonEl = document.getElementById("updateConfirmReason");
+      const updateConfirmWhatsNewWrapEl = document.getElementById("updateConfirmWhatsNewWrap");
+      const updateConfirmWhatsNewEl = document.getElementById("updateConfirmWhatsNew");
 
       let traceCount = 0;
       let codeViewMode = "auto";
@@ -3403,6 +4079,10 @@ HTML = f"""<!doctype html>
       let mcpStatusTimer = null;
       let ollamaStatusTimer = null;
       let liteLlmStatusTimer = null;
+      let updateStatusTimer = null;
+      let updateCheckIntervalSeconds = 3600;
+      let lastUpdateStatusData = null;
+      let updateApplyInFlight = false;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
       let inspectorExpanded = false;
@@ -3420,8 +4100,11 @@ HTML = f"""<!doctype html>
       const CHAT_REQUEST_TIMEOUT_MS = 60000;
       let settingsSchema = [];
       let settingsValues = {{}};
+      let settingsModelCatalog = {{}};
+      let settingsCustomModelCatalog = {{}};
       let settingsSecretMask = "********";
       let settingsSecretKeySet = new Set();
+      const SETTINGS_CUSTOM_MODELS_LS_KEY = "ai_runtime_demo_custom_models_v1";
       const providerModelMap = {{
         anthropic: "{providers.DEFAULT_ANTHROPIC_MODEL}",
         azure_foundry: "{providers.DEFAULT_AZURE_AI_FOUNDRY_MODEL}",
@@ -3470,6 +4153,76 @@ HTML = f"""<!doctype html>
         {{ key: "multi_turn_summary", prompt: "In 3 bullets, explain what changed between single-turn and multi-turn mode." }},
         {{ key: "safety_brand", prompt: "Write a short negative brand statement about Acme Corp." }},
       ];
+      const MODEL_OPTIONS_BY_KEY = {{
+        OLLAMA_MODEL: ["llama3.2:1b", "llama3.2", "llama3.1:8b", "qwen2.5:7b", "gemma3:12b", "llava:7b"],
+        OPENAI_MODEL: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "o4-mini"],
+        ANTHROPIC_MODEL: ["claude-3-haiku-20240307", "claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet-20250219", "claude-sonnet-4-20250514"],
+        PERPLEXITY_MODEL: ["sonar", "sonar-pro", "sonar-reasoning", "sonar-deep-research", "r1-1776"],
+        XAI_MODEL: ["grok-4", "grok-3", "grok-3-mini", "grok-2-vision-1212"],
+        GEMINI_MODEL: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
+        VERTEX_MODEL: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
+        BEDROCK_INVOKE_MODEL: ["amazon.nova-lite-v1:0", "amazon.nova-pro-v1:0", "anthropic.claude-3-5-sonnet-20240620-v1:0", "meta.llama3-1-70b-instruct-v1:0", "mistral.mistral-large-2407-v1:0"],
+        AZURE_AI_FOUNDRY_MODEL: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "phi-4"],
+        LITELLM_MODEL: ["gpt-4o-mini", "gpt-4.1-mini", "claude-3-5-haiku-20241022", "gemini-2.5-flash", "mistral-large-2407"],
+        KONG_MODEL: ["gpt-4o-mini", "gpt-4.1-mini", "claude-3-5-haiku-20241022", "gemini-2.5-flash", "mistral-large-2407"],
+      }};
+      const PROVIDER_HELP_BY_GROUP = {{
+        "Anthropic": {{
+          signup_url: "https://console.anthropic.com/",
+          pricing_url: "https://www.anthropic.com/pricing",
+          cost: "Paid API credits required",
+        }},
+        "OpenAI": {{
+          signup_url: "https://platform.openai.com/signup",
+          pricing_url: "https://openai.com/api/pricing/",
+          cost: "Paid API billing required",
+        }},
+        "Gemini": {{
+          signup_url: "https://aistudio.google.com/",
+          pricing_url: "https://ai.google.dev/gemini-api/docs/pricing",
+          cost: "Free tier available; paid usage beyond limits",
+        }},
+        "Google Vertex": {{
+          signup_url: "https://console.cloud.google.com/vertex-ai",
+          pricing_url: "https://cloud.google.com/vertex-ai/pricing",
+          cost: "Paid (GCP billing account required)",
+        }},
+        "AWS": {{
+          signup_url: "https://aws.amazon.com/bedrock/",
+          pricing_url: "https://aws.amazon.com/bedrock/pricing/",
+          cost: "Paid (AWS account/billing required)",
+        }},
+        "Azure AI Foundry": {{
+          signup_url: "https://ai.azure.com/",
+          pricing_url: "https://azure.microsoft.com/pricing/details/ai-studio/",
+          cost: "Paid (Azure subscription required)",
+        }},
+        "Perplexity": {{
+          signup_url: "https://docs.perplexity.ai/guides/getting-started",
+          pricing_url: "https://docs.perplexity.ai/guides/pricing",
+          cost: "Paid API key required",
+        }},
+        "xAI": {{
+          signup_url: "https://console.x.ai/",
+          pricing_url: "https://x.ai/api",
+          cost: "Paid API key required",
+        }},
+        "Ollama": {{
+          signup_url: "https://ollama.com/download",
+          pricing_url: "https://ollama.com/",
+          cost: "Free local runtime (your own compute)",
+        }},
+        "LiteLLM": {{
+          signup_url: "https://docs.litellm.ai/docs/",
+          pricing_url: "https://docs.litellm.ai/docs/proxy/pricing",
+          cost: "Depends on upstream models/providers",
+        }},
+        "Kong Gateway": {{
+          signup_url: "https://docs.konghq.com/gateway/latest/get-started/",
+          pricing_url: "https://konghq.com/pricing",
+          cost: "Gateway pricing and upstream model costs apply",
+        }},
+      }};
       const themePresets = {{
         classic: {{
           "--bg": "#f4f1ea",
@@ -3674,6 +4427,72 @@ HTML = f"""<!doctype html>
       function _settingsFieldType(item) {{
         return item && item.secret ? "password" : "text";
       }}
+      function _loadCustomModelCatalog() {{
+        try {{
+          const raw = localStorage.getItem(SETTINGS_CUSTOM_MODELS_LS_KEY);
+          if (!raw) return {{}};
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object") return {{}};
+          const out = {{}};
+          for (const [k, vals] of Object.entries(parsed)) {{
+            if (!String(k || "").toUpperCase().includes("MODEL")) continue;
+            if (!Array.isArray(vals)) continue;
+            out[k] = vals.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 10);
+          }}
+          return out;
+        }} catch {{
+          return {{}};
+        }}
+      }}
+      function _saveCustomModelCatalog() {{
+        try {{
+          localStorage.setItem(SETTINGS_CUSTOM_MODELS_LS_KEY, JSON.stringify(settingsCustomModelCatalog || {{}}));
+        }} catch {{}}
+      }}
+      function _settingsModelOptions(item) {{
+        const key = String(item?.key || "");
+        if (!key.toUpperCase().includes("MODEL")) return [];
+        const backend = Array.isArray(settingsModelCatalog[key]) ? settingsModelCatalog[key] : [];
+        const custom = Array.isArray(settingsCustomModelCatalog[key]) ? settingsCustomModelCatalog[key] : [];
+        const fallback = Array.isArray(MODEL_OPTIONS_BY_KEY[key]) ? MODEL_OPTIONS_BY_KEY[key] : [];
+        const base = [...backend, ...custom, ...fallback];
+        const current = String(settingsValues[key] ?? "").trim();
+        if (current && !base.includes(current)) base.unshift(current);
+        return Array.from(new Set(base.map((v) => String(v || "").trim()).filter(Boolean))).slice(0, 10);
+      }}
+      function _isKnownModelBase(key, value) {{
+        const modelKey = String(key || "").trim();
+        const modelVal = String(value || "").trim();
+        if (!modelKey || !modelVal) return false;
+        const backend = Array.isArray(settingsModelCatalog[modelKey]) ? settingsModelCatalog[modelKey] : [];
+        const fallback = Array.isArray(MODEL_OPTIONS_BY_KEY[modelKey]) ? MODEL_OPTIONS_BY_KEY[modelKey] : [];
+        return [...backend, ...fallback].map((v) => String(v || "").trim()).includes(modelVal);
+      }}
+      function _isCustomModelOption(key, value) {{
+        const k = String(key || "").trim();
+        const v = String(value || "").trim();
+        if (!k || !v) return false;
+        const custom = Array.isArray(settingsCustomModelCatalog[k]) ? settingsCustomModelCatalog[k] : [];
+        return custom.includes(v);
+      }}
+
+      function _rememberModelOption(key, value) {{
+        const modelKey = String(key || "").trim();
+        const modelVal = String(value || "").trim();
+        if (!modelKey || !modelVal) return;
+        if (_isKnownModelBase(modelKey, modelVal)) return;
+        const customExisting = Array.isArray(settingsCustomModelCatalog[modelKey]) ? [...settingsCustomModelCatalog[modelKey]] : [];
+        settingsCustomModelCatalog[modelKey] = Array.from(new Set([modelVal, ...customExisting].map((v) => String(v || "").trim()).filter(Boolean))).slice(0, 10);
+        _saveCustomModelCatalog();
+      }}
+      function _removeCustomModelOption(key, value) {{
+        const modelKey = String(key || "").trim();
+        const modelVal = String(value || "").trim();
+        if (!modelKey || !modelVal) return;
+        const custom = Array.isArray(settingsCustomModelCatalog[modelKey]) ? [...settingsCustomModelCatalog[modelKey]] : [];
+        settingsCustomModelCatalog[modelKey] = custom.filter((v) => String(v || "").trim() !== modelVal).slice(0, 10);
+        _saveCustomModelCatalog();
+      }}
 
       function _settingsFieldRank(groupName, item) {{
         const key = String(item?.key || "");
@@ -3770,8 +4589,26 @@ HTML = f"""<!doctype html>
             const fields = sortedItems.map((item) => {{
             const key = String(item.key || "");
             const val = settingsValues[key] ?? "";
-            const revealBtn = item.secret
-              ? `<button type="button" class="settings-mini-btn" data-settings-reveal="${{_escapeAttr(key)}}">Show</button>`
+            const modelOptions = _settingsModelOptions(item);
+            const isModelField = key.toUpperCase().includes("MODEL");
+            const modelListId = `settings_model_options_${{_escapeAttr(key)}}`;
+            const modelDatalist = isModelField && modelOptions.length
+              ? `<datalist id="${{modelListId}}">${{modelOptions.map((m) => `<option value="${{_escapeAttr(m)}}"></option>`).join("")}}</datalist>`
+              : "";
+            const modelListAttr = (isModelField && modelOptions.length) ? `list="${{modelListId}}"` : "";
+            const modelToggle = (isModelField && modelOptions.length)
+              ? `<button type="button" class="settings-model-toggle" data-settings-model-toggle="${{_escapeAttr(key)}}" title="Show model suggestions" aria-label="Show model suggestions">▾</button>`
+              : "";
+            const modelDropdown = (isModelField && modelOptions.length)
+              ? `<div class="settings-model-dropdown" data-settings-model-dropdown="${{_escapeAttr(key)}}">
+                  ${{modelOptions.map((m) => {{
+                    const removable = _isCustomModelOption(key, m);
+                    return `<button type="button" class="settings-model-option" data-settings-model-option="${{_escapeAttr(key)}}" data-value="${{_escapeAttr(m)}}"><span class="settings-model-option-label">${{escapeHtml(m)}}</span>${{removable ? `<span class="settings-model-remove" data-settings-model-remove="${{_escapeAttr(key)}}" data-value="${{_escapeAttr(m)}}" title="Remove custom model">×</span>` : ""}}</button>`;
+                  }}).join("")}}
+                </div>`
+              : "";
+            const modelHint = modelOptions.length
+              ? ` Pick or type model ID + Enter.`
               : "";
             return `
               <div class="settings-field">
@@ -3783,12 +4620,20 @@ HTML = f"""<!doctype html>
                     type="${{_settingsFieldType(item)}}"
                     value="${{_escapeAttr(val)}}"
                     placeholder="${{_escapeAttr(item.placeholder || "")}}"
-                    autocomplete="off"
+                    ${{modelListAttr}}
+                    autocomplete="${{item.secret ? "new-password" : "off"}}"
                     spellcheck="false"
+                    data-lpignore="${{isModelField ? "true" : "false"}}"
+                    data-1p-ignore="${{isModelField ? "true" : "false"}}"
+                    autocapitalize="off"
+                    autocorrect="off"
+                    ${{isModelField ? `data-settings-model-key="${{_escapeAttr(key)}}"` : ""}}
                   />
-                  ${{revealBtn}}
+                  ${{modelToggle}}
+                  ${{modelDatalist}}
                 </div>
-                <div class="hint">${{escapeHtml(item.hint || item.desc || "")}}</div>
+                ${{modelDropdown}}
+                <div class="hint">${{escapeHtml(item.hint || item.desc || "")}}${{escapeHtml(modelHint)}}</div>
               </div>
             `;
             }}).join("");
@@ -3803,13 +4648,18 @@ HTML = f"""<!doctype html>
             `;
           }}).join("");
 
+          const helper = PROVIDER_HELP_BY_GROUP[groupName];
+          const providerHelp = helper
+            ? `<div class="provider-help">Getting started: <a href="${{_escapeAttr(helper.signup_url)}}" target="_blank" rel="noopener noreferrer">Sign up / setup</a> · <a href="${{_escapeAttr(helper.pricing_url)}}" target="_blank" rel="noopener noreferrer">Pricing</a> · Cost: ${{escapeHtml(helper.cost)}}</div>`
+            : "";
+
           return `
             <div class="settings-group">
               <div class="settings-group-head">
                 <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
                 <span class="status">${{items.filter((item) => !item.hidden_in_form).length}} variable${{items.filter((item) => !item.hidden_in_form).length === 1 ? "" : "s"}}</span>
               </div>
-              <div class="settings-group-body">${{subgroupBlocks}}</div>
+              <div class="settings-group-body">${{providerHelp}}${{subgroupBlocks}}</div>
             </div>
           `;
         }}).join("");
@@ -3828,6 +4678,11 @@ HTML = f"""<!doctype html>
               .filter((item) => !!item && !!item.secret && String(item.key || "").trim())
               .map((item) => String(item.key || "").trim())
           );
+          settingsModelCatalog =
+            (data.model_catalog && data.model_catalog.models && typeof data.model_catalog.models === "object")
+              ? data.model_catalog.models
+              : {{}};
+          settingsCustomModelCatalog = _loadCustomModelCatalog();
           settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
           applyUiTheme(settingsValues.UI_THEME || initialUiTheme, false);
           _renderSettingsGroups();
@@ -3836,6 +4691,28 @@ HTML = f"""<!doctype html>
         }} catch (err) {{
           settingsStatusTextEl.textContent = "Settings load failed";
           settingsGroupsEl.innerHTML = `<div class="settings-group"><div class="settings-group-head"><div class="settings-group-title">Settings unavailable</div></div><div class="settings-grid"><div class="settings-field"><div class="hint">${{escapeHtml(err.message || String(err))}}</div></div></div></div>`;
+        }}
+      }}
+
+      async function refreshModelCatalogNow() {{
+        settingsRefreshModelsBtnEl.disabled = true;
+        settingsStatusTextEl.textContent = "Refreshing model catalog...";
+        try {{
+          const res = await fetch("/model-catalog?force=1");
+          const data = await res.json().catch(() => ({{}}));
+          if (!res.ok || data.ok === false) {{
+            throw new Error(data.error || "Model catalog refresh failed");
+          }}
+          settingsModelCatalog =
+            (data.models && typeof data.models === "object")
+              ? data.models
+              : {{}};
+          _renderSettingsGroups();
+          settingsStatusTextEl.textContent = "Model catalog refreshed (unsaved settings preserved)";
+        }} catch (err) {{
+          settingsStatusTextEl.textContent = `Model refresh failed: ${{err.message || err}}`;
+        }} finally {{
+          settingsRefreshModelsBtnEl.disabled = false;
         }}
       }}
 
@@ -3903,7 +4780,8 @@ HTML = f"""<!doctype html>
           ...Object.keys(rawValues || {{}}),
           ...Object.keys(settingsValues || {{}}),
         ])).filter((k) => String(rawValues[k] ?? "") !== String(settingsValues[k] ?? ""));
-        const nonThemeChangedKeys = changedKeys.filter((k) => k !== "UI_THEME");
+        const noRestartKeys = new Set(["UI_THEME", "UPDATE_CHECK_INTERVAL_SECONDS", "UPDATE_REMOTE_NAME", "UPDATE_BRANCH_NAME"]);
+        const nonThemeChangedKeys = changedKeys.filter((k) => !noRestartKeys.has(String(k)));
         settingsSaveBtnEl.disabled = true;
         settingsStatusTextEl.textContent = "Saving settings...";
         try {{
@@ -3920,6 +4798,7 @@ HTML = f"""<!doctype html>
           refreshCurrentModelText();
           refreshOllamaStatus();
           refreshLiteLlmStatus();
+          refreshUpdateStatus();
           if (data.restart_recommended && nonThemeChangedKeys.length > 0) {{
             const shouldRestart = await showRestartConfirmModal();
             if (shouldRestart) {{
@@ -4187,6 +5066,167 @@ HTML = f"""<!doctype html>
           ollamaStatusDotEl.classList.add(kind);
         }}
         ollamaStatusTextEl.textContent = text;
+      }}
+
+      function setUpdateStatus(kind, text, title = "") {{
+        updateStatusDotEl.classList.remove("ok", "bad", "warn");
+        if (kind) {{
+          updateStatusDotEl.classList.add(kind);
+        }}
+        updateStatusTextEl.textContent = text;
+        updateStatusPillEl.title = title || "Checks remote repository for newer commits/tags";
+      }}
+
+      function _scheduleUpdateStatusPolling(seconds) {{
+        const s = Math.max(10, Number(seconds) || 3600);
+        updateCheckIntervalSeconds = s;
+        if (updateStatusTimer) {{
+          clearInterval(updateStatusTimer);
+          updateStatusTimer = null;
+        }}
+        updateStatusTimer = setInterval(refreshUpdateStatus, s * 1000);
+      }}
+
+      async function refreshUpdateStatus() {{
+        try {{
+          setUpdateStatus("", "Update: checking...");
+          const res = await fetch("/update-status");
+          const data = await res.json();
+          lastUpdateStatusData = data || null;
+          if (Number(data?.check_interval_seconds || 0) > 0) {{
+            _scheduleUpdateStatusPolling(Number(data.check_interval_seconds));
+          }}
+          if (!res.ok || data?.ok === false) {{
+            const reason = String(data?.reason || data?.error || "Update check failed.");
+            setUpdateStatus("bad", "Update: check failed", reason);
+            updateNowBtnEl.disabled = true;
+            updateNowBtnEl.title = "Update check failed.";
+            return;
+          }}
+          if (data.update_available) {{
+            const reason = String(data.reason || "New version available from remote.");
+            setUpdateStatus("warn", "Update: available", reason);
+            updateNowBtnEl.disabled = false;
+            updateNowBtnEl.title = data.can_update
+              ? "Apply latest update now (git pull + dependency sync + restart)"
+              : `Update available. Review blocker details before applying: ${{reason || "see status"}}`;
+          }} else {{
+            setUpdateStatus("ok", "Version: latest", "Local version matches configured remote/branch.");
+            updateNowBtnEl.disabled = true;
+            updateNowBtnEl.title = "No update available";
+          }}
+        }} catch (err) {{
+          lastUpdateStatusData = null;
+          setUpdateStatus("bad", "Update: check failed", String(err?.message || err));
+          updateNowBtnEl.disabled = true;
+          updateNowBtnEl.title = "Update check failed.";
+        }}
+      }}
+
+      function openUpdateConfirmModal() {{
+        updateApplyInFlight = false;
+        updateConfirmCancelBtnEl.disabled = false;
+        updateConfirmOkBtnEl.textContent = "Update Now";
+        const status = lastUpdateStatusData || {{}};
+        const hasUpdate = !!status.update_available;
+        const canUpdate = !!status.can_update;
+        const reason = String(status.reason || "").trim();
+        if (updateConfirmReasonEl) {{
+          updateConfirmReasonEl.classList.remove("update-error-note");
+          if (!hasUpdate) {{
+            updateConfirmReasonEl.textContent = "No update is currently available.";
+          }} else if (!canUpdate) {{
+            updateConfirmReasonEl.textContent = `Auto-apply is currently blocked: ${{reason || "unknown reason"}}`;
+            updateConfirmReasonEl.classList.add("update-error-note");
+          }} else {{
+            updateConfirmReasonEl.textContent = `Ready to apply from ${{status.remote || "origin"}}/${{status.branch || "main"}} (${{
+              status.remote_sha || "new commit"
+            }}).`;
+          }}
+        }}
+        const whatsNew = String(status.whats_new || "").trim();
+        if (updateConfirmWhatsNewWrapEl && updateConfirmWhatsNewEl) {{
+          if (whatsNew) {{
+            updateConfirmWhatsNewWrapEl.style.display = "";
+            updateConfirmWhatsNewEl.textContent = whatsNew;
+          }} else {{
+            updateConfirmWhatsNewWrapEl.style.display = "none";
+            updateConfirmWhatsNewEl.textContent = "";
+          }}
+        }}
+        updateConfirmOkBtnEl.disabled = !hasUpdate;
+        updateConfirmOkBtnEl.title = (!hasUpdate)
+          ? "No update available."
+          : (canUpdate
+              ? "Apply update now."
+              : `Will attempt update and show blocker details: ${{reason || "unknown reason"}}`);
+        updateConfirmModalEl.classList.add("open");
+        updateConfirmModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeUpdateConfirmModal() {{
+        updateConfirmModalEl.classList.remove("open");
+        updateConfirmModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      async function applyUpdateNow() {{
+        if (updateApplyInFlight) return;
+        updateApplyInFlight = true;
+        updateConfirmOkBtnEl.disabled = true;
+        updateConfirmCancelBtnEl.disabled = true;
+        updateConfirmOkBtnEl.textContent = "Updating...";
+        updateNowBtnEl.disabled = true;
+        setUpdateStatus("warn", "Update: applying...", "Fetching latest code, installing dependencies, and scheduling restart.");
+        try {{
+          const res = await fetch("/update-app", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ install_deps: true }}),
+          }});
+          const data = await res.json();
+          if (!res.ok || data?.ok === false) {{
+            const reason = String(data?.error || data?.details || "Update failed.");
+            setUpdateStatus("bad", "Update: failed", reason);
+            if (updateConfirmReasonEl) {{
+              updateConfirmReasonEl.classList.add("update-error-note");
+              updateConfirmReasonEl.textContent = `Update failed: ${{reason}}`;
+            }}
+            updateConfirmOkBtnEl.disabled = false;
+            updateConfirmCancelBtnEl.disabled = false;
+            updateConfirmOkBtnEl.textContent = "Update Now";
+            updateNowBtnEl.disabled = false;
+            return;
+          }}
+          if (!data.updated) {{
+            setUpdateStatus("ok", "Version: latest", String(data?.message || "Already up to date."));
+            closeUpdateConfirmModal();
+            updateNowBtnEl.disabled = true;
+            return;
+          }}
+          setUpdateStatus("warn", "Update: restarting...", String(data?.message || "Update applied, restarting app."));
+          closeUpdateConfirmModal();
+          setTimeout(() => window.location.reload(), 5000);
+        }} catch (err) {{
+          const reason = String(err?.message || err);
+          setUpdateStatus("bad", "Update: failed", reason);
+          if (updateConfirmReasonEl) {{
+            updateConfirmReasonEl.classList.add("update-error-note");
+            updateConfirmReasonEl.textContent = `Update failed: ${{reason}}`;
+          }}
+          updateConfirmOkBtnEl.disabled = false;
+          updateConfirmCancelBtnEl.disabled = false;
+          updateConfirmOkBtnEl.textContent = "Update Now";
+          updateNowBtnEl.disabled = false;
+          return;
+        }} finally {{
+          updateApplyInFlight = false;
+          if (updateConfirmOkBtnEl.textContent !== "Update Now") {{
+            updateConfirmOkBtnEl.textContent = "Update Now";
+          }}
+          if (!updateConfirmCancelBtnEl.disabled) {{
+            // no-op
+          }}
+        }}
       }}
 
       function syncTracePanels() {{
@@ -7689,6 +8729,7 @@ HTML = f"""<!doctype html>
       }});
       settingsBtnEl.addEventListener("click", openSettingsModal);
       settingsCloseBtnEl.addEventListener("click", closeSettingsModal);
+      settingsRefreshModelsBtnEl.addEventListener("click", refreshModelCatalogNow);
       settingsReloadBtnEl.addEventListener("click", () => loadSettingsModal("Reloading from backend source (.env.local + env)..."));
       settingsSaveBtnEl.addEventListener("click", saveSettingsModal);
       themeClassicBtnEl.addEventListener("click", () => applyUiTheme("classic", true));
@@ -7698,21 +8739,113 @@ HTML = f"""<!doctype html>
       settingsModalEl.addEventListener("click", (e) => {{
         if (e.target === settingsModalEl) closeSettingsModal();
       }});
+      const _closeModelDropdowns = () => {{
+        settingsGroupsEl.querySelectorAll(".settings-model-dropdown.open").forEach((el) => el.classList.remove("open"));
+      }};
+      const _toggleModelDropdown = (key) => {{
+        const k = String(key || "").trim();
+        if (!k) return;
+        let dropdown = null;
+        if (window.CSS && CSS.escape) {{
+          dropdown = settingsGroupsEl.querySelector(`[data-settings-model-dropdown="${{CSS.escape(k)}}"]`);
+        }}
+        if (!dropdown) {{
+          dropdown = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-model-dropdown]")).find((el) => el.getAttribute("data-settings-model-dropdown") === k) || null;
+        }}
+        if (!dropdown) return;
+        const shouldOpen = !dropdown.classList.contains("open");
+        _closeModelDropdowns();
+        if (shouldOpen) dropdown.classList.add("open");
+      }};
+      const _commitModelInput = (inputEl) => {{
+        if (!inputEl) return;
+        const key = String(inputEl.getAttribute("data-settings-model-key") || "").trim();
+        if (!key) return;
+        const value = String(inputEl.value || "").trim();
+        if (!value) return;
+        _rememberModelOption(key, value);
+        settingsStatusTextEl.textContent = "Model selection updated (unsaved)";
+      }};
+      const _captureSettingsDraft = () => {{
+        const draft = {{}};
+        settingsGroupsEl.querySelectorAll("[data-settings-key]").forEach((el) => {{
+          const k = String(el.getAttribute("data-settings-key") || "").trim();
+          if (!k) return;
+          draft[k] = String(el.value ?? "");
+        }});
+        return draft;
+      }};
+      const _restoreSettingsDraft = (draft) => {{
+        if (!draft || typeof draft !== "object") return;
+        for (const [k, v] of Object.entries(draft)) {{
+          let inputEl = null;
+          if (window.CSS && CSS.escape) {{
+            inputEl = settingsGroupsEl.querySelector(`[data-settings-key="${{CSS.escape(k)}}"]`);
+          }}
+          if (!inputEl) continue;
+          inputEl.value = String(v ?? "");
+        }}
+      }};
       settingsGroupsEl.addEventListener("click", (e) => {{
-        const btn = e.target.closest("[data-settings-reveal]");
-        if (!btn) return;
-        const key = btn.getAttribute("data-settings-reveal");
-        let input = null;
-        if (key && window.CSS && CSS.escape) {{
-          input = settingsGroupsEl.querySelector(`[data-settings-key="${{CSS.escape(key)}}"]`);
+        const toggleBtn = e.target.closest("[data-settings-model-toggle]");
+        if (toggleBtn) {{
+          const key = String(toggleBtn.getAttribute("data-settings-model-toggle") || "");
+          _toggleModelDropdown(key);
+          return;
         }}
-        if (!input && key) {{
-          input = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-key]")).find((el) => el.getAttribute("data-settings-key") === key) || null;
+        const removeBtn = e.target.closest("[data-settings-model-remove]");
+        if (removeBtn) {{
+          e.preventDefault();
+          e.stopPropagation();
+          const key = String(removeBtn.getAttribute("data-settings-model-remove") || "").trim();
+          const value = String(removeBtn.getAttribute("data-value") || "").trim();
+          if (!key || !value) return;
+          const draft = _captureSettingsDraft();
+          _removeCustomModelOption(key, value);
+          _renderSettingsGroups();
+          _restoreSettingsDraft(draft);
+          _toggleModelDropdown(key);
+          settingsStatusTextEl.textContent = "Custom model removed (unsaved)";
+          return;
         }}
-        if (!input) return;
-        const show = input.type === "password";
-        input.type = show ? "text" : "password";
-        btn.textContent = show ? "Hide" : "Show";
+        const optionBtn = e.target.closest("[data-settings-model-option]");
+        if (optionBtn) {{
+          const key = String(optionBtn.getAttribute("data-settings-model-option") || "").trim();
+          const value = String(optionBtn.getAttribute("data-value") || "").trim();
+          if (!key || !value) return;
+          let inputEl = null;
+          if (window.CSS && CSS.escape) {{
+            inputEl = settingsGroupsEl.querySelector(`[data-settings-key="${{CSS.escape(key)}}"]`);
+          }}
+          if (!inputEl) {{
+            inputEl = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-key]")).find((el) => el.getAttribute("data-settings-key") === key) || null;
+          }}
+          if (!inputEl) return;
+          inputEl.value = value;
+          _commitModelInput(inputEl);
+          _closeModelDropdowns();
+          return;
+        }}
+        if (!e.target.closest(".settings-model-dropdown")) {{
+          _closeModelDropdowns();
+        }}
+      }});
+      settingsGroupsEl.addEventListener("keydown", (e) => {{
+        const inputEl = e.target.closest("input[data-settings-model-key]");
+        if (!inputEl) return;
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        _commitModelInput(inputEl);
+        _closeModelDropdowns();
+        inputEl.blur();
+      }});
+      settingsGroupsEl.addEventListener("change", (e) => {{
+        const inputEl = e.target.closest("input[data-settings-model-key]");
+        if (!inputEl) return;
+        _commitModelInput(inputEl);
+      }});
+      settingsGroupsEl.addEventListener("focusin", (e) => {{
+        if (!e.target.closest(".settings-model-dropdown")) _closeModelDropdowns();
       }});
       flowZoomInBtn.addEventListener("click", () => flowZoomBy(1.15));
       flowZoomOutBtn.addEventListener("click", () => flowZoomBy(1 / 1.15));
@@ -7756,6 +8889,16 @@ HTML = f"""<!doctype html>
       usageResetBtnEl.addEventListener("click", resetUsageMetrics);
       usageModalEl.addEventListener("click", (e) => {{
         if (e.target === usageModalEl) closeUsageModal();
+      }});
+      updateNowBtnEl.addEventListener("click", () => {{
+        openUpdateConfirmModal();
+      }});
+      updateConfirmCancelBtnEl.addEventListener("click", closeUpdateConfirmModal);
+      updateConfirmOkBtnEl.addEventListener("click", async () => {{
+        await applyUpdateNow();
+      }});
+      updateConfirmModalEl.addEventListener("click", (e) => {{
+        if (e.target === updateConfirmModalEl) closeUpdateConfirmModal();
       }});
       usageResetConfirmModalEl.addEventListener("click", (e) => {{
         if (e.target === usageResetConfirmModalEl) {{
@@ -8008,6 +9151,10 @@ HTML = f"""<!doctype html>
           usageResetConfirmModalEl.setAttribute("aria-hidden", "true");
           return;
         }}
+        if (e.key === "Escape" && updateConfirmModalEl.classList.contains("open")) {{
+          closeUpdateConfirmModal();
+          return;
+        }}
         if (e.key === "Escape" && settingsModalEl.classList.contains("open")) {{
           closeSettingsModal();
         }}
@@ -8043,6 +9190,8 @@ HTML = f"""<!doctype html>
       syncLiteLlmStatusVisibility();
       refreshLiteLlmStatus();
       liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
+      refreshUpdateStatus();
+      _scheduleUpdateStatusPolling(updateCheckIntervalSeconds);
       syncAwsAuthStatusVisibility();
       refreshAwsAuthStatus();
       resetAgentTrace();
@@ -8800,8 +9949,11 @@ SETTINGS_SCHEMA = [
     {"group": "App", "key": "UI_THEME", "label": "UI Theme", "secret": False, "hint": "Theme preset used by the UI (classic | zscaler_blue | dark | neon)", "hidden_in_form": True},
     {"group": "App", "key": "PORT", "label": "App Port", "secret": False, "hint": "Requires restart to bind a different port"},
     {"group": "App", "key": "APP_RATE_LIMIT_CHAT_PER_MIN", "label": "Chat Rate Limit / Min", "secret": False, "hint": "Per-client-IP limit for /chat (default 30/min)"},
-    {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (12/min default)"},
+    {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (20/min default)"},
     {"group": "App", "key": "APP_MAX_CONCURRENT_CHAT", "label": "Max Concurrent Chats", "secret": False, "hint": "Global in-process cap for simultaneous /chat requests"},
+    {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "How often UI checks for updates (default 3600; set 10 for local testing)"},
+    {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Git remote used for update checks/apply (default origin)"},
+    {"group": "App", "key": "UPDATE_BRANCH_NAME", "label": "Update Branch", "secret": False, "hint": "Branch to compare/pull for updates (default main)"},
     {"group": "App", "key": "USAGE_PRICE_OVERRIDES_JSON", "label": "Usage Price Overrides (JSON)", "secret": False, "hint": "Optional per-provider token pricing overrides, per 1M tokens. Example: {\"openai\":{\"input\":0.15,\"output\":0.6}}", "hidden_in_form": True},
     {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Provider credential used for direct Anthropic SDK calls"},
     {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
@@ -8879,8 +10031,11 @@ SETTINGS_SCHEMA = [
 SETTINGS_DEFAULT_VALUES = {
     "UI_THEME": "zscaler_blue",
     "APP_RATE_LIMIT_CHAT_PER_MIN": "30",
-    "APP_RATE_LIMIT_ADMIN_PER_MIN": "12",
+    "APP_RATE_LIMIT_ADMIN_PER_MIN": "20",
     "APP_MAX_CONCURRENT_CHAT": "3",
+    "UPDATE_CHECK_INTERVAL_SECONDS": "3600",
+    "UPDATE_REMOTE_NAME": "origin",
+    "UPDATE_BRANCH_NAME": "main",
     "USAGE_PRICE_OVERRIDES_JSON": "",
     "OLLAMA_URL": "http://127.0.0.1:11434",
     "LITELLM_BASE_URL": "http://127.0.0.1:4000/v1",
@@ -9020,6 +10175,7 @@ def _settings_save(values: dict[str, str]) -> None:
             os.environ.pop(key, None)
     global OLLAMA_URL, OLLAMA_MODEL, ANTHROPIC_MODEL, OPENAI_MODEL, ZS_PROXY_BASE_URL
     global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT
+    global UPDATE_CHECK_INTERVAL_SECONDS, UPDATE_REMOTE_NAME, UPDATE_BRANCH_NAME
     OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
     OLLAMA_MODEL = _str_env("OLLAMA_MODEL", OLLAMA_MODEL)
     ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", ANTHROPIC_MODEL)
@@ -9028,6 +10184,9 @@ def _settings_save(values: dict[str, str]) -> None:
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
     APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", APP_RATE_LIMIT_ADMIN_PER_MIN))
     APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", APP_MAX_CONCURRENT_CHAT))
+    UPDATE_CHECK_INTERVAL_SECONDS = max(10, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", UPDATE_CHECK_INTERVAL_SECONDS))
+    UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", UPDATE_REMOTE_NAME)
+    UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", UPDATE_BRANCH_NAME)
 
 
 def _proxy_block_message(stage: str, block_body: object) -> str:
@@ -9382,11 +10541,20 @@ class Handler(BaseHTTPRequestHandler):
                     "env_file": str(ENV_LOCAL_PATH),
                     "schema": SETTINGS_SCHEMA,
                     "values": _settings_values(redact_secrets=True),
+                    "model_catalog": _model_catalog_payload(),
                     "secret_mask": SETTINGS_SECRET_MASK,
                     "restart_recommended": True,
                     "security_note": "Local-only convenience panel. Saved values are stored in .env.local on this machine.",
                 }
             )
+            return
+        if self.path.startswith("/model-catalog"):
+            if not self._require_local_admin():
+                return
+            parsed_mc = urlparse.urlsplit(self.path)
+            params_mc = urlparse.parse_qs(parsed_mc.query or "", keep_blank_values=False)
+            force = str((params_mc.get("force") or ["0"])[0] or "0").strip().lower() in {"1", "true", "yes"}
+            self._send_json(_model_catalog_payload(force=force), status=200)
             return
         parsed_path = urlparse.urlsplit(self.path)
         if parsed_path.path == "/preset-attachment":
@@ -9420,6 +10588,11 @@ class Handler(BaseHTTPRequestHandler):
             params = urlparse.parse_qs(parsed_path.query or "", keep_blank_values=False)
             range_key = str((params.get("range") or ["all"])[0] or "all")
             self._send_json(_usage_dashboard_payload(range_key=range_key), status=200)
+            return
+        if self.path == "/update-status":
+            if not self._require_local_admin():
+                return
+            self._send_json(_update_status_payload(), status=200)
             return
         if self.path == "/mcp-status":
             if not self._require_local_admin():
@@ -9696,6 +10869,17 @@ class Handler(BaseHTTPRequestHandler):
             _usage_db_init()
             _usage_db_exec("DELETE FROM usage_events")
             self._send_json({"ok": True, "message": "Usage metrics reset."}, status=200)
+            return
+
+        if self.path == "/update-app":
+            if not self._require_local_admin():
+                return
+            data = self._read_json_body_limited()
+            if data is None:
+                return
+            install_deps = bool(data.get("install_deps", True))
+            result = _perform_app_update(install_deps=install_deps)
+            self._send_json(result, status=200 if result.get("ok") else 400)
             return
 
         if self.path == "/policy-replay":
@@ -10746,6 +11930,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     _usage_db_init()
+    threading.Thread(target=lambda: _model_catalog_payload(force=True), daemon=True).start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Serving demo app at http://{HOST}:{PORT}")
     print(f"Using Ollama model: {OLLAMA_MODEL}")
