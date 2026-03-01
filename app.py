@@ -76,6 +76,9 @@ OPENAI_MODEL = _str_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
 UI_THEME = _str_env("UI_THEME", "zscaler_blue")
+UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", "origin")
+UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", "main")
+UPDATE_CHECK_INTERVAL_SECONDS = max(60, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", 3600))
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 PRESET_OVERRIDES_ENV_KEY = "AI_GUARD_PRESET_OVERRIDES_JSON"
@@ -89,6 +92,8 @@ _RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 _CHAT_CONCURRENCY_LOCK = threading.Lock()
 _CHAT_CONCURRENT = 0
 _USAGE_DB_LOCK = threading.Lock()
+_UPDATE_LOCK = threading.Lock()
+_UPDATE_RUNNING = False
 
 DEFAULT_COST_PER_MILLION_TOKENS = {
     "openai": {"input": 0.15, "output": 0.60},
@@ -150,6 +155,155 @@ def _build_badge_text() -> str:
 
 
 BUILD_BADGE = _build_badge_text()
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _git_output(args: list[str], *, timeout: float = 4.0) -> str:
+    return subprocess.check_output(
+        ["git", *args],
+        cwd=_repo_root(),
+        text=True,
+        stderr=subprocess.DEVNULL,
+        timeout=timeout,
+    ).strip()
+
+
+def _git_run(args: list[str], *, timeout: float = 30.0) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _update_status_payload() -> dict[str, object]:
+    remote = str(UPDATE_REMOTE_NAME or "origin").strip() or "origin"
+    branch = str(UPDATE_BRANCH_NAME or "main").strip() or "main"
+    out: dict[str, object] = {
+        "ok": True,
+        "remote": remote,
+        "branch": branch,
+        "check_interval_seconds": int(max(60, UPDATE_CHECK_INTERVAL_SECONDS)),
+        "update_available": False,
+        "latest": False,
+        "can_update": False,
+        "reason": "",
+    }
+    try:
+        local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
+        current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
+        is_clean = (_git_output(["status", "--porcelain"], timeout=2.0) == "")
+        local_tag = ""
+        try:
+            local_tag = _git_output(["describe", "--tags", "--exact-match", "HEAD"], timeout=1.5)
+        except Exception:
+            local_tag = ""
+        fetch_res = _git_run(["fetch", "--quiet", remote, branch], timeout=20.0)
+        if fetch_res.returncode != 0:
+            raise RuntimeError("Unable to reach remote repository")
+        remote_sha = _git_output(["rev-parse", f"{remote}/{branch}"], timeout=2.0)
+        update_available = bool(local_sha and remote_sha and local_sha != remote_sha)
+        out.update(
+            {
+                "local_sha": local_sha[:12],
+                "remote_sha": remote_sha[:12],
+                "current_branch": current_branch,
+                "local_tag": local_tag,
+                "clean_worktree": is_clean,
+                "update_available": update_available,
+                "latest": not update_available,
+                "can_update": bool(
+                    update_available and is_clean and current_branch == branch and not _UPDATE_RUNNING
+                ),
+                "reason": (
+                    "Working tree has local changes."
+                    if update_available and not is_clean
+                    else ("Switch to branch " + branch + " to apply update.")
+                    if update_available and current_branch != branch
+                    else ("Update already in progress." if _UPDATE_RUNNING else "")
+                ),
+            }
+        )
+        return out
+    except Exception as exc:
+        out.update(
+            {
+                "ok": False,
+                "latest": False,
+                "can_update": False,
+                "reason": str(exc),
+            }
+        )
+        return out
+
+
+def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
+    global _UPDATE_RUNNING
+    with _UPDATE_LOCK:
+        if _UPDATE_RUNNING:
+            return {"ok": False, "error": "Update already in progress."}
+        _UPDATE_RUNNING = True
+    try:
+        remote = str(UPDATE_REMOTE_NAME or "origin").strip() or "origin"
+        branch = str(UPDATE_BRANCH_NAME or "main").strip() or "main"
+        current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
+        if current_branch != branch:
+            return {"ok": False, "error": f"Current branch is {current_branch}; switch to {branch} to update."}
+        dirty = _git_output(["status", "--porcelain"], timeout=2.0)
+        if dirty:
+            return {
+                "ok": False,
+                "error": "Working tree has local changes. Commit/stash first to avoid overwrite.",
+            }
+        fetch_res = _git_run(["fetch", "--quiet", remote, branch], timeout=30.0)
+        if fetch_res.returncode != 0:
+            msg = (fetch_res.stderr or fetch_res.stdout or "").strip() or "git fetch failed"
+            return {"ok": False, "error": msg}
+        local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
+        remote_sha = _git_output(["rev-parse", f"{remote}/{branch}"], timeout=2.0)
+        if local_sha == remote_sha:
+            return {"ok": True, "updated": False, "message": "Already up to date."}
+        pull_res = _git_run(["pull", "--ff-only", remote, branch], timeout=60.0)
+        if pull_res.returncode != 0:
+            msg = (pull_res.stderr or pull_res.stdout or "").strip() or "git pull failed"
+            return {"ok": False, "error": msg}
+        deps_output = ""
+        if install_deps:
+            pip_res = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
+                cwd=_repo_root(),
+                capture_output=True,
+                text=True,
+                timeout=240.0,
+                check=False,
+            )
+            deps_output = (pip_res.stdout or "")[-1200:] + (pip_res.stderr or "")[-1200:]
+            if pip_res.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": "Dependency install failed after pull.",
+                    "details": deps_output[-1600:],
+                }
+        scheduled = _schedule_self_restart(delay_seconds=1.0)
+        return {
+            "ok": True,
+            "updated": True,
+            "scheduled_restart": scheduled,
+            "message": "Update applied. Restart scheduled." if scheduled else "Update applied. Restart already pending.",
+            "from_sha": local_sha[:12],
+            "to_sha": remote_sha[:12],
+            "deps_output_tail": deps_output[-800:] if deps_output else "",
+            "preserves_local_settings": True,
+        }
+    finally:
+        with _UPDATE_LOCK:
+            _UPDATE_RUNNING = False
 
 
 def _schedule_self_restart(delay_seconds: float = 0.8) -> bool:
@@ -2684,6 +2838,11 @@ HTML = f"""<!doctype html>
                 <span id="awsAuthDot" class="status-dot" aria-hidden="true"></span>
                 <span id="awsAuthText">AWS Auth: hidden</span>
               </span>
+              <span id="updateStatusPill" class="status-pill" title="Checks remote repository for newer commits/tags">
+                <span id="updateStatusDot" class="status-dot" aria-hidden="true"></span>
+                <span id="updateStatusText">Update: checking...</span>
+              </span>
+              <button id="updateNowBtn" class="icon-btn" type="button" title="Apply update from configured git remote/branch and restart" aria-label="Update app" disabled>⟳</button>
               <button id="usageBtn" class="icon-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">▦</button>
               <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
@@ -2945,6 +3104,21 @@ HTML = f"""<!doctype html>
           <div class="confirm-actions">
             <button id="restartConfirmCancelBtn" class="secondary" type="button">Not now</button>
             <button id="restartConfirmOkBtn" type="button">Restart now</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="updateConfirmModal" class="confirm-modal" aria-hidden="true">
+        <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
+          <div id="updateConfirmTitle" class="confirm-head">Apply Update?</div>
+          <div class="confirm-body">
+            This will fetch/pull the latest code from your configured remote/branch, install requirements, and restart the app.
+            <br/><br/>
+            Your local settings and secrets in <code>.env.local</code> are not overwritten by this update flow.
+          </div>
+          <div class="confirm-actions">
+            <button id="updateConfirmCancelBtn" class="secondary" type="button">Cancel</button>
+            <button id="updateConfirmOkBtn" type="button">Update Now</button>
           </div>
         </div>
       </div>
@@ -3388,6 +3562,13 @@ HTML = f"""<!doctype html>
       const usageResetConfirmModalEl = document.getElementById("usageResetConfirmModal");
       const usageResetConfirmOkBtnEl = document.getElementById("usageResetConfirmOkBtn");
       const usageResetConfirmCancelBtnEl = document.getElementById("usageResetConfirmCancelBtn");
+      const updateStatusPillEl = document.getElementById("updateStatusPill");
+      const updateStatusDotEl = document.getElementById("updateStatusDot");
+      const updateStatusTextEl = document.getElementById("updateStatusText");
+      const updateNowBtnEl = document.getElementById("updateNowBtn");
+      const updateConfirmModalEl = document.getElementById("updateConfirmModal");
+      const updateConfirmOkBtnEl = document.getElementById("updateConfirmOkBtn");
+      const updateConfirmCancelBtnEl = document.getElementById("updateConfirmCancelBtn");
 
       let traceCount = 0;
       let codeViewMode = "auto";
@@ -3403,6 +3584,8 @@ HTML = f"""<!doctype html>
       let mcpStatusTimer = null;
       let ollamaStatusTimer = null;
       let liteLlmStatusTimer = null;
+      let updateStatusTimer = null;
+      let updateCheckIntervalSeconds = 3600;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
       let inspectorExpanded = false;
@@ -3903,7 +4086,8 @@ HTML = f"""<!doctype html>
           ...Object.keys(rawValues || {{}}),
           ...Object.keys(settingsValues || {{}}),
         ])).filter((k) => String(rawValues[k] ?? "") !== String(settingsValues[k] ?? ""));
-        const nonThemeChangedKeys = changedKeys.filter((k) => k !== "UI_THEME");
+        const noRestartKeys = new Set(["UI_THEME", "UPDATE_CHECK_INTERVAL_SECONDS", "UPDATE_REMOTE_NAME", "UPDATE_BRANCH_NAME"]);
+        const nonThemeChangedKeys = changedKeys.filter((k) => !noRestartKeys.has(String(k)));
         settingsSaveBtnEl.disabled = true;
         settingsStatusTextEl.textContent = "Saving settings...";
         try {{
@@ -3920,6 +4104,7 @@ HTML = f"""<!doctype html>
           refreshCurrentModelText();
           refreshOllamaStatus();
           refreshLiteLlmStatus();
+          refreshUpdateStatus();
           if (data.restart_recommended && nonThemeChangedKeys.length > 0) {{
             const shouldRestart = await showRestartConfirmModal();
             if (shouldRestart) {{
@@ -4187,6 +4372,96 @@ HTML = f"""<!doctype html>
           ollamaStatusDotEl.classList.add(kind);
         }}
         ollamaStatusTextEl.textContent = text;
+      }}
+
+      function setUpdateStatus(kind, text, title = "") {{
+        updateStatusDotEl.classList.remove("ok", "bad", "warn");
+        if (kind) {{
+          updateStatusDotEl.classList.add(kind);
+        }}
+        updateStatusTextEl.textContent = text;
+        updateStatusPillEl.title = title || "Checks remote repository for newer commits/tags";
+      }}
+
+      function _scheduleUpdateStatusPolling(seconds) {{
+        const s = Math.max(60, Number(seconds) || 3600);
+        updateCheckIntervalSeconds = s;
+        if (updateStatusTimer) {{
+          clearInterval(updateStatusTimer);
+          updateStatusTimer = null;
+        }}
+        updateStatusTimer = setInterval(refreshUpdateStatus, s * 1000);
+      }}
+
+      async function refreshUpdateStatus() {{
+        try {{
+          setUpdateStatus("", "Update: checking...");
+          const res = await fetch("/update-status");
+          const data = await res.json();
+          if (Number(data?.check_interval_seconds || 0) > 0) {{
+            _scheduleUpdateStatusPolling(Number(data.check_interval_seconds));
+          }}
+          if (!res.ok || data?.ok === false) {{
+            const reason = String(data?.reason || data?.error || "Update check failed.");
+            setUpdateStatus("bad", "Update: check failed", reason);
+            updateNowBtnEl.disabled = true;
+            return;
+          }}
+          if (data.update_available) {{
+            const reason = String(data.reason || "New version available from remote.");
+            setUpdateStatus("warn", "Update: available", reason);
+            updateNowBtnEl.disabled = !data.can_update;
+            updateNowBtnEl.title = data.can_update
+              ? "Apply latest update now (git pull + dependency sync + restart)"
+              : `Update available but cannot auto-apply: ${{reason || "see status"}}`;
+          }} else {{
+            setUpdateStatus("ok", "Update: latest", "Local version matches configured remote/branch.");
+            updateNowBtnEl.disabled = true;
+            updateNowBtnEl.title = "No update available";
+          }}
+        }} catch (err) {{
+          setUpdateStatus("bad", "Update: check failed", String(err?.message || err));
+          updateNowBtnEl.disabled = true;
+        }}
+      }}
+
+      function openUpdateConfirmModal() {{
+        updateConfirmModalEl.classList.add("open");
+        updateConfirmModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeUpdateConfirmModal() {{
+        updateConfirmModalEl.classList.remove("open");
+        updateConfirmModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      async function applyUpdateNow() {{
+        updateNowBtnEl.disabled = true;
+        setUpdateStatus("warn", "Update: applying...", "Fetching latest code, installing dependencies, and scheduling restart.");
+        try {{
+          const res = await fetch("/update-app", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ install_deps: true }}),
+          }});
+          const data = await res.json();
+          if (!res.ok || data?.ok === false) {{
+            const reason = String(data?.error || data?.details || "Update failed.");
+            setUpdateStatus("bad", "Update: failed", reason);
+            updateNowBtnEl.disabled = false;
+            return;
+          }}
+          if (!data.updated) {{
+            setUpdateStatus("ok", "Update: latest", String(data?.message || "Already up to date."));
+            updateNowBtnEl.disabled = true;
+            return;
+          }}
+          setUpdateStatus("warn", "Update: restarting...", String(data?.message || "Update applied, restarting app."));
+          setTimeout(() => window.location.reload(), 5000);
+        }} catch (err) {{
+          setUpdateStatus("bad", "Update: failed", String(err?.message || err));
+          updateNowBtnEl.disabled = false;
+        }}
       }}
 
       function syncTracePanels() {{
@@ -7757,6 +8032,18 @@ HTML = f"""<!doctype html>
       usageModalEl.addEventListener("click", (e) => {{
         if (e.target === usageModalEl) closeUsageModal();
       }});
+      updateNowBtnEl.addEventListener("click", () => {{
+        if (updateNowBtnEl.disabled) return;
+        openUpdateConfirmModal();
+      }});
+      updateConfirmCancelBtnEl.addEventListener("click", closeUpdateConfirmModal);
+      updateConfirmOkBtnEl.addEventListener("click", async () => {{
+        closeUpdateConfirmModal();
+        await applyUpdateNow();
+      }});
+      updateConfirmModalEl.addEventListener("click", (e) => {{
+        if (e.target === updateConfirmModalEl) closeUpdateConfirmModal();
+      }});
       usageResetConfirmModalEl.addEventListener("click", (e) => {{
         if (e.target === usageResetConfirmModalEl) {{
           usageResetConfirmModalEl.classList.remove("open");
@@ -8008,6 +8295,10 @@ HTML = f"""<!doctype html>
           usageResetConfirmModalEl.setAttribute("aria-hidden", "true");
           return;
         }}
+        if (e.key === "Escape" && updateConfirmModalEl.classList.contains("open")) {{
+          closeUpdateConfirmModal();
+          return;
+        }}
         if (e.key === "Escape" && settingsModalEl.classList.contains("open")) {{
           closeSettingsModal();
         }}
@@ -8043,6 +8334,8 @@ HTML = f"""<!doctype html>
       syncLiteLlmStatusVisibility();
       refreshLiteLlmStatus();
       liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
+      refreshUpdateStatus();
+      _scheduleUpdateStatusPolling(updateCheckIntervalSeconds);
       syncAwsAuthStatusVisibility();
       refreshAwsAuthStatus();
       resetAgentTrace();
@@ -8802,6 +9095,9 @@ SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_RATE_LIMIT_CHAT_PER_MIN", "label": "Chat Rate Limit / Min", "secret": False, "hint": "Per-client-IP limit for /chat (default 30/min)"},
     {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (12/min default)"},
     {"group": "App", "key": "APP_MAX_CONCURRENT_CHAT", "label": "Max Concurrent Chats", "secret": False, "hint": "Global in-process cap for simultaneous /chat requests"},
+    {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "How often UI checks for updates (default 3600; set 60 for local testing)"},
+    {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Git remote used for update checks/apply (default origin)"},
+    {"group": "App", "key": "UPDATE_BRANCH_NAME", "label": "Update Branch", "secret": False, "hint": "Branch to compare/pull for updates (default main)"},
     {"group": "App", "key": "USAGE_PRICE_OVERRIDES_JSON", "label": "Usage Price Overrides (JSON)", "secret": False, "hint": "Optional per-provider token pricing overrides, per 1M tokens. Example: {\"openai\":{\"input\":0.15,\"output\":0.6}}", "hidden_in_form": True},
     {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Provider credential used for direct Anthropic SDK calls"},
     {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
@@ -8881,6 +9177,9 @@ SETTINGS_DEFAULT_VALUES = {
     "APP_RATE_LIMIT_CHAT_PER_MIN": "30",
     "APP_RATE_LIMIT_ADMIN_PER_MIN": "12",
     "APP_MAX_CONCURRENT_CHAT": "3",
+    "UPDATE_CHECK_INTERVAL_SECONDS": "3600",
+    "UPDATE_REMOTE_NAME": "origin",
+    "UPDATE_BRANCH_NAME": "main",
     "USAGE_PRICE_OVERRIDES_JSON": "",
     "OLLAMA_URL": "http://127.0.0.1:11434",
     "LITELLM_BASE_URL": "http://127.0.0.1:4000/v1",
@@ -9020,6 +9319,7 @@ def _settings_save(values: dict[str, str]) -> None:
             os.environ.pop(key, None)
     global OLLAMA_URL, OLLAMA_MODEL, ANTHROPIC_MODEL, OPENAI_MODEL, ZS_PROXY_BASE_URL
     global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT
+    global UPDATE_CHECK_INTERVAL_SECONDS, UPDATE_REMOTE_NAME, UPDATE_BRANCH_NAME
     OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
     OLLAMA_MODEL = _str_env("OLLAMA_MODEL", OLLAMA_MODEL)
     ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", ANTHROPIC_MODEL)
@@ -9028,6 +9328,9 @@ def _settings_save(values: dict[str, str]) -> None:
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
     APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", APP_RATE_LIMIT_ADMIN_PER_MIN))
     APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", APP_MAX_CONCURRENT_CHAT))
+    UPDATE_CHECK_INTERVAL_SECONDS = max(60, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", UPDATE_CHECK_INTERVAL_SECONDS))
+    UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", UPDATE_REMOTE_NAME)
+    UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", UPDATE_BRANCH_NAME)
 
 
 def _proxy_block_message(stage: str, block_body: object) -> str:
@@ -9421,6 +9724,11 @@ class Handler(BaseHTTPRequestHandler):
             range_key = str((params.get("range") or ["all"])[0] or "all")
             self._send_json(_usage_dashboard_payload(range_key=range_key), status=200)
             return
+        if self.path == "/update-status":
+            if not self._require_local_admin():
+                return
+            self._send_json(_update_status_payload(), status=200)
+            return
         if self.path == "/mcp-status":
             if not self._require_local_admin():
                 return
@@ -9696,6 +10004,17 @@ class Handler(BaseHTTPRequestHandler):
             _usage_db_init()
             _usage_db_exec("DELETE FROM usage_events")
             self._send_json({"ok": True, "message": "Usage metrics reset."}, status=200)
+            return
+
+        if self.path == "/update-app":
+            if not self._require_local_admin():
+                return
+            data = self._read_json_body_limited()
+            if data is None:
+                return
+            install_deps = bool(data.get("install_deps", True))
+            result = _perform_app_update(install_deps=install_deps)
+            self._send_json(result, status=200 if result.get("ok") else 400)
             return
 
         if self.path == "/policy-replay":

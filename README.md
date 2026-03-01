@@ -19,6 +19,29 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 - Tools/MCP behavior
 - HTTP trace + agent/tool trace + prompt/instruction inspector
 - Flow graph and code path viewer
+- Version awareness + one-click updater (local admin only)
+
+## In-App Update Notifier + One-Click Update
+
+- The UI now checks your configured git remote/branch for updates and shows:
+  - `Update: latest`
+  - `Update: available`
+  - `Update: check failed`
+- Update button behavior:
+  - Runs `git fetch` + `git pull --ff-only` from configured remote/branch
+  - Installs requirements with the current Python environment
+  - Restarts the app
+- Safety checks before applying update:
+  - Requires localhost admin request
+  - Refuses update when working tree is dirty
+  - Refuses update when current branch does not match configured update branch
+- Local settings are preserved:
+  - `.env.local` is not overwritten by this update flow
+
+Config keys (Settings -> App):
+- `UPDATE_CHECK_INTERVAL_SECONDS` (default `3600`, use `60` for local testing)
+- `UPDATE_REMOTE_NAME` (default `origin`)
+- `UPDATE_BRANCH_NAME` (default `main`)
 
 ## Attachments (Multimodal) Support
 
