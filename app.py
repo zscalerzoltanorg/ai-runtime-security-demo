@@ -1938,6 +1938,22 @@ HTML = f"""<!doctype html>
         scrollbar-width: thin;
         scrollbar-color: rgba(148, 163, 184, 0.45) rgba(15, 23, 42, 0.2);
       }}
+      .flow-latency-summary {{
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 6;
+        pointer-events: none;
+        padding: 8px 10px;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.82);
+        color: #cbd5e1;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        white-space: pre-wrap;
+        max-width: min(520px, calc(100% - 24px));
+      }}
       .flow-wrap::-webkit-scrollbar {{
         width: 10px;
         height: 10px;
@@ -2550,13 +2566,73 @@ HTML = f"""<!doctype html>
         color: var(--text);
         font-size: 0.9rem;
         line-height: 1.4;
-        white-space: pre-wrap;
+        white-space: normal;
+      }}
+      .latency-summary-head {{
+        font-weight: 700;
+        margin-bottom: 8px;
+      }}
+      .latency-summary-zblock {{
+        display: grid;
+        gap: 4px;
+        margin-bottom: 10px;
+      }}
+      .latency-summary-zline {{
+        font-size: 0.84rem;
+      }}
+      .latency-summary-zline.faster {{
+        color: #22c55e;
+      }}
+      .latency-summary-zline.slower {{
+        color: #f87171;
+      }}
+      .latency-summary-zline.same,
+      .latency-summary-zline.muted {{
+        color: var(--muted);
+      }}
+      .latency-summary-zline.skipped {{
+        color: #f59e0b;
+      }}
+      .latency-summary-grid {{
+        display: grid;
+        gap: 8px;
+      }}
+      .latency-summary-row {{
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: color-mix(in srgb, var(--panel) 94%, white 6%);
+      }}
+      .latency-summary-row .latency-summary-mode {{
+        font-weight: 700;
+      }}
+      .latency-summary-row .latency-summary-metrics {{
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-top: 2px;
+      }}
+      .latency-summary-row .latency-summary-delta {{
+        font-size: 0.82rem;
+        margin-top: 4px;
+      }}
+      .latency-summary-row.faster .latency-summary-delta {{
+        color: #22c55e;
+      }}
+      .latency-summary-row.slower .latency-summary-delta {{
+        color: #f87171;
+      }}
+      .latency-summary-row.same .latency-summary-delta {{
+        color: var(--muted);
+      }}
+      .latency-summary-row.skipped .latency-summary-delta {{
+        color: #f59e0b;
       }}
       #latencyBenchOutput {{
         margin: 0;
         max-height: 320px;
         overflow: auto;
         scrollbar-width: thin;
+        white-space: pre;
       }}
       .explain-list {{
         margin: 0;
@@ -3547,6 +3623,7 @@ HTML = f"""<!doctype html>
         <div id="flowGraphWrap" class="flow-wrap">
           <div id="flowGraphViewport" class="flow-viewport">
             <div id="flowGraphEmpty" class="flow-empty">Send a prompt to render the latest traffic flow graph.</div>
+            <div id="flowLatencySummary" class="flow-latency-summary" style="display:none;"></div>
             <div id="flowPreviewWatermark" class="flow-preview-watermark">PREVIEW</div>
             <svg id="flowGraphSvg" class="flow-svg" xmlns="http://www.w3.org/2000/svg" style="display:none;"></svg>
             <div id="flowGraphTooltip" class="flow-tooltip" role="tooltip"></div>
@@ -4088,6 +4165,7 @@ HTML = f"""<!doctype html>
       const flowGraphEmptyEl = document.getElementById("flowGraphEmpty");
       const flowGraphSvgEl = document.getElementById("flowGraphSvg");
       const flowGraphTooltipEl = document.getElementById("flowGraphTooltip");
+      const flowLatencySummaryEl = document.getElementById("flowLatencySummary");
       const flowPreviewWatermarkEl = document.getElementById("flowPreviewWatermark");
       const flowZoomInBtn = document.getElementById("flowZoomInBtn");
       const flowZoomOutBtn = document.getElementById("flowZoomOutBtn");
@@ -5107,12 +5185,15 @@ HTML = f"""<!doctype html>
         agentModeMultiBtnEl.disabled = false;
       }}
 
+      function providerSupportsProxy(providerId) {{
+        const provider = String(providerId || "ollama").toLowerCase();
+        return provider !== "ollama" && provider !== "litellm" && provider !== "kong";
+      }}
+
       function syncZscalerProxyModeState() {{
         const guardrailsOn = !!guardrailsToggleEl.checked;
         const provider = (providerSelectEl.value || "ollama").toLowerCase();
-        const supportsProxyMode =
-          provider !== "ollama" &&
-          provider !== "litellm";
+        const supportsProxyMode = providerSupportsProxy(provider);
         const modeEnabled = guardrailsOn;
         zscalerGuardOffBtnEl.classList.toggle("active", !guardrailsOn);
         zscalerGuardOnBtnEl.classList.toggle("active", guardrailsOn);
@@ -6274,8 +6355,37 @@ HTML = f"""<!doctype html>
         flowGraphSvgEl.style.display = "none";
         flowGraphEmptyEl.style.display = "block";
         flowGraphTooltipEl.style.display = "none";
+        if (flowLatencySummaryEl) {{
+          flowLatencySummaryEl.style.display = "none";
+          flowLatencySummaryEl.textContent = "";
+        }}
         if (flowPreviewWatermarkEl) flowPreviewWatermarkEl.style.display = "none";
         flowToolbarStatusEl.textContent = "Latest flow graph: none";
+      }}
+
+      function _renderFlowLatencySummary(entry) {{
+        if (!flowLatencySummaryEl) return;
+        if (!entry || entry.is_preview) {{
+          flowLatencySummaryEl.style.display = "none";
+          flowLatencySummaryEl.textContent = "";
+          return;
+        }}
+        const summary = _latencySummaryFromEntry(entry);
+        const e2e = Math.max(0, Number(summary.e2e_ms || 0));
+        const provider = Math.max(0, Number(summary.provider_ms || 0));
+        const guard = Math.max(0, Number(summary.ai_guard_in_ms || 0)) + Math.max(0, Number(summary.ai_guard_out_ms || 0));
+        const guardUnknown = !!summary.guard_unknown;
+        const providerUnknown = !provider && !summary.provider_inferred;
+        const appUnknown = guardUnknown;
+        const appResidual = appUnknown ? 0 : Math.max(0, e2e - provider - guard);
+        const lines = [
+          `End-to-end: ${{_formatLatency(e2e) || "n/a"}}`,
+          `App (estimated): ${{_formatLatencyOrUnknown(appResidual, appUnknown)}}`,
+          `Provider/LLM: ${{_formatLatencyOrUnknown(provider, providerUnknown)}}`,
+          `AI Guard: ${{_formatLatencyOrUnknown(guard, guardUnknown)}}`,
+        ];
+        flowLatencySummaryEl.textContent = lines.join("\\n");
+        flowLatencySummaryEl.style.display = "block";
       }}
 
       function _plannedFlowEntry() {{
@@ -7464,6 +7574,7 @@ HTML = f"""<!doctype html>
           scale: 1,
         }};
         resetFlowGraphView();
+        _renderFlowLatencySummary(entry);
       }}
 
       function _hostFromUrl(urlText) {{
@@ -7553,6 +7664,11 @@ HTML = f"""<!doctype html>
         return v >= 1000 ? `${{(v / 1000).toFixed(2)}}s` : `${{Math.round(v)}}ms`;
       }}
 
+      function _formatLatencyOrUnknown(ms, unknown) {{
+        if (unknown) return "unknown";
+        return _formatLatency(ms) || "0ms";
+      }}
+
       function _withSign(num) {{
         const v = Number(num || 0);
         if (!Number.isFinite(v) || v === 0) return "0";
@@ -7563,12 +7679,17 @@ HTML = f"""<!doctype html>
         const body = entry && typeof entry.body === "object" ? entry.body : {{}};
         const trace = body.trace && typeof body.trace === "object" ? body.trace : {{}};
         const traceSteps = Array.isArray(trace.steps) ? trace.steps : [];
+        const proxyMode = !!entry?.zscalerProxyMode || String((body.guardrails || {{}}).mode || "").toLowerCase() === "proxy";
         const out = {{
           e2e_ms: Math.max(0, Number(entry?.clientLatencyMs || 0) || 0),
           provider_ms: 0,
           ai_guard_in_ms: 0,
           ai_guard_out_ms: 0,
+          provider_inferred: false,
+          guard_unknown: false,
+          proxy_mode: proxyMode,
         }};
+        let providerMeasured = 0;
         traceSteps.forEach((step) => {{
           const name = String(step?.name || "");
           const ms = _extractStepLatencyMs(step);
@@ -7580,8 +7701,18 @@ HTML = f"""<!doctype html>
             out.ai_guard_out_ms += ms;
             return;
           }}
-          if (name) out.provider_ms += ms;
+          if (name) providerMeasured += ms;
         }});
+        const knownGuardMs = Math.max(0, out.ai_guard_in_ms) + Math.max(0, out.ai_guard_out_ms);
+        if (providerMeasured > 0) {{
+          out.provider_ms = providerMeasured;
+        }} else if (out.e2e_ms > knownGuardMs) {{
+          out.provider_ms = Math.max(0, out.e2e_ms - knownGuardMs);
+          out.provider_inferred = true;
+        }}
+        if (proxyMode && knownGuardMs <= 0) {{
+          out.guard_unknown = true;
+        }}
         return out;
       }}
 
@@ -7632,26 +7763,70 @@ HTML = f"""<!doctype html>
             label: String(v?.label || k),
             avg: Number(v?.e2e_ms?.avg_ms || 0),
             p95: Number(v?.e2e_ms?.p95_ms || 0),
+            runs: Number(v?.runs || 0),
             blocked: Number(v?.blocked || 0),
             errors: Number(v?.errors || 0),
             delta: Number(v?.vs_baseline?.delta_avg_ms || 0),
+            deltaPct: Number(v?.vs_baseline?.delta_avg_pct || 0),
             trend: String(v?.vs_baseline?.trend || ""),
-          }}))
-          .sort((a, b) => a.avg - b.avg);
-        const fastest = ordered[0];
-        const slowest = ordered[ordered.length - 1];
-        const lines = [];
-        lines.push(`Fastest mode: ${{fastest.label}} (${{_formatLatency(fastest.avg) || "n/a"}} avg, p95 ${{_formatLatency(fastest.p95) || "n/a"}})`);
-        if (ordered.length > 1) {{
-          lines.push(`Slowest mode: ${{slowest.label}} (${{_formatLatency(slowest.avg) || "n/a"}} avg, p95 ${{_formatLatency(slowest.p95) || "n/a"}})`);
-        }}
-        ordered.forEach((m) => {{
-          const deltaText = m.key === "baseline"
-            ? "baseline"
-            : `${{m.trend || "delta"}} ${{_withSign(m.delta)}}ms vs baseline`;
-          lines.push(`- ${{m.label}}: avg ${{_formatLatency(m.avg) || "n/a"}}, p95 ${{_formatLatency(m.p95) || "n/a"}}, blocked=${{m.blocked}}, errors=${{m.errors}}, ${{deltaText}}`);
-        }});
-        latencyBenchSummaryEl.textContent = lines.join("\n");
+            skipped: !!v?.skipped,
+            reason: String(v?.skip_reason || ""),
+          }}));
+        const baseline = ordered.find((m) => m.key === "baseline") || null;
+        const fixedOrder = ["baseline", "proxy", "das_api"]
+          .map((k) => ordered.find((m) => m.key === k))
+          .filter(Boolean);
+        const zRows = [];
+        const zDelta = (label, m) => {{
+          if (!m) return;
+          if (m.skipped) {{
+            zRows.push(`<div class="latency-summary-zline skipped">${{escapeHtml(label)}} vs baseline: skipped (${{escapeHtml(m.reason || "not applicable")}})</div>`);
+            return;
+          }}
+          if (!baseline || baseline.avg <= 0 || m.avg <= 0 || m.runs <= 0) {{
+            zRows.push(`<div class="latency-summary-zline muted">${{escapeHtml(label)}} vs baseline: not enough successful runs</div>`);
+            return;
+          }}
+          const delta = m.avg - baseline.avg;
+          const pct = baseline.avg > 0 ? Number(((delta / baseline.avg) * 100).toFixed(1)) : 0;
+          const trend = delta < 0 ? "faster" : (delta > 0 ? "slower" : "same");
+          const cls = delta < 0 ? "faster" : (delta > 0 ? "slower" : "same");
+          zRows.push(
+            `<div class="latency-summary-zline ${{cls}}">${{escapeHtml(label)}} vs baseline: ${{escapeHtml(_withSign(delta))}}ms (${{escapeHtml(_withSign(pct))}}%), ${{escapeHtml(trend)}}</div>`
+          );
+        }};
+        zDelta("AI Guard Proxy", ordered.find((m) => m.key === "proxy"));
+        zDelta("AI Guard API/DAS", ordered.find((m) => m.key === "das_api"));
+
+        const rowsHtml = fixedOrder.map((m) => {{
+          if (m.skipped) {{
+            return `
+              <div class="latency-summary-row skipped">
+                <div class="latency-summary-mode">${{escapeHtml(m.label)}}</div>
+                <div class="latency-summary-metrics">skipped · ${{escapeHtml(m.reason || "not applicable")}}</div>
+              </div>
+            `;
+          }}
+          let trendCls = "same";
+          let trendText = "baseline";
+          if (m.key !== "baseline") {{
+            trendCls = m.trend === "faster" ? "faster" : (m.trend === "slower" ? "slower" : "same");
+            trendText = `${{m.trend || "delta"}} ${{_withSign(m.delta)}}ms (${{_withSign(m.deltaPct)}}%)`;
+          }}
+          return `
+            <div class="latency-summary-row ${{trendCls}}">
+              <div class="latency-summary-mode">${{escapeHtml(m.label)}}</div>
+              <div class="latency-summary-metrics">
+                avg ${{escapeHtml(_formatLatency(m.avg) || "n/a")}} · p95 ${{escapeHtml(_formatLatency(m.p95) || "n/a")}} · runs ${{escapeHtml(String(m.runs))}} · blocked ${{escapeHtml(String(m.blocked))}} · errors ${{escapeHtml(String(m.errors))}}
+              </div>
+              <div class="latency-summary-delta">${{escapeHtml(trendText)}}</div>
+            </div>
+          `;
+        }}).join("");
+
+        const header = `<div class="latency-summary-head">Mode comparison (lower avg latency is better)</div>`;
+        const zBlock = zRows.length ? `<div class="latency-summary-zblock">${{zRows.join("")}}</div>` : "";
+        latencyBenchSummaryEl.innerHTML = header + zBlock + `<div class="latency-summary-grid">${{rowsHtml}}</div>`;
       }}
 
       function _buildFlowExplainData(entry) {{
@@ -8061,17 +8236,37 @@ HTML = f"""<!doctype html>
       async function runLatencyBench() {{
         const runs = Math.max(1, Math.min(8, Number(latencyBenchRunsInputEl.value || 2) || 2));
         const delayMs = Math.max(0, Math.min(5000, Number(latencyBenchDelayInputEl.value || 250) || 0));
-        const modes = [];
-        if (latencyBenchModeBaselineEl.checked) modes.push({{ key: "baseline", label: "Baseline (Guardrails OFF)", guardrails_enabled: false, zscaler_proxy_mode: false }});
-        if (latencyBenchModeDasEl.checked) modes.push({{ key: "das_api", label: "AI Guard API/DAS", guardrails_enabled: true, zscaler_proxy_mode: false }});
-        if (latencyBenchModeProxyEl.checked) modes.push({{ key: "proxy", label: "AI Guard Proxy", guardrails_enabled: true, zscaler_proxy_mode: true }});
-        if (!modes.length) {{
+        const runBaseline = !!latencyBenchModeBaselineEl.checked;
+        const modesRequested = [];
+        if (latencyBenchModeDasEl.checked) modesRequested.push({{ key: "das_api", label: "AI Guard API/DAS", guardrails_enabled: true, zscaler_proxy_mode: false }});
+        if (latencyBenchModeProxyEl.checked) modesRequested.push({{ key: "proxy", label: "AI Guard Proxy", guardrails_enabled: true, zscaler_proxy_mode: true }});
+        if (!runBaseline && !latencyBenchModeDasEl.checked && !latencyBenchModeProxyEl.checked) {{
           latencyBenchOutputEl.textContent = "Select at least one mode.";
           return;
         }}
         const base = _latencyBenchBaseRequest();
         if (!String(base.prompt || "").trim()) {{
           latencyBenchOutputEl.textContent = "Prompt is required (selected trace or prompt box).";
+          return;
+        }}
+        const skippedModes = [];
+        const modes = [];
+        if (runBaseline) {{
+          modes.push({{ key: "baseline", label: "Baseline (Guardrails OFF)", guardrails_enabled: false, zscaler_proxy_mode: false }});
+        }}
+        modesRequested.forEach((m) => {{
+          if (m.key === "proxy" && !providerSupportsProxy(base.provider)) {{
+            skippedModes.push({{
+              key: m.key,
+              label: m.label,
+              reason: `Proxy mode unsupported for provider "${{_providerLabel(base.provider)}}"`,
+            }});
+            return;
+          }}
+          modes.push(m);
+        }});
+        if (!modes.length) {{
+          latencyBenchOutputEl.textContent = "No runnable benchmark modes for this provider.";
           return;
         }}
         latencyBenchRunBtnEl.disabled = true;
@@ -8177,6 +8372,20 @@ HTML = f"""<!doctype html>
             }},
             modes: {{}},
           }};
+          skippedModes.forEach((m) => {{
+            report.modes[m.key] = {{
+              label: m.label,
+              skipped: true,
+              skip_reason: m.reason,
+              runs: 0,
+              blocked: 0,
+              errors: 0,
+              e2e_ms: _latencyStats([]),
+              provider_ms: _latencyStats([]),
+              ai_guard_in_ms: _latencyStats([]),
+              ai_guard_out_ms: _latencyStats([]),
+            }};
+          }});
           for (const mode of modes) {{
             const raw = perMode[mode.key];
             const e2e = _latencyStats(raw.latencies);

@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.1`
+  - Added a new latency analysis workflow across Flow Graph and Latency Bench, including per-hop timing labels, an in-graph end-to-end summary (total/app/provider/AI Guard), clearer fixed-order mode comparisons (Baseline, Proxy, API/DAS), explicit Zscaler-vs-baseline deltas, and cleaner handling of unsupported proxy modes with transparent `unknown` attribution when exact timing cannot be measured.
+
 - `v1.5`
   - App now checks GitHub for updates and supports in-app one-click update (with local-settings preservation).
   - Added dynamic provider model catalog (startup + cached refresh) and manual `Refresh Models` in Settings.
