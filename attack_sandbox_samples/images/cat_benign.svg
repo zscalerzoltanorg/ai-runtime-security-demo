@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4fbff"/>
+      <stop offset="100%" stop-color="#e8f3ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="768" fill="url(#bg)"/>
+  <ellipse cx="512" cy="620" rx="280" ry="70" fill="#d5e1ee" opacity="0.45"/>
+
+  <g transform="translate(512,390)">
+    <ellipse cx="0" cy="110" rx="170" ry="150" fill="#f0a15b"/>
+    <circle cx="0" cy="-30" r="145" fill="#f3ab69"/>
+
+    <polygon points="-120,-150 -50,-250 0,-145" fill="#f3ab69"/>
+    <polygon points="120,-150 50,-250 0,-145" fill="#f3ab69"/>
+    <polygon points="-98,-154 -56,-214 -16,-150" fill="#ffd8c0"/>
+    <polygon points="98,-154 56,-214 16,-150" fill="#ffd8c0"/>
+
+    <ellipse cx="-52" cy="-42" rx="20" ry="28" fill="#1d2838"/>
+    <ellipse cx="52" cy="-42" rx="20" ry="28" fill="#1d2838"/>
+    <circle cx="-47" cy="-49" r="5" fill="#fff" opacity="0.8"/>
+    <circle cx="57" cy="-49" r="5" fill="#fff" opacity="0.8"/>
+
+    <polygon points="0,-10 -16,18 16,18" fill="#e97e86"/>
+    <path d="M-2,18 C-2,38 -24,42 -38,42" stroke="#7d4d3a" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M2,18 C2,38 24,42 38,42" stroke="#7d4d3a" stroke-width="5" fill="none" stroke-linecap="round"/>
+
+    <g stroke="#7d4d3a" stroke-width="4" stroke-linecap="round" opacity="0.85">
+      <line x1="-26" y1="8" x2="-155" y2="-18"/>
+      <line x1="-24" y1="26" x2="-158" y2="26"/>
+      <line x1="-22" y1="44" x2="-152" y2="72"/>
+      <line x1="26" y1="8" x2="155" y2="-18"/>
+      <line x1="24" y1="26" x2="158" y2="26"/>
+      <line x1="22" y1="44" x2="152" y2="72"/>
+    </g>
+  </g>
+
+  <text x="512" y="720" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" fill="#334155" opacity="0.75">Benign sample: orange cat portrait</text>
+</svg>

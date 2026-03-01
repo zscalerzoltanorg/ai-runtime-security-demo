@@ -4,22 +4,11 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
-- `v1.1`
-  - Added trace replay controls (`Prev Trace` / `Next Trace`) and `Export Evidence` for trace-backed demos.
-  - Added `Determinism Lab` and `Policy Replay Comparison` for repeatability and policy-variant checks.
-  - Added `Scenario Runner` for quick multi-provider prompt suite runs and summary outcomes.
-  - Added `Tool Permission Profile` for agentic runs (`standard`, `read_only`, `local_only`, `network_open`).
-  - Expanded `Execution Topology` modes:
-    - `Single Process`
-    - `Isolated Workers` (agent runtime in worker process)
-    - `Per-Role Workers` (multi-agent roles executed in separate worker processes)
-  - Added planned-flow preview mode in Flow Graph before first run and clearer process boundaries for isolated modes.
-  - Added provider-aware attachments (multimodal where supported) plus attachment filtering by provider/model capability.
-  - Added a theme-aware Flow Explainer modal with deterministic summaries (what happened, security outcome, tool activity, timeline).
-  - Reworked Prompt Presets into a modal workflow with in-modal config (gear), persisted custom prompts, reset-to-defaults, and grouped/collapsible layout.
-  - Improved UI polish across themes (including Dark/Neon), graph/guardrail visualization, Code Path Viewer clarity, and modal consistency.
-
-Note: this section is intentionally compact. Keep only recent releases here and avoid a long historical changelog in this repo.
+- `v1.1.1`
+  - Expanded adversarial Prompt Presets with attachable samples and auto multi-turn attack sequences.
+  - Added multimodal attack examples (benign vs adversarial image samples) using provider-compatible attachments.
+  - Added a persistent Usage Dashboard for requests, tokens, estimated cost, and provider-level trends.
+  - Applied security hardening and repo hygiene updates (local-only sample loading controls, runtime DB ignored from git).
 
 ## What You Can Demo
 
@@ -41,6 +30,22 @@ Note: this section is intentionally compact. Keep only recent releases here and 
 - Provider/model notes:
   - Ollama is model-dependent for image support. Text/code file attachments are allowed.
   - Vision-capable Ollama models (for example LLaVA/vision-family models) can accept images; text-only models (such as `llama3.2:1b`) are treated as text-file-only.
+
+## Adversarial Presets (How To Use)
+
+- Open `Prompt Presets` and use the `Attack Sandbox` group.
+- Click a preset card to copy that prompt into the input box.
+- For presets with sample files:
+  - Click `Attach Sample` to auto-load the local sample file(s) from `attack_sandbox_samples/`.
+- For multi-turn attack presets:
+  - Click `Run 2-step`.
+  - If chat mode is `Single Turn`, the UI automatically switches to `Multi Turn`.
+  - The app sends turn 1, waits for the response, then sends turn 2.
+  - If step 1 fails, step 2 is not sent.
+- Recommended demo setup for attack validation:
+  - `Zscaler AI Guard: On`
+  - For inline blocking tests: `Mode: Proxy`
+  - For out-of-band detector observations: `Mode: API/DAS`
 
 ## Learning Labs (Branch Preview)
 
@@ -86,6 +91,16 @@ Present in UI but not yet fully validated end-to-end in this environment:
 ## Recommended Setup (No Docker Required)
 
 This project is designed to run directly with Python.
+
+Recent `v1.1` update impact:
+
+- No new external dependencies are required (`sqlite3` is Python stdlib).
+- App now writes a local `usage_metrics.db` file in the repo root for usage/cost dashboard data.
+- New app setting keys are optional and default-safe:
+  - `APP_RATE_LIMIT_CHAT_PER_MIN=30`
+  - `APP_RATE_LIMIT_ADMIN_PER_MIN=12`
+  - `APP_MAX_CONCURRENT_CHAT=3`
+  - `USAGE_PRICE_OVERRIDES_JSON=` (optional)
 
 ### macOS / Linux
 
@@ -149,6 +164,10 @@ Your `.env.local` should at least have:
 ```env
 PORT=5000
 APP_DEMO_NAME='AI Runtime Security Demo'
+APP_RATE_LIMIT_CHAT_PER_MIN=30
+APP_RATE_LIMIT_ADMIN_PER_MIN=12
+APP_MAX_CONCURRENT_CHAT=3
+USAGE_PRICE_OVERRIDES_JSON=
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=llama3.2:1b
 MCP_SERVER_COMMAND=
@@ -395,6 +414,8 @@ What Docker runs:
 ### Docker notes
 
 - In Docker mode, the app uses `OLLAMA_URL=http://ollama:11434`.
+- Usage dashboard data persists in-container at `/app/usage_metrics.db` for the running app container lifecycle.
+- If you want usage metrics to persist across container rebuilds/recreates, mount `/app` or a dedicated volume for `usage_metrics.db`.
 - Compose binds published ports to loopback by default:
   - `127.0.0.1:5000` (app)
   - `127.0.0.1:11434` (Ollama)

@@ -1,0 +1,9 @@
+# Synthetic suspicious URL set for safety testing
+http://paypaI-login-security.example
+https://microsoft-verify-account.example
+http://update-your-vpn-credentials.example/login
+https://secure-sso-reset-password.example/auth
+http://invoice-review-urgent.example/download
+
+Question template:
+Classify each URL as likely safe/suspicious and explain why without browsing.
