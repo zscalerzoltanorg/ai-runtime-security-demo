@@ -78,7 +78,7 @@ APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
 UI_THEME = _str_env("UI_THEME", "zscaler_blue")
 UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", "origin")
 UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", "main")
-UPDATE_CHECK_INTERVAL_SECONDS = max(60, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", 3600))
+UPDATE_CHECK_INTERVAL_SECONDS = max(10, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", 3600))
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 PRESET_OVERRIDES_ENV_KEY = "AI_GUARD_PRESET_OVERRIDES_JSON"
@@ -189,7 +189,7 @@ def _update_status_payload() -> dict[str, object]:
         "ok": True,
         "remote": remote,
         "branch": branch,
-        "check_interval_seconds": int(max(60, UPDATE_CHECK_INTERVAL_SECONDS)),
+        "check_interval_seconds": int(max(10, UPDATE_CHECK_INTERVAL_SECONDS)),
         "update_available": False,
         "latest": False,
         "can_update": False,
@@ -726,8 +726,21 @@ HTML = f"""<!doctype html>
       .app-title-row {{
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 10px;
         margin: 0 0 8px;
+        flex-wrap: wrap;
+      }}
+      .app-title-main {{
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
+      .app-title-actions {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
         flex-wrap: wrap;
       }}
       .app-title-row h1 {{
@@ -800,7 +813,16 @@ HTML = f"""<!doctype html>
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
-        justify-content: flex-end;
+        justify-content: flex-start;
+        flex: 1 1 auto;
+        min-width: 0;
+      }}
+      .chat-meta-actions {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex: 0 0 auto;
       }}
       .icon-btn {{
         width: 34px;
@@ -833,6 +855,25 @@ HTML = f"""<!doctype html>
         stroke-width: 1.8;
         stroke-linecap: round;
         stroke-linejoin: round;
+      }}
+      .header-action-btn {{
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--ink);
+        font-size: 0.84rem;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+      }}
+      .header-action-btn:hover {{
+        border-color: #99f6e4;
+        background: #f0fdfa;
+      }}
+      .header-action-btn:disabled {{
+        cursor: not-allowed;
       }}
       .provider-select {{
         border: 1px solid var(--border);
@@ -1147,7 +1188,7 @@ HTML = f"""<!doctype html>
         cursor: pointer;
       }}
       button:hover {{ background: var(--accent-2); }}
-      button:disabled {{ opacity: 0.6; cursor: wait; }}
+      button:disabled {{ opacity: 0.6; cursor: not-allowed; }}
       button.secondary {{
         background: #e7e5e4;
         color: #1f2937;
@@ -2145,15 +2186,15 @@ HTML = f"""<!doctype html>
         gap: 10px;
       }}
       .usage-dialog {{
-        width: min(1480px, 96vw);
-        max-height: 92vh;
+        width: min(1540px, 97vw);
+        max-height: 96vh;
       }}
       .usage-dialog .explain-body {{
         min-height: 0;
-        max-height: calc(92vh - 132px);
+        max-height: calc(96vh - 124px);
         overflow-y: auto;
         overflow-x: hidden;
-        padding-bottom: 16px;
+        padding-bottom: 24px;
       }}
       .usage-dialog .usage-grid {{
         grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2174,7 +2215,7 @@ HTML = f"""<!doctype html>
         font-weight: 700;
       }}
       .usage-table-wrap {{
-        max-height: 280px;
+        max-height: 240px;
         overflow: auto;
         border: 1px solid var(--border);
         border-radius: 10px;
@@ -2205,8 +2246,8 @@ HTML = f"""<!doctype html>
       .usage-bars {{
         display: grid;
         gap: 8px;
-        min-height: 320px;
-        max-height: 460px;
+        min-height: 360px;
+        max-height: 560px;
         overflow-x: auto;
         overflow-y: auto;
       }}
@@ -2326,6 +2367,9 @@ HTML = f"""<!doctype html>
         .chat-meta-controls {{
           justify-content: flex-start;
         }}
+        .chat-meta-actions {{
+          margin-left: 0;
+        }}
         .chat-transcript {{
           height: 300px;
           min-height: 300px;
@@ -2424,6 +2468,7 @@ HTML = f"""<!doctype html>
       body[data-theme="dark"] .settings-mini-btn,
       body[data-theme="dark"] button.secondary,
       body[data-theme="dark"] .icon-btn,
+      body[data-theme="dark"] .header-action-btn,
       body[data-theme="dark"] .mode-toggle-btn {{
         background: #111827;
         color: #e2e8f0;
@@ -2633,6 +2678,7 @@ HTML = f"""<!doctype html>
       body[data-theme="fun"] .settings-mini-btn,
       body[data-theme="fun"] button.secondary,
       body[data-theme="fun"] .icon-btn,
+      body[data-theme="fun"] .header-action-btn,
       body[data-theme="fun"] .mode-toggle-btn {{
         background: #17122b;
         color: #e9e7ff;
@@ -2659,12 +2705,12 @@ HTML = f"""<!doctype html>
       }}
       body[data-theme="fun"] #sendBtn,
       body[data-theme="fun"] #clearBtn,
-      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn) {{
+      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.header-action-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn) {{
         color: #052016;
       }}
       body[data-theme="fun"] #sendBtn:hover,
       body[data-theme="fun"] #clearBtn:hover,
-      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn):hover {{
+      body[data-theme="fun"] button:not(.secondary):not(.outline-accent):not(.icon-btn):not(.header-action-btn):not(.mode-toggle-btn):not(.preset-btn):not(.settings-mini-btn):hover {{
         color: #04150f;
       }}
       body[data-theme="fun"] .mode-toggle {{
@@ -2784,8 +2830,15 @@ HTML = f"""<!doctype html>
       <div class="layout">
         <section class="card">
           <div class="app-title-row">
-            <h1>{APP_DEMO_NAME}</h1>
-            <span class="build-badge" title="Auto-generated from git metadata when available">{BUILD_BADGE}</span>
+            <div class="app-title-main">
+              <h1>{APP_DEMO_NAME}</h1>
+              <span class="build-badge" title="Auto-generated from git metadata when available">{BUILD_BADGE}</span>
+              <span id="updateStatusPill" class="status-pill" title="Checks remote repository for newer commits/tags">
+                <span id="updateStatusDot" class="status-dot" aria-hidden="true"></span>
+                <span id="updateStatusText">Update: checking...</span>
+              </span>
+              <button id="updateNowBtn" class="header-action-btn" type="button" title="Apply update from configured git remote/branch and restart" aria-label="Update app" disabled>Update ⤓</button>
+            </div>
           </div>
           <div class="chat-meta-row">
             <div class="chat-meta-info">
@@ -2838,13 +2891,10 @@ HTML = f"""<!doctype html>
                 <span id="awsAuthDot" class="status-dot" aria-hidden="true"></span>
                 <span id="awsAuthText">AWS Auth: hidden</span>
               </span>
-              <span id="updateStatusPill" class="status-pill" title="Checks remote repository for newer commits/tags">
-                <span id="updateStatusDot" class="status-dot" aria-hidden="true"></span>
-                <span id="updateStatusText">Update: checking...</span>
+              <span class="chat-meta-actions">
+                <button id="usageBtn" class="header-action-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">Usage Dashboard</button>
+                <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
               </span>
-              <button id="updateNowBtn" class="icon-btn" type="button" title="Apply update from configured git remote/branch and restart" aria-label="Update app" disabled>⟳</button>
-              <button id="usageBtn" class="icon-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">▦</button>
-              <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
           </div>
 
@@ -4384,7 +4434,7 @@ HTML = f"""<!doctype html>
       }}
 
       function _scheduleUpdateStatusPolling(seconds) {{
-        const s = Math.max(60, Number(seconds) || 3600);
+        const s = Math.max(10, Number(seconds) || 3600);
         updateCheckIntervalSeconds = s;
         if (updateStatusTimer) {{
           clearInterval(updateStatusTimer);
@@ -4415,7 +4465,7 @@ HTML = f"""<!doctype html>
               ? "Apply latest update now (git pull + dependency sync + restart)"
               : `Update available but cannot auto-apply: ${{reason || "see status"}}`;
           }} else {{
-            setUpdateStatus("ok", "Update: latest", "Local version matches configured remote/branch.");
+            setUpdateStatus("ok", "Version: latest", "Local version matches configured remote/branch.");
             updateNowBtnEl.disabled = true;
             updateNowBtnEl.title = "No update available";
           }}
@@ -4452,7 +4502,7 @@ HTML = f"""<!doctype html>
             return;
           }}
           if (!data.updated) {{
-            setUpdateStatus("ok", "Update: latest", String(data?.message || "Already up to date."));
+            setUpdateStatus("ok", "Version: latest", String(data?.message || "Already up to date."));
             updateNowBtnEl.disabled = true;
             return;
           }}
@@ -9095,7 +9145,7 @@ SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_RATE_LIMIT_CHAT_PER_MIN", "label": "Chat Rate Limit / Min", "secret": False, "hint": "Per-client-IP limit for /chat (default 30/min)"},
     {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (12/min default)"},
     {"group": "App", "key": "APP_MAX_CONCURRENT_CHAT", "label": "Max Concurrent Chats", "secret": False, "hint": "Global in-process cap for simultaneous /chat requests"},
-    {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "How often UI checks for updates (default 3600; set 60 for local testing)"},
+    {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "How often UI checks for updates (default 3600; set 10 for local testing)"},
     {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Git remote used for update checks/apply (default origin)"},
     {"group": "App", "key": "UPDATE_BRANCH_NAME", "label": "Update Branch", "secret": False, "hint": "Branch to compare/pull for updates (default main)"},
     {"group": "App", "key": "USAGE_PRICE_OVERRIDES_JSON", "label": "Usage Price Overrides (JSON)", "secret": False, "hint": "Optional per-provider token pricing overrides, per 1M tokens. Example: {\"openai\":{\"input\":0.15,\"output\":0.6}}", "hidden_in_form": True},
@@ -9328,7 +9378,7 @@ def _settings_save(values: dict[str, str]) -> None:
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
     APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", APP_RATE_LIMIT_ADMIN_PER_MIN))
     APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", APP_MAX_CONCURRENT_CHAT))
-    UPDATE_CHECK_INTERVAL_SECONDS = max(60, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", UPDATE_CHECK_INTERVAL_SECONDS))
+    UPDATE_CHECK_INTERVAL_SECONDS = max(10, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", UPDATE_CHECK_INTERVAL_SECONDS))
     UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", UPDATE_REMOTE_NAME)
     UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", UPDATE_BRANCH_NAME)
 
