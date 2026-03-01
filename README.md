@@ -445,3 +445,5 @@ What Docker runs:
 - You can still edit provider keys/models via in-app Settings; values persist in `.env.local`.
 - If you change settings that need restart, use the app restart prompt or run:
   - `docker compose restart app`
+
+- updater test 2026-03-01 10:17:18
