@@ -4,7 +4,7 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
-- `branch: codex/low-risk-learning-features` (current feature branch)
+- `v1.1` (consolidated)
   - Added trace replay controls (`Prev Trace` / `Next Trace`) and `Export Evidence` for trace-backed demos.
   - Added `Determinism Lab` and `Policy Replay Comparison` for repeatability and policy-variant checks.
   - Added `Scenario Runner` for quick multi-provider prompt suite runs and summary outcomes.
@@ -15,25 +15,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
     - `Per-Role Workers` (multi-agent roles executed in separate worker processes)
   - Added planned-flow preview mode in Flow Graph before first run and clearer process boundaries for isolated modes.
   - Added provider-aware attachments (multimodal where supported) plus attachment filtering by provider/model capability.
-  - Improved explainers and UI polish across Flow Graph, Code Path Viewer, and themed modals.
-
-- `v1.0.3` (02-28-26)
-  - Added a new **Flow Explainer** modal (theme-aware) with deterministic, trace-driven summaries:
-    - what happened
-    - security outcome (allow/block + stage/mode)
-    - tool activity (local vs network, errors)
-    - step-by-step timeline
-  - Reworked **Prompt Presets** into a modal workflow with in-modal config (gear icon), persisted custom detector prompts, reset-to-defaults, and cleaner grouped/collapsible layout.
-  - Improved UI/UX polish across themes (especially Dark/Neon), plus modal consistency and save behaviors in settings/preset flows.
-  - Refined graph/guardrails behavior for clearer proxy vs DAS/API path visualization and endpoint transparency.
-- `v1.0.2` (02-27-26)
-  - Fixed flow graph behavior for AI Guard block paths (Proxy + DAS/API) so edges reflect real request flow.
-  - Added provider/upstream endpoint hints in flow graph tooltips.
-  - Fixed DAS/API `OUT` block handling so blocked model output is redacted from user-visible block responses and trace payload previews.
-- `v1.0.1` (02-27-26)
-  - Added UI themes (Classic, Zscaler Blue, Dark, Neon) with persistent selection.
-  - Improved dark/neon modal and panel styling.
-  - Added auto build/version badge near title (git tag/commit based).
+  - Added a theme-aware Flow Explainer modal with deterministic summaries (what happened, security outcome, tool activity, timeline).
+  - Reworked Prompt Presets into a modal workflow with in-modal config (gear), persisted custom prompts, reset-to-defaults, and grouped/collapsible layout.
+  - Improved UI polish across themes (including Dark/Neon), graph/guardrail visualization, Code Path Viewer clarity, and modal consistency.
 
 Note: this section is intentionally compact. Keep only recent releases here and avoid a long historical changelog in this repo.
 
