@@ -182,6 +182,30 @@ def _git_run(args: list[str], *, timeout: float = 30.0) -> subprocess.CompletedP
     )
 
 
+def _extract_whats_new_section(readme_text: str) -> str:
+    text = str(readme_text or "")
+    if not text:
+        return ""
+    lines = text.splitlines()
+    start = -1
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("##") and "what's new" in line.lower():
+            start = i
+            break
+    if start < 0:
+        return ""
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        line = lines[j].lstrip()
+        if line.startswith("## "):
+            end = j
+            break
+    section = "\n".join(lines[start:end]).strip()
+    if len(section) > 8000:
+        section = section[:8000].rstrip() + "\n..."
+    return section
+
+
 def _update_status_payload() -> dict[str, object]:
     remote = str(UPDATE_REMOTE_NAME or "origin").strip() or "origin"
     branch = str(UPDATE_BRANCH_NAME or "main").strip() or "main"
@@ -194,6 +218,7 @@ def _update_status_payload() -> dict[str, object]:
         "latest": False,
         "can_update": False,
         "reason": "",
+        "whats_new": "",
     }
     try:
         local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
@@ -208,7 +233,13 @@ def _update_status_payload() -> dict[str, object]:
         if fetch_res.returncode != 0:
             raise RuntimeError("Unable to reach remote repository")
         remote_sha = _git_output(["rev-parse", f"{remote}/{branch}"], timeout=2.0)
-        update_available = bool(local_sha and remote_sha and local_sha != remote_sha)
+        ahead_str, behind_str = _git_output(
+            ["rev-list", "--left-right", "--count", f"HEAD...{remote}/{branch}"],
+            timeout=2.0,
+        ).split()
+        local_ahead = int(ahead_str)
+        remote_ahead = int(behind_str)
+        update_available = bool(remote_ahead > 0)
         out.update(
             {
                 "local_sha": local_sha[:12],
@@ -216,13 +247,21 @@ def _update_status_payload() -> dict[str, object]:
                 "current_branch": current_branch,
                 "local_tag": local_tag,
                 "clean_worktree": is_clean,
+                "local_ahead": local_ahead,
+                "remote_ahead": remote_ahead,
                 "update_available": update_available,
                 "latest": not update_available,
                 "can_update": bool(
-                    update_available and is_clean and current_branch == branch and not _UPDATE_RUNNING
+                    update_available
+                    and local_ahead == 0
+                    and is_clean
+                    and current_branch == branch
+                    and not _UPDATE_RUNNING
                 ),
                 "reason": (
-                    "Working tree has local changes."
+                    "Local branch has unpushed commits; push/rebase first."
+                    if update_available and local_ahead > 0
+                    else "Working tree has local changes."
                     if update_available and not is_clean
                     else ("Switch to branch " + branch + " to apply update.")
                     if update_available and current_branch != branch
@@ -230,6 +269,16 @@ def _update_status_payload() -> dict[str, object]:
                 ),
             }
         )
+        if not update_available:
+            out["reason"] = (
+                "Local branch is ahead of remote." if local_ahead > 0 else "Already up to date."
+            )
+        if update_available:
+            try:
+                remote_readme = _git_output(["show", f"{remote}/{branch}:README.md"], timeout=4.0)
+                out["whats_new"] = _extract_whats_new_section(remote_readme)
+            except Exception:
+                out["whats_new"] = ""
         return out
     except Exception as exc:
         out.update(
@@ -2075,6 +2124,9 @@ HTML = f"""<!doctype html>
         box-shadow: 0 20px 60px rgba(2, 6, 23, 0.25);
         overflow: hidden;
       }}
+      .update-confirm-dialog {{
+        width: min(760px, 94vw);
+      }}
       .confirm-head {{
         padding: 12px 14px;
         border-bottom: 1px solid var(--border);
@@ -2837,7 +2889,11 @@ HTML = f"""<!doctype html>
                 <span id="updateStatusDot" class="status-dot" aria-hidden="true"></span>
                 <span id="updateStatusText">Update: checking...</span>
               </span>
-              <button id="updateNowBtn" class="header-action-btn" type="button" title="Apply update from configured git remote/branch and restart" aria-label="Update app" disabled>Update ⤓</button>
+              <button id="updateNowBtn" class="header-action-btn" type="button" title="Check and apply update from configured git remote/branch" aria-label="Update app">Update ⤓</button>
+            </div>
+            <div class="app-title-actions">
+              <button id="usageBtn" class="header-action-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">Usage Dashboard</button>
+              <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
           </div>
           <div class="chat-meta-row">
@@ -2890,10 +2946,6 @@ HTML = f"""<!doctype html>
               <span id="awsAuthPill" class="status-pill" style="display:none;" title="AWS auth source for Bedrock providers">
                 <span id="awsAuthDot" class="status-dot" aria-hidden="true"></span>
                 <span id="awsAuthText">AWS Auth: hidden</span>
-              </span>
-              <span class="chat-meta-actions">
-                <button id="usageBtn" class="header-action-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">Usage Dashboard</button>
-                <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
               </span>
             </div>
           </div>
@@ -3159,12 +3211,19 @@ HTML = f"""<!doctype html>
       </div>
 
       <div id="updateConfirmModal" class="confirm-modal" aria-hidden="true">
-        <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
+        <div class="confirm-dialog update-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="updateConfirmTitle">
           <div id="updateConfirmTitle" class="confirm-head">Apply Update?</div>
           <div class="confirm-body">
-            This will fetch/pull the latest code from your configured remote/branch, install requirements, and restart the app.
-            <br/><br/>
-            Your local settings and secrets in <code>.env.local</code> are not overwritten by this update flow.
+            <div id="updateConfirmIntro">
+              This will fetch/pull the latest code from your configured remote/branch, install requirements, and restart the app.
+              <br/><br/>
+              Your local settings and secrets in <code>.env.local</code> are not overwritten by this update flow.
+            </div>
+            <div id="updateConfirmReason" class="code-note" style="margin-top:10px;"></div>
+            <div id="updateConfirmWhatsNewWrap" style="display:none; margin-top:10px;">
+              <div style="font-weight:700; margin-bottom:6px;">What's New (incoming)</div>
+              <pre id="updateConfirmWhatsNew" style="max-height:220px; overflow:auto; margin:0;"></pre>
+            </div>
           </div>
           <div class="confirm-actions">
             <button id="updateConfirmCancelBtn" class="secondary" type="button">Cancel</button>
@@ -3619,6 +3678,9 @@ HTML = f"""<!doctype html>
       const updateConfirmModalEl = document.getElementById("updateConfirmModal");
       const updateConfirmOkBtnEl = document.getElementById("updateConfirmOkBtn");
       const updateConfirmCancelBtnEl = document.getElementById("updateConfirmCancelBtn");
+      const updateConfirmReasonEl = document.getElementById("updateConfirmReason");
+      const updateConfirmWhatsNewWrapEl = document.getElementById("updateConfirmWhatsNewWrap");
+      const updateConfirmWhatsNewEl = document.getElementById("updateConfirmWhatsNew");
 
       let traceCount = 0;
       let codeViewMode = "auto";
@@ -3636,6 +3698,7 @@ HTML = f"""<!doctype html>
       let liteLlmStatusTimer = null;
       let updateStatusTimer = null;
       let updateCheckIntervalSeconds = 3600;
+      let lastUpdateStatusData = null;
       let httpTraceExpanded = false;
       let agentTraceExpanded = false;
       let inspectorExpanded = false;
@@ -4448,34 +4511,69 @@ HTML = f"""<!doctype html>
           setUpdateStatus("", "Update: checking...");
           const res = await fetch("/update-status");
           const data = await res.json();
+          lastUpdateStatusData = data || null;
           if (Number(data?.check_interval_seconds || 0) > 0) {{
             _scheduleUpdateStatusPolling(Number(data.check_interval_seconds));
           }}
           if (!res.ok || data?.ok === false) {{
             const reason = String(data?.reason || data?.error || "Update check failed.");
             setUpdateStatus("bad", "Update: check failed", reason);
-            updateNowBtnEl.disabled = true;
+            updateNowBtnEl.disabled = false;
+            updateNowBtnEl.title = "Update check failed. Click to view details.";
             return;
           }}
           if (data.update_available) {{
             const reason = String(data.reason || "New version available from remote.");
             setUpdateStatus("warn", "Update: available", reason);
-            updateNowBtnEl.disabled = !data.can_update;
+            updateNowBtnEl.disabled = false;
             updateNowBtnEl.title = data.can_update
               ? "Apply latest update now (git pull + dependency sync + restart)"
-              : `Update available but cannot auto-apply: ${{reason || "see status"}}`;
+              : `Update available. Review blocker details before applying: ${{reason || "see status"}}`;
           }} else {{
             setUpdateStatus("ok", "Version: latest", "Local version matches configured remote/branch.");
-            updateNowBtnEl.disabled = true;
-            updateNowBtnEl.title = "No update available";
+            updateNowBtnEl.disabled = false;
+            updateNowBtnEl.title = "No update available. Click for details.";
           }}
         }} catch (err) {{
+          lastUpdateStatusData = null;
           setUpdateStatus("bad", "Update: check failed", String(err?.message || err));
-          updateNowBtnEl.disabled = true;
+          updateNowBtnEl.disabled = false;
+          updateNowBtnEl.title = "Update check failed. Click to view details.";
         }}
       }}
 
       function openUpdateConfirmModal() {{
+        const status = lastUpdateStatusData || {{}};
+        const hasUpdate = !!status.update_available;
+        const canUpdate = !!status.can_update;
+        const reason = String(status.reason || "").trim();
+        if (updateConfirmReasonEl) {{
+          if (!hasUpdate) {{
+            updateConfirmReasonEl.textContent = "No update is currently available.";
+          }} else if (!canUpdate) {{
+            updateConfirmReasonEl.textContent = `Auto-apply is currently blocked: ${{reason || "unknown reason"}}`;
+          }} else {{
+            updateConfirmReasonEl.textContent = `Ready to apply from ${{status.remote || "origin"}}/${{status.branch || "main"}} (${{
+              status.remote_sha || "new commit"
+            }}).`;
+          }}
+        }}
+        const whatsNew = String(status.whats_new || "").trim();
+        if (updateConfirmWhatsNewWrapEl && updateConfirmWhatsNewEl) {{
+          if (whatsNew) {{
+            updateConfirmWhatsNewWrapEl.style.display = "";
+            updateConfirmWhatsNewEl.textContent = whatsNew;
+          }} else {{
+            updateConfirmWhatsNewWrapEl.style.display = "none";
+            updateConfirmWhatsNewEl.textContent = "";
+          }}
+        }}
+        updateConfirmOkBtnEl.disabled = !hasUpdate;
+        updateConfirmOkBtnEl.title = (!hasUpdate)
+          ? "No update available."
+          : (canUpdate
+              ? "Apply update now."
+              : `Will attempt update and show blocker details: ${{reason || "unknown reason"}}`);
         updateConfirmModalEl.classList.add("open");
         updateConfirmModalEl.setAttribute("aria-hidden", "false");
       }}
@@ -8083,7 +8181,6 @@ HTML = f"""<!doctype html>
         if (e.target === usageModalEl) closeUsageModal();
       }});
       updateNowBtnEl.addEventListener("click", () => {{
-        if (updateNowBtnEl.disabled) return;
         openUpdateConfirmModal();
       }});
       updateConfirmCancelBtnEl.addEventListener("click", closeUpdateConfirmModal);
