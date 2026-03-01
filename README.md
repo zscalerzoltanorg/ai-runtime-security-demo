@@ -4,7 +4,7 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
-- `v1.1` (consolidated)
+- `v1.1`
   - Added trace replay controls (`Prev Trace` / `Next Trace`) and `Export Evidence` for trace-backed demos.
   - Added `Determinism Lab` and `Policy Replay Comparison` for repeatability and policy-variant checks.
   - Added `Scenario Runner` for quick multi-provider prompt suite runs and summary outcomes.
