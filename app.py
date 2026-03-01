@@ -2055,6 +2055,15 @@ HTML = f"""<!doctype html>
       .flow-edge-label.response.danger text {{
         fill: #fca5a5;
       }}
+      .flow-edge-label.better text {{
+        fill: #34d399;
+      }}
+      .flow-edge-label.worse text {{
+        fill: #f87171;
+      }}
+      .flow-edge-label.same text {{
+        fill: #fbbf24;
+      }}
       .flow-edge.solid {{
         stroke-dasharray: 10 8;
       }}
@@ -2531,6 +2540,23 @@ HTML = f"""<!doctype html>
       }}
       .explain-card-body {{
         padding: 10px;
+      }}
+      .latency-bench-summary {{
+        margin: 0 0 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+        color: var(--text);
+        font-size: 0.9rem;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }}
+      #latencyBenchOutput {{
+        margin: 0;
+        max-height: 320px;
+        overflow: auto;
+        scrollbar-width: thin;
       }}
       .explain-list {{
         margin: 0;
@@ -3512,6 +3538,7 @@ HTML = f"""<!doctype html>
             <button id="flowExportBtn" class="secondary" type="button" title="Download evidence pack for the currently selected trace">Export Evidence</button>
             <button id="flowPolicyReplayBtn" class="secondary" type="button" title="Re-run AI Guard checks for selected trace content variants (as_is/normalized/redacted) without re-calling provider/tools">Policy Replay</button>
             <button id="flowDeterminismBtn" class="secondary" type="button" title="Run the same /chat payload multiple times and compare fingerprints, block stage, and tool calls">Determinism Lab</button>
+            <button id="flowLatencyBenchBtn" class="secondary" type="button" title="Run baseline vs AI Guard mode latency benchmark for this prompt/provider">Latency Bench</button>
             <button id="flowScenarioRunnerBtn" class="secondary" type="button" title="Run a preset prompt suite across selected providers and summarize outcomes">Scenario Runner</button>
             <span id="flowReplayStatus" class="flow-replay-status">Trace replay: none</span>
           </div>
@@ -3791,6 +3818,65 @@ HTML = f"""<!doctype html>
           </div>
         </div>
       </div>
+      <div id="latencyBenchModal" class="explain-modal" aria-hidden="true">
+        <div class="explain-dialog" role="dialog" aria-modal="true" aria-labelledby="latencyBenchTitle">
+          <div class="explain-head">
+            <h2 id="latencyBenchTitle">Latency Bench</h2>
+            <button id="latencyBenchCloseBtn" class="icon-btn" type="button" title="Close Latency Bench">✕</button>
+          </div>
+          <div class="explain-body">
+            <div class="explain-card">
+              <div class="explain-card-head">Run Settings</div>
+              <div class="explain-card-body">
+                <div class="settings-grid" style="padding:0;">
+                  <div class="settings-field">
+                    <label for="latencyBenchRunsInput">Runs per Mode</label>
+                    <div class="settings-input-wrap">
+                      <input id="latencyBenchRunsInput" type="number" min="1" max="8" value="2" />
+                    </div>
+                    <div class="hint">Repeats each mode and computes avg/p50/p95 latency.</div>
+                  </div>
+                  <div class="settings-field">
+                    <label for="latencyBenchDelayInput">Delay Between Calls (ms)</label>
+                    <div class="settings-input-wrap">
+                      <input id="latencyBenchDelayInput" type="number" min="0" max="5000" value="250" />
+                    </div>
+                    <div class="hint">Pause between calls to reduce burst-side noise.</div>
+                  </div>
+                </div>
+                <div class="settings-grid" style="padding:0; margin-top:8px;">
+                  <div class="settings-field">
+                    <label><input id="latencyBenchModeBaseline" type="checkbox" checked /> Guardrails Off (Baseline)</label>
+                  </div>
+                  <div class="settings-field">
+                    <label><input id="latencyBenchModeDas" type="checkbox" checked /> AI Guard API/DAS</label>
+                  </div>
+                  <div class="settings-field">
+                    <label><input id="latencyBenchModeProxy" type="checkbox" checked /> AI Guard Proxy</label>
+                  </div>
+                </div>
+                <div class="explain-grid" style="margin-top:8px;">
+                  <div class="explain-kv"><div class="k">Request Source</div><div id="latencyBenchSourceLabel" class="v">Selected replay trace</div></div>
+                </div>
+                <p class="sub" style="margin:8px 0 0;">Runs identical payloads across selected modes and reports end-to-end, provider, and AI Guard timing.</p>
+              </div>
+            </div>
+            <div class="explain-card">
+              <div class="explain-card-head">Results</div>
+              <div class="explain-card-body">
+                <div id="latencyBenchSummary" class="latency-bench-summary">Summary will appear after benchmark completes.</div>
+                <pre id="latencyBenchOutput">Run benchmark to compare latency overhead by mode.</pre>
+              </div>
+            </div>
+          </div>
+          <div class="explain-foot">
+            <div class="settings-actions">
+              <button id="latencyBenchRunBtn" class="secondary" type="button">Run Benchmark</button>
+              <button id="latencyBenchDoneBtn" type="button">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="usageModal" class="explain-modal" aria-hidden="true">
         <div class="explain-dialog usage-dialog" role="dialog" aria-modal="true" aria-labelledby="usageTitle">
           <div class="explain-head">
@@ -4012,6 +4098,7 @@ HTML = f"""<!doctype html>
       const flowExportBtn = document.getElementById("flowExportBtn");
       const flowPolicyReplayBtn = document.getElementById("flowPolicyReplayBtn");
       const flowDeterminismBtn = document.getElementById("flowDeterminismBtn");
+      const flowLatencyBenchBtn = document.getElementById("flowLatencyBenchBtn");
       const flowScenarioRunnerBtn = document.getElementById("flowScenarioRunnerBtn");
       const flowReplayStatusEl = document.getElementById("flowReplayStatus");
       const flowToolbarStatusEl = document.getElementById("flowToolbarStatus");
@@ -4040,6 +4127,18 @@ HTML = f"""<!doctype html>
       const scenarioProvidersInputEl = document.getElementById("scenarioProvidersInput");
       const scenarioLimitInputEl = document.getElementById("scenarioLimitInput");
       const scenarioRunnerOutputEl = document.getElementById("scenarioRunnerOutput");
+      const latencyBenchModalEl = document.getElementById("latencyBenchModal");
+      const latencyBenchCloseBtnEl = document.getElementById("latencyBenchCloseBtn");
+      const latencyBenchDoneBtnEl = document.getElementById("latencyBenchDoneBtn");
+      const latencyBenchRunBtnEl = document.getElementById("latencyBenchRunBtn");
+      const latencyBenchRunsInputEl = document.getElementById("latencyBenchRunsInput");
+      const latencyBenchDelayInputEl = document.getElementById("latencyBenchDelayInput");
+      const latencyBenchModeBaselineEl = document.getElementById("latencyBenchModeBaseline");
+      const latencyBenchModeDasEl = document.getElementById("latencyBenchModeDas");
+      const latencyBenchModeProxyEl = document.getElementById("latencyBenchModeProxy");
+      const latencyBenchSourceLabelEl = document.getElementById("latencyBenchSourceLabel");
+      const latencyBenchSummaryEl = document.getElementById("latencyBenchSummary");
+      const latencyBenchOutputEl = document.getElementById("latencyBenchOutput");
       const usageModalEl = document.getElementById("usageModal");
       const usageCloseBtnEl = document.getElementById("usageCloseBtn");
       const usageDoneBtnEl = document.getElementById("usageDoneBtn");
@@ -6491,7 +6590,8 @@ HTML = f"""<!doctype html>
             from, to, direction,
             style: opts.style || (direction === "response" ? "solid" : "dashed"),
             label: opts.label || "",
-            danger: !!opts.danger
+            danger: !!opts.danger,
+            latency_ms: Math.max(0, Number(opts.latencyMs || 0) || 0),
           }});
         }}
 
@@ -6527,13 +6627,36 @@ HTML = f"""<!doctype html>
           guardrailsBlockStage === "OUT"
           || (guardrailsBlockStage !== "IN" && inferResponseBlockedByText)
         );
-        const hasAiGuardIn = traceSteps.some((s) => String((s || {{}}).name || "").includes("AI Guard (IN)"));
-        const hasAiGuardOut = traceSteps.some((s) => String((s || {{}}).name || "").includes("AI Guard (OUT)"));
+        const aiGuardInStep = traceSteps.find((s) => String((s || {{}}).name || "").includes("AI Guard (IN)")) || null;
+        const aiGuardOutStep = traceSteps.find((s) => String((s || {{}}).name || "").includes("AI Guard (OUT)")) || null;
+        const hasAiGuardIn = !!aiGuardInStep;
+        const hasAiGuardOut = !!aiGuardOutStep;
         const dasApiMode = guardrailsEnabled && !proxyMode;
         const providerStep = traceSteps.find((s) => {{
           const n = String((s || {{}}).name || "");
           return !!n && !n.startsWith("Zscaler");
         }});
+        const aiGuardInMs = _extractStepLatencyMs(aiGuardInStep);
+        const aiGuardOutMs = _extractStepLatencyMs(aiGuardOutStep);
+        const providerStepMs = _extractStepLatencyMs(providerStep);
+        const e2eMs = Math.max(0, Number(entry?.clientLatencyMs || 0) || 0);
+        const knownGuardMs = Math.max(0, aiGuardInMs) + Math.max(0, aiGuardOutMs);
+        const inferredProviderMs = providerStepMs > 0
+          ? providerStepMs
+          : ((e2eMs > knownGuardMs) ? Math.max(0, e2eMs - knownGuardMs) : 0);
+        const proxyServiceMs = proxyMode
+          ? Math.max(0, aiGuardOutMs || (e2eMs > inferredProviderMs ? (e2eMs - inferredProviderMs) : 0))
+          : 0;
+        const _splitHopMs = (total) => {{
+          const t = Math.max(0, Math.round(Number(total || 0)));
+          const req = Math.round(t / 2);
+          return {{ req, resp: Math.max(0, t - req) }};
+        }};
+        const clientHop = _splitHopMs(e2eMs);
+        const providerHop = _splitHopMs(inferredProviderMs);
+        const aiGuardInHop = _splitHopMs(aiGuardInMs);
+        const aiGuardOutHop = _splitHopMs(aiGuardOutMs);
+        const proxyHop = _splitHopMs(proxyServiceMs);
 
         addNode("client", "Browser", "client", 0, 2, {{
           "Request URL": `${{window.location.origin}}/chat`,
@@ -6563,7 +6686,7 @@ HTML = f"""<!doctype html>
             note: "Local web app server endpoint handling /chat"
           }}),
         }});
-        addEdge("client", "app", "request", {{ style: "solid" }});
+        addEdge("client", "app", "request", {{ style: "solid", latencyMs: clientHop.req }});
 
         let currentNodeId = "app";
         let providerRequestSourceNode = "app";
@@ -6571,7 +6694,7 @@ HTML = f"""<!doctype html>
 
         if (dasApiMode) {{
           if (hasAiGuardIn) {{
-            const step = traceSteps.find((s) => String((s || {{}}).name || "").includes("AI Guard (IN)")) || {{}};
+            const step = aiGuardInStep || {{}};
             const respBody = ((step.response || {{}}).body || {{}});
             addNode("aiguard_in", "AI Guard (IN)", "aiguard", 2, 1, {{
               "URL": (step.request || {{}}).url || "",
@@ -6583,8 +6706,8 @@ HTML = f"""<!doctype html>
                 note: "DAS/API mode side-call from app to Zscaler AI Guard"
               }}),
             }});
-            addEdge("app", "aiguard_in", "request");
-            addEdge("aiguard_in", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "IN" }});
+            addEdge("app", "aiguard_in", "request", {{ latencyMs: aiGuardInHop.req }});
+            addEdge("aiguard_in", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "IN", latencyMs: aiGuardInHop.resp }});
           }}
           // Keep DAS/API calls visually off the inline provider path.
           nextCol = 3;
@@ -6599,7 +6722,7 @@ HTML = f"""<!doctype html>
               note: "Proxy mode inline hop between app and provider"
             }}),
           }});
-          addEdge(currentNodeId, "aiguard_proxy", "request");
+          addEdge(currentNodeId, "aiguard_proxy", "request", {{ latencyMs: proxyHop.req }});
           currentNodeId = "aiguard_proxy";
           providerRequestSourceNode = "aiguard_proxy";
         }}
@@ -6701,7 +6824,7 @@ HTML = f"""<!doctype html>
           }}
           addNode(providerNodeId, providerLabel + (proxyMode ? " (via Proxy)" : ""), "provider", nextCol++, 2, providerMeta);
           if (shouldConnectProviderRequest) {{
-            addEdge(providerRequestSourceNode, providerNodeId, "request");
+            addEdge(providerRequestSourceNode, providerNodeId, "request", {{ latencyMs: providerHop.req }});
           }}
         }}
         const mcpEvents = agentTrace.filter((i) => (i && i.kind) === "mcp");
@@ -6800,7 +6923,7 @@ HTML = f"""<!doctype html>
 
 
         if (dasApiMode && hasAiGuardOut) {{
-          const step = traceSteps.find((s) => String((s || {{}}).name || "").includes("AI Guard (OUT)")) || {{}};
+          const step = aiGuardOutStep || {{}};
           const respBody = ((step.response || {{}}).body || {{}});
           const outCol = shouldShowProvider ? Math.max(3, nextCol - 1) : 3;
           addNode("aiguard_out", "AI Guard (OUT)", "aiguard", outCol, 3, {{
@@ -6813,8 +6936,8 @@ HTML = f"""<!doctype html>
               note: "DAS/API mode side-call from app to Zscaler AI Guard"
             }}),
           }});
-          addEdge("app", "aiguard_out", "request");
-          addEdge("aiguard_out", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
+          addEdge("app", "aiguard_out", "request", {{ latencyMs: aiGuardOutHop.req }});
+          addEdge("aiguard_out", "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT", latencyMs: aiGuardOutHop.resp }});
         }}
 
         if (proxyMode && guardrailsEnabled) {{
@@ -6824,25 +6947,26 @@ HTML = f"""<!doctype html>
               providerNodeId,
               isolatedWorkers && workerReturnNode ? workerReturnNode : "aiguard_proxy",
               "response",
-              {{ danger: guardrailsBlocked && proxyResponseBlocked }}
+              {{ danger: guardrailsBlocked && proxyResponseBlocked, latencyMs: providerHop.resp }}
             );
             if (isolatedWorkers && workerReturnNode) {{
               addEdge(workerReturnNode, "aiguard_proxy", "response", {{ style: "dashed", label: processHandoffLabel, danger: guardrailsBlocked && proxyResponseBlocked }});
             }}
           }}
-          addEdge("aiguard_proxy", "app", "response", {{ danger: guardrailsBlocked }});
+          addEdge("aiguard_proxy", "app", "response", {{ danger: guardrailsBlocked, latencyMs: proxyHop.resp }});
         }} else if (shouldShowProvider && shouldConnectProviderRequest) {{
           const workerReturnNode = pipelineStart ? "finalizer" : (entry.agenticEnabled ? "agent" : "");
           if (isolatedWorkers && workerReturnNode) {{
-            addEdge(providerNodeId, workerReturnNode, "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
+            addEdge(providerNodeId, workerReturnNode, "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT", latencyMs: providerHop.resp }});
             addEdge(workerReturnNode, "app", "response", {{ style: "dashed", label: processHandoffLabel, danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
           }} else {{
-            addEdge(providerNodeId, "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT" }});
+            addEdge(providerNodeId, "app", "response", {{ danger: guardrailsBlocked && guardrailsBlockStage === "OUT", latencyMs: providerHop.resp }});
           }}
         }}
         addEdge("app", "client", "response", {{
           style: "solid",
-          danger: guardrailsBlocked && (guardrailsBlockStage === "IN" || guardrailsBlockStage === "OUT" || proxyMode)
+          danger: guardrailsBlocked && (guardrailsBlockStage === "IN" || guardrailsBlockStage === "OUT" || proxyMode),
+          latencyMs: clientHop.resp,
         }});
 
         for (const direction of ["request", "response"]) {{
@@ -6875,6 +6999,11 @@ HTML = f"""<!doctype html>
             counter += 1;
           }}
         }}
+        edges.forEach((e) => {{
+          const flowTag = String(e.flow_label || "");
+          const latTag = _formatLatency(e.latency_ms);
+          e.display_label = [flowTag, latTag].filter(Boolean).join(" · ");
+        }});
         return {{ nodes, edges }};
       }}
 
@@ -7135,15 +7264,19 @@ HTML = f"""<!doctype html>
           el.setAttribute("d", geom.d);
           const labelGroup = flowGraphSvgEl.querySelector(`.flow-edge-label[data-edge-label-idx="${{idx}}"]`);
           if (labelGroup) {{
+            const labelText = String(edge.display_label || edge.flow_label || "");
+            const labelW = Math.max(30, Math.min(240, 14 + (labelText.length * 7)));
             const rect = labelGroup.querySelector("rect");
             const text = labelGroup.querySelector("text");
             if (rect) {{
-              rect.setAttribute("x", String(geom.labelX - 15));
+              rect.setAttribute("x", String(geom.labelX - (labelW / 2)));
               rect.setAttribute("y", String(geom.labelY - 9));
+              rect.setAttribute("width", String(labelW));
             }}
             if (text) {{
               text.setAttribute("x", String(geom.labelX));
               text.setAttribute("y", String(geom.labelY));
+              text.textContent = labelText;
             }}
           }}
         }});
@@ -7180,10 +7313,13 @@ HTML = f"""<!doctype html>
           if (!a || !b) return null;
           const geom = _flowEdgePath(a, b, edge, nodeW, nodeH, idx);
           const cls = `flow-edge ${{edge.direction === "response" ? "response" : "request"}} ${{edge.style === "solid" ? "solid" : ""}} ${{edge.danger ? "danger" : ""}}`;
+          const labelText = String(edge.display_label || edge.flow_label || "");
+          const labelW = Math.max(30, Math.min(240, 14 + (labelText.length * 7)));
+          const labelCls = `flow-edge-label ${{edge.direction === "response" ? "response" : "request"}} ${{edge.danger ? "danger" : ""}} ${{edge.delta_class || ""}}`;
           return {{
             path: `<path data-edge-idx="${{idx}}" class="${{cls}}" d="${{geom.d}}" marker-end="url(#flowArrow${{edge.direction === "response" ? (edge.danger ? "RespDanger" : "Resp") : "Req"}})"></path>`,
-            label: edge.flow_label
-              ? `<g class="flow-edge-label ${{edge.direction === "response" ? "response" : "request"}} ${{edge.danger ? "danger" : ""}}" data-edge-label-idx="${{idx}}"><rect x="${{geom.labelX - 15}}" y="${{geom.labelY - 9}}" width="30" height="18" rx="6" ry="6"></rect><text x="${{geom.labelX}}" y="${{geom.labelY}}">${{edge.flow_label}}</text></g>`
+            label: labelText
+              ? `<g class="${{labelCls}}" data-edge-label-idx="${{idx}}"><rect x="${{geom.labelX - (labelW / 2)}}" y="${{geom.labelY - 9}}" width="${{labelW}}" height="18" rx="6" ry="6"></rect><text x="${{geom.labelX}}" y="${{geom.labelY}}">${{esc(labelText)}}</text></g>`
               : "",
           }};
         }}).filter(Boolean);
@@ -7294,6 +7430,22 @@ HTML = f"""<!doctype html>
         const graph = makeFlowGraph(entry);
         const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
         const edges = Array.isArray(graph.edges) ? graph.edges : [];
+        const selectedIdx = Array.isArray(traceHistory) ? traceHistory.indexOf(entry) : -1;
+        const priorEntry = (selectedIdx >= 0 && Array.isArray(traceHistory) && traceHistory.length > selectedIdx + 1)
+          ? traceHistory[selectedIdx + 1]
+          : null;
+        const priorEdges = priorEntry ? (makeFlowGraph(priorEntry).edges || []) : [];
+        const priorLatencyByKey = new Map(priorEdges.map((e) => [_edgeKey(e), Number(e.latency_ms || 0) || 0]));
+        edges.forEach((edge) => {{
+          const thisMs = Number(edge.latency_ms || 0) || 0;
+          const prevMs = Number(priorLatencyByKey.get(_edgeKey(edge)) || 0) || 0;
+          if (thisMs > 0 && prevMs > 0) {{
+            const delta = thisMs - prevMs;
+            edge.delta_ms = delta;
+            edge.delta_class = delta > 25 ? "worse" : (delta < -25 ? "better" : "same");
+            edge.display_label = `${{edge.display_label || edge.flow_label || ""}} (${{_withSign(delta)}}ms)`.trim();
+          }}
+        }});
         if (!nodes.length) {{
           resetFlowGraph();
           return;
@@ -7367,6 +7519,139 @@ HTML = f"""<!doctype html>
           if (Number.isFinite(v) && v > 0) ms += v;
         }});
         return Math.round(ms);
+      }}
+
+      function _extractStepLatencyMs(step) {{
+        if (!step || typeof step !== "object") return 0;
+        const resp = step.response && typeof step.response === "object" ? step.response : {{}};
+        const direct = Number(resp.duration_ms ?? resp.latency_ms ?? resp.elapsed_ms ?? 0);
+        if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+        const body = resp.body && typeof resp.body === "object" ? resp.body : {{}};
+        const bodyMs = _extractLatencyMs(body);
+        if (bodyMs > 0) return bodyMs;
+        const detectors = body.detectorResponses && typeof body.detectorResponses === "object"
+          ? body.detectorResponses
+          : null;
+        if (detectors) {{
+          let sum = 0;
+          Object.values(detectors).forEach((d) => {{
+            const v = Number(d && typeof d === "object" ? d.latency : 0);
+            if (Number.isFinite(v) && v > 0) sum += v;
+          }});
+          if (sum > 0) return Math.round(sum);
+        }}
+        return 0;
+      }}
+
+      function _edgeKey(edge) {{
+        return `${{edge.from}}>${{edge.to}}:${{edge.direction || "request"}}`;
+      }}
+
+      function _formatLatency(ms) {{
+        const v = Number(ms || 0);
+        if (!Number.isFinite(v) || v <= 0) return "";
+        return v >= 1000 ? `${{(v / 1000).toFixed(2)}}s` : `${{Math.round(v)}}ms`;
+      }}
+
+      function _withSign(num) {{
+        const v = Number(num || 0);
+        if (!Number.isFinite(v) || v === 0) return "0";
+        return v > 0 ? `+${{Math.round(v)}}` : `${{Math.round(v)}}`;
+      }}
+
+      function _latencySummaryFromEntry(entry) {{
+        const body = entry && typeof entry.body === "object" ? entry.body : {{}};
+        const trace = body.trace && typeof body.trace === "object" ? body.trace : {{}};
+        const traceSteps = Array.isArray(trace.steps) ? trace.steps : [];
+        const out = {{
+          e2e_ms: Math.max(0, Number(entry?.clientLatencyMs || 0) || 0),
+          provider_ms: 0,
+          ai_guard_in_ms: 0,
+          ai_guard_out_ms: 0,
+        }};
+        traceSteps.forEach((step) => {{
+          const name = String(step?.name || "");
+          const ms = _extractStepLatencyMs(step);
+          if (name.includes("AI Guard (IN)")) {{
+            out.ai_guard_in_ms += ms;
+            return;
+          }}
+          if (name.includes("AI Guard (OUT)")) {{
+            out.ai_guard_out_ms += ms;
+            return;
+          }}
+          if (name) out.provider_ms += ms;
+        }});
+        return out;
+      }}
+
+      function _latencyStats(values) {{
+        const nums = (Array.isArray(values) ? values : [])
+          .map((v) => Number(v || 0))
+          .filter((v) => Number.isFinite(v) && v >= 0)
+          .sort((a, b) => a - b);
+        if (!nums.length) {{
+          return {{
+            count: 0,
+            min_ms: 0,
+            max_ms: 0,
+            avg_ms: 0,
+            p50_ms: 0,
+            p95_ms: 0,
+          }};
+        }}
+        const at = (p) => {{
+          const idx = Math.min(nums.length - 1, Math.max(0, Math.ceil((p / 100) * nums.length) - 1));
+          return nums[idx];
+        }};
+        const sum = nums.reduce((acc, n) => acc + n, 0);
+        return {{
+          count: nums.length,
+          min_ms: Math.round(nums[0]),
+          max_ms: Math.round(nums[nums.length - 1]),
+          avg_ms: Math.round(sum / nums.length),
+          p50_ms: Math.round(at(50)),
+          p95_ms: Math.round(at(95)),
+        }};
+      }}
+
+      function _renderLatencyBenchSummary(report) {{
+        if (!latencyBenchSummaryEl) return;
+        if (!report || !report.modes || typeof report.modes !== "object") {{
+          latencyBenchSummaryEl.textContent = "Summary will appear after benchmark completes.";
+          return;
+        }}
+        const modeEntries = Object.entries(report.modes);
+        if (!modeEntries.length) {{
+          latencyBenchSummaryEl.textContent = "No benchmark mode results available.";
+          return;
+        }}
+        const ordered = modeEntries
+          .map(([k, v]) => ({{
+            key: k,
+            label: String(v?.label || k),
+            avg: Number(v?.e2e_ms?.avg_ms || 0),
+            p95: Number(v?.e2e_ms?.p95_ms || 0),
+            blocked: Number(v?.blocked || 0),
+            errors: Number(v?.errors || 0),
+            delta: Number(v?.vs_baseline?.delta_avg_ms || 0),
+            trend: String(v?.vs_baseline?.trend || ""),
+          }}))
+          .sort((a, b) => a.avg - b.avg);
+        const fastest = ordered[0];
+        const slowest = ordered[ordered.length - 1];
+        const lines = [];
+        lines.push(`Fastest mode: ${{fastest.label}} (${{_formatLatency(fastest.avg) || "n/a"}} avg, p95 ${{_formatLatency(fastest.p95) || "n/a"}})`);
+        if (ordered.length > 1) {{
+          lines.push(`Slowest mode: ${{slowest.label}} (${{_formatLatency(slowest.avg) || "n/a"}} avg, p95 ${{_formatLatency(slowest.p95) || "n/a"}})`);
+        }}
+        ordered.forEach((m) => {{
+          const deltaText = m.key === "baseline"
+            ? "baseline"
+            : `${{m.trend || "delta"}} ${{_withSign(m.delta)}}ms vs baseline`;
+          lines.push(`- ${{m.label}}: avg ${{_formatLatency(m.avg) || "n/a"}}, p95 ${{_formatLatency(m.p95) || "n/a"}}, blocked=${{m.blocked}}, errors=${{m.errors}}, ${{deltaText}}`);
+        }});
+        latencyBenchSummaryEl.textContent = lines.join("\n");
       }}
 
       function _buildFlowExplainData(entry) {{
@@ -7723,6 +8008,208 @@ HTML = f"""<!doctype html>
         }};
       }}
 
+      function _latencyBenchBaseRequest() {{
+        const selected = getSelectedTraceEntry();
+        if (selected) {{
+          return {{
+            prompt: String(selected.prompt || ""),
+            provider: String(selected.provider || "ollama"),
+            chat_mode: String(selected.chatMode || "single"),
+            messages: Array.isArray(selected.messages) ? selected.messages : undefined,
+            conversation_id: clientConversationId,
+            agentic_enabled: !!selected.agenticEnabled,
+            tools_enabled: !!selected.toolsEnabled,
+            local_tasks_enabled: !!selected.localTasksEnabled,
+            multi_agent_enabled: !!selected.multiAgentEnabled,
+            tool_permission_profile: String(selected.toolPermissionProfile || "standard"),
+            execution_topology: String(selected.executionTopology || "single_process"),
+            demoUser: selected.demoUser || "",
+          }};
+        }}
+        return {{
+          prompt: String(promptEl.value || "").trim(),
+          provider: providerSelectEl.value || "ollama",
+          chat_mode: currentChatMode(),
+          messages: undefined,
+          conversation_id: clientConversationId,
+          agentic_enabled: agenticToggleEl.checked,
+          tools_enabled: toolsToggleEl.checked,
+          local_tasks_enabled: localTasksToggleEl.checked,
+          multi_agent_enabled: multiAgentToggleEl.checked,
+          tool_permission_profile: currentToolPermissionProfile(),
+          execution_topology: currentExecutionTopology(),
+          demoUser: currentDemoUser() || "",
+        }};
+      }}
+
+      function openLatencyBenchModal() {{
+        const selected = getSelectedTraceEntry();
+        latencyBenchSourceLabelEl.textContent = selected
+          ? `Replay trace #${{selectedTraceIndex + 1}}`
+          : "Current form state";
+        if (latencyBenchSummaryEl) latencyBenchSummaryEl.textContent = "Summary will appear after benchmark completes.";
+        latencyBenchOutputEl.textContent = "Run benchmark to compare baseline vs AI Guard mode latency.";
+        latencyBenchModalEl.classList.add("open");
+        latencyBenchModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeLatencyBenchModal() {{
+        latencyBenchModalEl.classList.remove("open");
+        latencyBenchModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      async function runLatencyBench() {{
+        const runs = Math.max(1, Math.min(8, Number(latencyBenchRunsInputEl.value || 2) || 2));
+        const delayMs = Math.max(0, Math.min(5000, Number(latencyBenchDelayInputEl.value || 250) || 0));
+        const modes = [];
+        if (latencyBenchModeBaselineEl.checked) modes.push({{ key: "baseline", label: "Baseline (Guardrails OFF)", guardrails_enabled: false, zscaler_proxy_mode: false }});
+        if (latencyBenchModeDasEl.checked) modes.push({{ key: "das_api", label: "AI Guard API/DAS", guardrails_enabled: true, zscaler_proxy_mode: false }});
+        if (latencyBenchModeProxyEl.checked) modes.push({{ key: "proxy", label: "AI Guard Proxy", guardrails_enabled: true, zscaler_proxy_mode: true }});
+        if (!modes.length) {{
+          latencyBenchOutputEl.textContent = "Select at least one mode.";
+          return;
+        }}
+        const base = _latencyBenchBaseRequest();
+        if (!String(base.prompt || "").trim()) {{
+          latencyBenchOutputEl.textContent = "Prompt is required (selected trace or prompt box).";
+          return;
+        }}
+        latencyBenchRunBtnEl.disabled = true;
+        try {{
+          const totalRuns = modes.length * runs;
+          let completed = 0;
+          const perMode = {{}};
+          if (latencyBenchSummaryEl) latencyBenchSummaryEl.textContent = "Running benchmark...";
+          for (const mode of modes) {{
+            perMode[mode.key] = {{
+              label: mode.label,
+              latencies: [],
+              provider_ms: [],
+              guard_in_ms: [],
+              guard_out_ms: [],
+              blocked: 0,
+              errors: 0,
+              statuses: [],
+            }};
+            for (let i = 0; i < runs; i += 1) {{
+              const started = Date.now();
+              try {{
+                const res = await fetch("/chat", {{
+                  method: "POST",
+                  headers: {{
+                    "Content-Type": "application/json",
+                    ...(base.demoUser ? {{ "X-Demo-User": base.demoUser }} : {{}}),
+                  }},
+                  body: JSON.stringify({{
+                    prompt: base.prompt,
+                    provider: base.provider,
+                    chat_mode: base.chat_mode,
+                    messages: base.messages,
+                    conversation_id: base.conversation_id,
+                    guardrails_enabled: mode.guardrails_enabled,
+                    zscaler_proxy_mode: mode.zscaler_proxy_mode,
+                    agentic_enabled: base.agentic_enabled,
+                    tools_enabled: base.tools_enabled,
+                    local_tasks_enabled: base.local_tasks_enabled,
+                    multi_agent_enabled: base.multi_agent_enabled,
+                    tool_permission_profile: base.tool_permission_profile,
+                    execution_topology: base.execution_topology,
+                  }}),
+                }});
+                const data = await res.json();
+                const elapsedMs = Math.max(0, Date.now() - started);
+                const item = perMode[mode.key];
+                item.latencies.push(elapsedMs);
+                item.statuses.push(res.status);
+                if (!!(data?.guardrails && data.guardrails.blocked)) item.blocked += 1;
+                if (Number(res.status) >= 400) item.errors += 1;
+                const latSummary = _latencySummaryFromEntry({{ body: data, clientLatencyMs: elapsedMs }});
+                item.provider_ms.push(latSummary.provider_ms || 0);
+                item.guard_in_ms.push(latSummary.ai_guard_in_ms || 0);
+                item.guard_out_ms.push(latSummary.ai_guard_out_ms || 0);
+                addTrace({{
+                  prompt: base.prompt,
+                  provider: base.provider,
+                  demoUser: base.demoUser,
+                  chatMode: base.chat_mode,
+                  messages: base.messages,
+                  conversationId: base.conversation_id,
+                  guardrailsEnabled: mode.guardrails_enabled,
+                  zscalerProxyMode: mode.zscaler_proxy_mode,
+                  agenticEnabled: base.agentic_enabled,
+                  toolsEnabled: base.tools_enabled,
+                  localTasksEnabled: base.local_tasks_enabled,
+                  multiAgentEnabled: base.multi_agent_enabled,
+                  toolPermissionProfile: base.tool_permission_profile,
+                  executionTopology: base.execution_topology,
+                  clientLatencyMs: elapsedMs,
+                  status: res.status,
+                  body: data,
+                }});
+              }} catch {{
+                perMode[mode.key].errors += 1;
+              }}
+              completed += 1;
+              latencyBenchOutputEl.textContent = pretty({{
+                progress: `${{completed}}/${{totalRuns}}`,
+                mode: mode.label,
+                run: i + 1,
+              }});
+              if (delayMs > 0 && !(mode === modes[modes.length - 1] && i === runs - 1)) {{
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+              }}
+            }}
+          }}
+          const baseline = perMode.baseline ? _latencyStats(perMode.baseline.latencies) : null;
+          const report = {{
+            generated_at: new Date().toISOString(),
+            prompt_preview: _short(base.prompt, 140),
+            provider: base.provider,
+            chat_mode: base.chat_mode,
+            settings: {{
+              runs_per_mode: runs,
+              delay_ms: delayMs,
+              agentic_enabled: !!base.agentic_enabled,
+              tools_enabled: !!base.tools_enabled,
+              local_tasks_enabled: !!base.local_tasks_enabled,
+              multi_agent_enabled: !!base.multi_agent_enabled,
+              execution_topology: base.execution_topology,
+            }},
+            modes: {{}},
+          }};
+          for (const mode of modes) {{
+            const raw = perMode[mode.key];
+            const e2e = _latencyStats(raw.latencies);
+            const providerStats = _latencyStats(raw.provider_ms);
+            const guardInStats = _latencyStats(raw.guard_in_ms);
+            const guardOutStats = _latencyStats(raw.guard_out_ms);
+            const modeReport = {{
+              label: raw.label,
+              runs: e2e.count,
+              blocked: raw.blocked,
+              errors: raw.errors,
+              e2e_ms: e2e,
+              provider_ms: providerStats,
+              ai_guard_in_ms: guardInStats,
+              ai_guard_out_ms: guardOutStats,
+            }};
+            if (baseline && mode.key !== "baseline" && baseline.avg_ms > 0) {{
+              const deltaMs = e2e.avg_ms - baseline.avg_ms;
+              modeReport.vs_baseline = {{
+                delta_avg_ms: Math.round(deltaMs),
+                delta_avg_pct: Number(((deltaMs / baseline.avg_ms) * 100).toFixed(1)),
+                trend: deltaMs < 0 ? "faster" : (deltaMs > 0 ? "slower" : "same"),
+              }};
+            }}
+            report.modes[mode.key] = modeReport;
+          }}
+          latencyBenchOutputEl.textContent = pretty(report);
+          _renderLatencyBenchSummary(report);
+        }} finally {{
+          latencyBenchRunBtnEl.disabled = false;
+        }}
+      }}
+
       async function runDeterminismLab() {{
         const runs = Math.max(2, Math.min(10, Number(determinismRunsInputEl.value || 3) || 3));
         const delayMs = Math.max(0, Math.min(5000, Number(determinismDelayInputEl.value || 250) || 0));
@@ -7737,6 +8224,7 @@ HTML = f"""<!doctype html>
         determinismOutputEl.textContent = `Running determinism lab (${{runs}} runs)...`;
         for (let i = 0; i < runs; i += 1) {{
           try {{
+            const startedAt = Date.now();
             const res = await fetch("/chat", {{
               method: "POST",
               headers: {{
@@ -7793,6 +8281,7 @@ HTML = f"""<!doctype html>
               multiAgentEnabled: base.multi_agent_enabled,
               toolPermissionProfile: base.tool_permission_profile,
               executionTopology: base.execution_topology,
+              clientLatencyMs: Math.max(0, Date.now() - startedAt),
               status: res.status,
               body: data,
             }});
@@ -7857,6 +8346,7 @@ HTML = f"""<!doctype html>
         for (const provider of providers) {{
           for (const scenario of scenarios) {{
             const started = Date.now();
+            const scenarioConversationId = `scenario-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
             try {{
               const res = await fetch("/chat", {{
                 method: "POST",
@@ -7868,7 +8358,7 @@ HTML = f"""<!doctype html>
                   prompt: scenario.prompt,
                   provider,
                   chat_mode: "single",
-                  conversation_id: `scenario-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`,
+                  conversation_id: scenarioConversationId,
                   guardrails_enabled: guardrailsToggleEl.checked,
                   zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
                   agentic_enabled: false,
@@ -7891,6 +8381,25 @@ HTML = f"""<!doctype html>
                 stage,
                 latency_ms: Math.max(0, Date.now() - started),
                 fingerprint: _simpleTextFingerprint(responseText),
+              }});
+              addTrace({{
+                prompt: scenario.prompt,
+                provider,
+                demoUser: currentDemoUser() || "",
+                chatMode: "single",
+                messages: undefined,
+                conversationId: scenarioConversationId,
+                guardrailsEnabled: guardrailsToggleEl.checked,
+                zscalerProxyMode: zscalerProxyModeToggleEl.checked,
+                agenticEnabled: false,
+                toolsEnabled: false,
+                localTasksEnabled: false,
+                multiAgentEnabled: false,
+                toolPermissionProfile: "standard",
+                executionTopology: currentExecutionTopology(),
+                clientLatencyMs: Math.max(0, Date.now() - started),
+                status: res.status,
+                body: data,
               }});
             }} catch (err) {{
               rows.push({{
@@ -8518,6 +9027,7 @@ HTML = f"""<!doctype html>
         closeFlowExplainModal();
         closePolicyReplayModal();
         closeDeterminismModal();
+        closeLatencyBenchModal();
         closeScenarioRunnerModal();
         closeUsageModal();
         promptEl.value = "";
@@ -8594,6 +9104,7 @@ HTML = f"""<!doctype html>
           }};
           const requestController = new AbortController();
           requestTimeout = setTimeout(() => requestController.abort(), CHAT_REQUEST_TIMEOUT_MS);
+          const requestStartedAt = Date.now();
           const res = await fetch("/chat", {{
             method: "POST",
             headers: {{
@@ -8625,6 +9136,7 @@ HTML = f"""<!doctype html>
             toolPermissionProfile: currentToolPermissionProfile(),
             executionTopology: currentExecutionTopology(),
             attachmentCount: outboundAttachments.length,
+            clientLatencyMs: Math.max(0, Date.now() - requestStartedAt),
             status: res.status,
             body: data
           }});
@@ -8856,6 +9368,7 @@ HTML = f"""<!doctype html>
       flowExportBtn.addEventListener("click", exportFlowEvidence);
       flowPolicyReplayBtn.addEventListener("click", openPolicyReplayModal);
       flowDeterminismBtn.addEventListener("click", openDeterminismModal);
+      flowLatencyBenchBtn.addEventListener("click", openLatencyBenchModal);
       flowScenarioRunnerBtn.addEventListener("click", openScenarioRunnerModal);
       usageBtnEl.addEventListener("click", openUsageModal);
       flowGraphWrapEl.addEventListener("mouseleave", () => _hideFlowTooltip());
@@ -8875,6 +9388,12 @@ HTML = f"""<!doctype html>
       determinismRunBtnEl.addEventListener("click", runDeterminismLab);
       determinismModalEl.addEventListener("click", (e) => {{
         if (e.target === determinismModalEl) closeDeterminismModal();
+      }});
+      latencyBenchCloseBtnEl.addEventListener("click", closeLatencyBenchModal);
+      latencyBenchDoneBtnEl.addEventListener("click", closeLatencyBenchModal);
+      latencyBenchRunBtnEl.addEventListener("click", runLatencyBench);
+      latencyBenchModalEl.addEventListener("click", (e) => {{
+        if (e.target === latencyBenchModalEl) closeLatencyBenchModal();
       }});
       scenarioRunnerCloseBtnEl.addEventListener("click", closeScenarioRunnerModal);
       scenarioRunnerDoneBtnEl.addEventListener("click", closeScenarioRunnerModal);
