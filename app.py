@@ -1489,6 +1489,10 @@ HTML = f"""<!doctype html>
         border-color: var(--accent-2);
       }}
       .status {{ color: var(--muted); font-size: 0.9rem; }}
+      .status.warn {{
+        color: #dc2626;
+        font-weight: 700;
+      }}
       .status-pill {{
         display: inline-flex;
         align-items: center;
@@ -1612,6 +1616,31 @@ HTML = f"""<!doctype html>
       .mode-toggle-btn:disabled {{
         opacity: 0.65;
         cursor: not-allowed;
+      }}
+      .policy-id-inline {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 4px;
+      }}
+      .policy-id-inline-label {{
+        font-size: 0.76rem;
+        font-weight: 700;
+        color: var(--muted);
+      }}
+      .policy-id-inline input {{
+        width: 62px;
+        max-width: 62px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 3px 6px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        background: var(--card);
+        color: var(--text);
+      }}
+      .policy-id-inline.disabled {{
+        opacity: 0.55;
       }}
       .response {{
         margin-top: 16px;
@@ -3501,12 +3530,25 @@ HTML = f"""<!doctype html>
             <div id="zscalerProxyModeWrap" class="mode-toggle disabled" title="Choose Zscaler mode. Proxy is disabled only for Ollama and LiteLLM in this demo.">
               <span class="mode-toggle-label">Mode</span>
               <div class="mode-toggle-buttons">
-                <button id="zscalerModeApiBtn" class="mode-toggle-btn active" type="button">API/DAS</button>
                 <button id="zscalerModeProxyBtn" class="mode-toggle-btn" type="button">Proxy</button>
+                <button id="zscalerModeApiBtn" class="mode-toggle-btn active" type="button">API/DAS</button>
               </div>
               <input id="zscalerProxyModeToggle" type="checkbox" aria-label="Toggle Zscaler Proxy Mode" style="display:none;" />
             </div>
+            <div id="zscalerDasModeWrap" class="mode-toggle disabled" title="Choose API/DAS behavior: Resolve Policy (dynamic) or Execute Policy (fixed policy ID).">
+              <span class="mode-toggle-label">API/DAS Policy</span>
+              <div class="mode-toggle-buttons">
+                <button id="zscalerDasResolveBtn" class="mode-toggle-btn active" type="button">Resolve</button>
+                <button id="zscalerDasExecuteBtn" class="mode-toggle-btn" type="button">Execute</button>
+              </div>
+              <span id="zscalerPolicyIdWrap" class="policy-id-inline disabled" title="Used only in API/DAS Execute mode.">
+                <span class="policy-id-inline-label">ID</span>
+                <input id="zscalerPolicyIdInput" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="" />
+              </span>
+              <input id="zscalerDasModeInput" type="hidden" value="resolve" />
+            </div>
                 <span id="status" class="status">Idle</span>
+                <span id="zscalerPolicyWarning" class="status warn" style="display:none;"></span>
               </div>
             </div>
           </div>
@@ -4062,6 +4104,7 @@ HTML = f"""<!doctype html>
       const responseEl = document.getElementById("response");
       const conversationViewEl = document.getElementById("conversationView");
       const statusEl = document.getElementById("status");
+      const zscalerPolicyWarningEl = document.getElementById("zscalerPolicyWarning");
       const clearBtn = document.getElementById("clearBtn");
       const copyTraceBtn = document.getElementById("copyTraceBtn");
       const httpTraceToggleBtn = document.getElementById("httpTraceToggleBtn");
@@ -4088,6 +4131,12 @@ HTML = f"""<!doctype html>
       const zscalerModeApiBtnEl = document.getElementById("zscalerModeApiBtn");
       const zscalerModeProxyBtnEl = document.getElementById("zscalerModeProxyBtn");
       const zscalerProxyModeToggleEl = document.getElementById("zscalerProxyModeToggle");
+      const zscalerDasModeWrapEl = document.getElementById("zscalerDasModeWrap");
+      const zscalerDasResolveBtnEl = document.getElementById("zscalerDasResolveBtn");
+      const zscalerDasExecuteBtnEl = document.getElementById("zscalerDasExecuteBtn");
+      const zscalerDasModeInputEl = document.getElementById("zscalerDasModeInput");
+      const zscalerPolicyIdWrapEl = document.getElementById("zscalerPolicyIdWrap");
+      const zscalerPolicyIdInputEl = document.getElementById("zscalerPolicyIdInput");
       const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
       const providerTestPillEl = document.getElementById("providerTestPill");
@@ -4143,6 +4192,8 @@ HTML = f"""<!doctype html>
       const awsAuthTextEl = document.getElementById("awsAuthText");
       const agentModeWrapEl = document.getElementById("agentModeWrap");
       const agentModeOffBtnEl = document.getElementById("agentModeOffBtn");
+      const SESSION_DAS_MODE_KEY = "zscalerDasMode";
+      const SESSION_POLICY_ID_KEY = "zscalerPolicyId";
       const agentModeAgenticBtnEl = document.getElementById("agentModeAgenticBtn");
       const agentModeMultiBtnEl = document.getElementById("agentModeMultiBtn");
       const agenticToggleEl = document.getElementById("agenticToggle");
@@ -4957,7 +5008,14 @@ HTML = f"""<!doctype html>
           ...Object.keys(rawValues || {{}}),
           ...Object.keys(settingsValues || {{}}),
         ])).filter((k) => String(rawValues[k] ?? "") !== String(settingsValues[k] ?? ""));
-        const noRestartKeys = new Set(["UI_THEME", "UPDATE_CHECK_INTERVAL_SECONDS", "UPDATE_REMOTE_NAME", "UPDATE_BRANCH_NAME"]);
+        const noRestartKeys = new Set([
+          "UI_THEME",
+          "UPDATE_CHECK_INTERVAL_SECONDS",
+          "UPDATE_REMOTE_NAME",
+          "UPDATE_BRANCH_NAME",
+          "ZS_GUARDRAILS_DAS_MODE",
+          "ZS_GUARDRAILS_POLICY_ID",
+        ]);
         const nonThemeChangedKeys = changedKeys.filter((k) => !noRestartKeys.has(String(k)));
         settingsSaveBtnEl.disabled = true;
         settingsStatusTextEl.textContent = "Saving settings...";
@@ -5190,6 +5248,25 @@ HTML = f"""<!doctype html>
         return provider !== "ollama" && provider !== "litellm" && provider !== "kong";
       }}
 
+      function _normalizeZscalerDasMode(mode) {{
+        const m = String(mode || "").toLowerCase().replace(/-/g, "_");
+        return (m === "execute" || m === "execute_policy") ? "execute" : "resolve";
+      }}
+
+      function currentZscalerDasMode() {{
+        return _normalizeZscalerDasMode(zscalerDasModeInputEl?.value || "resolve");
+      }}
+
+      function setZscalerDasMode(mode) {{
+        const normalized = _normalizeZscalerDasMode(mode);
+        if (zscalerDasModeInputEl) zscalerDasModeInputEl.value = normalized;
+        if (zscalerDasResolveBtnEl) zscalerDasResolveBtnEl.classList.toggle("active", normalized !== "execute");
+        if (zscalerDasExecuteBtnEl) zscalerDasExecuteBtnEl.classList.toggle("active", normalized === "execute");
+        try {{
+          window.sessionStorage.setItem(SESSION_DAS_MODE_KEY, normalized);
+        }} catch {{}}
+      }}
+
       function syncZscalerProxyModeState() {{
         const guardrailsOn = !!guardrailsToggleEl.checked;
         const provider = (providerSelectEl.value || "ollama").toLowerCase();
@@ -5214,6 +5291,75 @@ HTML = f"""<!doctype html>
         const proxyOn = !!zscalerProxyModeToggleEl.checked && guardrailsOn && supportsProxyMode;
         zscalerModeApiBtnEl.classList.toggle("active", !proxyOn);
         zscalerModeProxyBtnEl.classList.toggle("active", proxyOn);
+        const dasEnabled = guardrailsOn && !proxyOn;
+        const dasMode = currentZscalerDasMode();
+        zscalerDasModeWrapEl.classList.toggle("disabled", !dasEnabled);
+        zscalerDasResolveBtnEl.disabled = !dasEnabled;
+        zscalerDasExecuteBtnEl.disabled = !dasEnabled;
+        zscalerDasModeWrapEl.title = !guardrailsOn
+          ? "Enable Zscaler AI Guard first."
+          : (proxyOn
+            ? "API/DAS policy mode is unavailable while Proxy Mode is selected."
+            : "Resolve = /resolve-and-execute-policy, Execute = /execute-policy with policyId.");
+        setZscalerDasMode(dasMode);
+        const policyEnabled = dasEnabled && dasMode === "execute";
+        zscalerPolicyIdWrapEl.classList.toggle("disabled", !policyEnabled);
+        zscalerPolicyIdInputEl.disabled = !policyEnabled;
+        zscalerPolicyIdWrapEl.title = policyEnabled
+          ? "Required in Execute mode. Sent as policyId."
+          : "Policy ID is used only in API/DAS Execute mode.";
+        if (policyEnabled) {{
+          zscalerPolicyIdInputEl.value = String(zscalerPolicyIdInputEl.value || "").replace(/[^0-9]/g, "").slice(0, 4);
+        }}
+      }}
+
+      function _validateZscalerPolicyForSend() {{
+        const guardrailsOn = !!guardrailsToggleEl.checked;
+        const proxyOn = !!zscalerProxyModeToggleEl.checked;
+        if (!guardrailsOn || proxyOn) return {{ ok: true, message: "" }};
+        if (currentZscalerDasMode() !== "execute") return {{ ok: true, message: "" }};
+        const policyId = String(zscalerPolicyIdInputEl?.value || "").replace(/[^0-9]/g, "").slice(0, 4);
+        if (zscalerPolicyIdInputEl) zscalerPolicyIdInputEl.value = policyId;
+        try {{
+          window.sessionStorage.setItem(SESSION_POLICY_ID_KEY, policyId);
+        }} catch {{}}
+        if (!policyId || policyId.length < 1) {{
+          return {{ ok: false, message: "Policy ID is required (1-4 digits) for API/DAS Execute mode." }};
+        }}
+        return {{ ok: true, message: "" }};
+      }}
+
+      function _guardrailsWarningStatusText(respBody) {{
+        const g = (respBody && typeof respBody === "object" && respBody.guardrails && typeof respBody.guardrails === "object")
+          ? respBody.guardrails
+          : null;
+        const warnings = Array.isArray(g?.warnings) ? g.warnings : [];
+        if (!warnings.length) return "";
+        const first = warnings.find(w => w && typeof w === "object") || null;
+        if (!first) return "";
+        const rawErr = String(first.error || "").trim();
+        const policyId = (first.policy_id !== undefined && first.policy_id !== null)
+          ? String(first.policy_id).trim()
+          : "";
+        const lc = rawErr.toLowerCase();
+        if (lc.includes("policy not found")) {{
+          return policyId
+            ? `Policy ID does not exist (${{policyId}}).`
+            : "Policy ID does not exist.";
+        }}
+        return rawErr || "AI Guard policy warning.";
+      }}
+
+      function _setPolicyWarning(text) {{
+        const msg = String(text || "").trim();
+        if (!zscalerPolicyWarningEl) return;
+        if (!msg) {{
+          zscalerPolicyWarningEl.textContent = "";
+          zscalerPolicyWarningEl.style.display = "none";
+          return;
+        }}
+        zscalerPolicyWarningEl.textContent = msg;
+        zscalerPolicyWarningEl.style.display = "inline";
       }}
 
       function setMcpStatus(kind, text) {{
@@ -8119,6 +8265,8 @@ HTML = f"""<!doctype html>
               trace_entry: selected,
               conversation_id: selected.conversationId || clientConversationId,
               demo_user: selected.demoUser || currentDemoUser() || "",
+              zscaler_das_mode: currentZscalerDasMode(),
+              zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
             }}),
           }});
           const data = await res.json();
@@ -8156,6 +8304,8 @@ HTML = f"""<!doctype html>
             conversation_id: clientConversationId,
             guardrails_enabled: !!selected.guardrailsEnabled,
             zscaler_proxy_mode: !!selected.zscalerProxyMode,
+            zscaler_das_mode: String(selected.zscalerDasMode || "resolve"),
+            zscaler_policy_id: String(selected.zscalerPolicyId || ""),
             agentic_enabled: !!selected.agenticEnabled,
             tools_enabled: !!selected.toolsEnabled,
             local_tasks_enabled: !!selected.localTasksEnabled,
@@ -8173,6 +8323,8 @@ HTML = f"""<!doctype html>
           conversation_id: clientConversationId,
           guardrails_enabled: guardrailsToggleEl.checked,
           zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
+          zscaler_das_mode: currentZscalerDasMode(),
+          zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
           agentic_enabled: agenticToggleEl.checked,
           tools_enabled: toolsToggleEl.checked,
           local_tasks_enabled: localTasksToggleEl.checked,
@@ -8192,6 +8344,8 @@ HTML = f"""<!doctype html>
             chat_mode: String(selected.chatMode || "single"),
             messages: Array.isArray(selected.messages) ? selected.messages : undefined,
             conversation_id: clientConversationId,
+            zscaler_das_mode: String(selected.zscalerDasMode || "resolve"),
+            zscaler_policy_id: String(selected.zscalerPolicyId || ""),
             agentic_enabled: !!selected.agenticEnabled,
             tools_enabled: !!selected.toolsEnabled,
             local_tasks_enabled: !!selected.localTasksEnabled,
@@ -8207,6 +8361,8 @@ HTML = f"""<!doctype html>
           chat_mode: currentChatMode(),
           messages: undefined,
           conversation_id: clientConversationId,
+          zscaler_das_mode: currentZscalerDasMode(),
+          zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
           agentic_enabled: agenticToggleEl.checked,
           tools_enabled: toolsToggleEl.checked,
           local_tasks_enabled: localTasksToggleEl.checked,
@@ -8303,6 +8459,8 @@ HTML = f"""<!doctype html>
                     conversation_id: base.conversation_id,
                     guardrails_enabled: mode.guardrails_enabled,
                     zscaler_proxy_mode: mode.zscaler_proxy_mode,
+                    zscaler_das_mode: String(base.zscaler_das_mode || "resolve"),
+                    zscaler_policy_id: String(base.zscaler_policy_id || ""),
                     agentic_enabled: base.agentic_enabled,
                     tools_enabled: base.tools_enabled,
                     local_tasks_enabled: base.local_tasks_enabled,
@@ -8331,6 +8489,8 @@ HTML = f"""<!doctype html>
                   conversationId: base.conversation_id,
                   guardrailsEnabled: mode.guardrails_enabled,
                   zscalerProxyMode: mode.zscaler_proxy_mode,
+                  zscalerDasMode: String(base.zscaler_das_mode || "resolve"),
+                  zscalerPolicyId: String(base.zscaler_policy_id || ""),
                   agenticEnabled: base.agentic_enabled,
                   toolsEnabled: base.tools_enabled,
                   localTasksEnabled: base.local_tasks_enabled,
@@ -8448,6 +8608,8 @@ HTML = f"""<!doctype html>
                 conversation_id: base.conversation_id,
                 guardrails_enabled: base.guardrails_enabled,
                 zscaler_proxy_mode: base.zscaler_proxy_mode,
+                zscaler_das_mode: String(base.zscaler_das_mode || "resolve"),
+                zscaler_policy_id: String(base.zscaler_policy_id || ""),
                 agentic_enabled: base.agentic_enabled,
                 tools_enabled: base.tools_enabled,
                 local_tasks_enabled: base.local_tasks_enabled,
@@ -8484,6 +8646,8 @@ HTML = f"""<!doctype html>
               conversationId: base.conversation_id,
               guardrailsEnabled: base.guardrails_enabled,
               zscalerProxyMode: base.zscaler_proxy_mode,
+              zscalerDasMode: String(base.zscaler_das_mode || "resolve"),
+              zscalerPolicyId: String(base.zscaler_policy_id || ""),
               agenticEnabled: base.agentic_enabled,
               toolsEnabled: base.tools_enabled,
               localTasksEnabled: base.local_tasks_enabled,
@@ -8570,6 +8734,8 @@ HTML = f"""<!doctype html>
                   conversation_id: scenarioConversationId,
                   guardrails_enabled: guardrailsToggleEl.checked,
                   zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
+                  zscaler_das_mode: currentZscalerDasMode(),
+                  zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
                   agentic_enabled: false,
                   tools_enabled: false,
                   local_tasks_enabled: false,
@@ -9134,7 +9300,9 @@ HTML = f"""<!doctype html>
             tool_permission_profile: String(entry.toolPermissionProfile || "standard")
             ,
             execution_topology: String(entry.executionTopology || "single_process"),
-            zscaler_proxy_mode: !!entry.zscalerProxyMode
+            zscaler_proxy_mode: !!entry.zscalerProxyMode,
+            zscaler_das_mode: String(entry.zscalerDasMode || "resolve"),
+            zscaler_policy_id: String(entry.zscalerPolicyId || "")
           }}
         }};
         if (entry.chatMode === "multi" && Array.isArray(entry.messages)) {{
@@ -9244,6 +9412,7 @@ HTML = f"""<!doctype html>
         responseEl.textContent = "Response will appear here.";
         responseEl.classList.remove("error");
         statusEl.textContent = "Idle";
+        _setPolicyWarning("");
         lastSentGuardrailsEnabled = guardrailsToggleEl.checked;
         lastSelectedProvider = providerSelectEl.value || "ollama";
         lastChatMode = currentChatMode();
@@ -9271,9 +9440,16 @@ HTML = f"""<!doctype html>
           statusEl.textContent = "Prompt required";
           return false;
         }}
+        const policyValidation = _validateZscalerPolicyForSend();
+        if (!policyValidation.ok) {{
+          statusEl.textContent = policyValidation.message;
+          if (zscalerPolicyIdInputEl) zscalerPolicyIdInputEl.focus();
+          return false;
+        }}
 
         sendBtn.disabled = true;
         statusEl.textContent = "Sending...";
+        _setPolicyWarning("");
         responseEl.classList.remove("error");
         responseEl.textContent = providerWaitingText();
         let requestTimeout = null;
@@ -9303,6 +9479,8 @@ HTML = f"""<!doctype html>
             conversation_id: clientConversationId,
             guardrails_enabled: guardrailsToggleEl.checked,
             zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
+            zscaler_das_mode: currentZscalerDasMode(),
+            zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
             agentic_enabled: agenticToggleEl.checked,
             tools_enabled: toolsToggleEl.checked,
             local_tasks_enabled: localTasksToggleEl.checked,
@@ -9338,6 +9516,8 @@ HTML = f"""<!doctype html>
             conversationId: clientConversationId,
             guardrailsEnabled: guardrailsToggleEl.checked,
             zscalerProxyMode: zscalerProxyModeToggleEl.checked,
+            zscalerDasMode: currentZscalerDasMode(),
+            zscalerPolicyId: String(zscalerPolicyIdInputEl?.value || ""),
             agenticEnabled: agenticToggleEl.checked,
             toolsEnabled: toolsToggleEl.checked,
             localTasksEnabled: localTasksToggleEl.checked,
@@ -9372,7 +9552,9 @@ HTML = f"""<!doctype html>
           promptEl.value = "";
           clearPendingAttachments();
           renderConversation();
-          statusEl.textContent = "Done";
+          const guardrailsWarning = _guardrailsWarningStatusText(data);
+          statusEl.textContent = guardrailsWarning || "Done";
+          _setPolicyWarning(guardrailsWarning);
           updateChatModeUI();
           renderCodeViewer();
           return true;
@@ -9393,6 +9575,7 @@ HTML = f"""<!doctype html>
             renderConversation();
           }}
           statusEl.textContent = "Error";
+          _setPolicyWarning("");
           updateChatModeUI();
           renderCodeViewer();
           return false;
@@ -9740,6 +9923,27 @@ HTML = f"""<!doctype html>
         syncZscalerProxyModeState();
         renderCodeViewer();
       }});
+      zscalerDasResolveBtnEl.addEventListener("click", () => {{
+        if (zscalerDasResolveBtnEl.disabled) return;
+        setZscalerDasMode("resolve");
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      zscalerDasExecuteBtnEl.addEventListener("click", () => {{
+        if (zscalerDasExecuteBtnEl.disabled) return;
+        setZscalerDasMode("execute");
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      zscalerPolicyIdInputEl.addEventListener("input", () => {{
+        zscalerPolicyIdInputEl.value = String(zscalerPolicyIdInputEl.value || "").replace(/[^0-9]/g, "").slice(0, 4);
+        try {{
+          window.sessionStorage.setItem(SESSION_POLICY_ID_KEY, String(zscalerPolicyIdInputEl.value || ""));
+        }} catch {{}}
+        maybeShowPlannedFlowPreview();
+      }});
       function setChatContextMode(mode) {{
         multiTurnToggleEl.checked = String(mode || "single").toLowerCase() === "multi";
         lastChatMode = currentChatMode();
@@ -9902,6 +10106,14 @@ HTML = f"""<!doctype html>
       syncToolPermissionProfileState();
       syncExecutionTopologyState();
       syncAttachmentSupportState();
+      try {{
+        const savedDasMode = window.sessionStorage.getItem(SESSION_DAS_MODE_KEY);
+        if (savedDasMode) setZscalerDasMode(savedDasMode);
+        const savedPolicyId = window.sessionStorage.getItem(SESSION_POLICY_ID_KEY);
+        if (savedPolicyId && zscalerPolicyIdInputEl) {{
+          zscalerPolicyIdInputEl.value = String(savedPolicyId).replace(/[^0-9]/g, "").slice(0, 4);
+        }}
+      }} catch {{}}
       syncZscalerProxyModeState();
       setHttpTraceCount(0);
       setAgentTraceCount(0);
@@ -10717,7 +10929,7 @@ SETTINGS_SCHEMA = [
     {"group": "xAI", "key": "XAI_BASE_URL", "label": "xAI Base URL", "secret": False, "hint": "OpenAI-compatible xAI base URL (default https://api.x.ai/v1)"},
     {"group": "xAI", "key": "XAI_API_KEY", "label": "xAI API Key", "secret": True, "hint": "xAI (Grok) API key"},
     {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default xAI model"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Base URL for resolve-and-execute-policy endpoint"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Base URL for AI Guard DAS/API endpoint"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard API Key", "secret": True, "hint": "API key/token used for DAS/API checks"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Optional header name forwarded to AI Guard"},
@@ -10772,6 +10984,8 @@ SETTINGS_DEFAULT_VALUES = {
     "GEMINI_BASE_URL": "https://generativelanguage.googleapis.com",
     "AZURE_AI_FOUNDRY_BASE_URL": "https://example.inference.ai.azure.com/v1",
     "ZS_GUARDRAILS_URL": "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy",
+    "ZS_GUARDRAILS_DAS_MODE": "resolve",
+    "ZS_GUARDRAILS_POLICY_ID": "",
     "ZS_PROXY_BASE_URL": "https://proxy.zseclipse.net",
     "BRAVE_SEARCH_BASE_URL": "https://api.search.brave.com",
 }
@@ -11622,6 +11836,18 @@ class Handler(BaseHTTPRequestHandler):
             response_text = str(trace_body.get("response") or "").strip()
             conversation_id = str(data.get("conversation_id") or trace_entry.get("conversationId") or "").strip()
             demo_user = str(data.get("demo_user") or trace_entry.get("demoUser") or self.headers.get("X-Demo-User") or "").strip()
+            zscaler_das_mode = str(
+                data.get("zscaler_das_mode")
+                or trace_entry.get("zscalerDasMode")
+                or os.getenv("ZS_GUARDRAILS_DAS_MODE", "resolve")
+            ).strip().lower()
+            if zscaler_das_mode not in {"resolve", "execute"}:
+                zscaler_das_mode = "resolve"
+            zscaler_policy_id = str(
+                data.get("zscaler_policy_id")
+                or trace_entry.get("zscalerPolicyId")
+                or os.getenv("ZS_GUARDRAILS_POLICY_ID", "")
+            ).strip()
 
             if not prompt_text and not response_text:
                 self._send_json({"error": "trace_entry.prompt or trace_entry.body.response is required"}, status=400)
@@ -11663,7 +11889,12 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 if in_content:
                     blocked, meta = guardrails._zag_check(  # noqa: SLF001
-                        "IN", in_content, conversation_id=conversation_id, demo_user=demo_user
+                        "IN",
+                        in_content,
+                        conversation_id=conversation_id,
+                        demo_user=demo_user,
+                        zscaler_das_mode=zscaler_das_mode,
+                        zscaler_policy_id=zscaler_policy_id,
                     )
                     trace_step = meta.get("trace_step") if isinstance(meta.get("trace_step"), dict) else {}
                     body = (trace_step.get("response") or {}).get("body") if isinstance(trace_step.get("response"), dict) else {}
@@ -11678,7 +11909,12 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 if out_content:
                     blocked, meta = guardrails._zag_check(  # noqa: SLF001
-                        "OUT", out_content, conversation_id=conversation_id, demo_user=demo_user
+                        "OUT",
+                        out_content,
+                        conversation_id=conversation_id,
+                        demo_user=demo_user,
+                        zscaler_das_mode=zscaler_das_mode,
+                        zscaler_policy_id=zscaler_policy_id,
                     )
                     trace_step = meta.get("trace_step") if isinstance(meta.get("trace_step"), dict) else {}
                     body = (trace_step.get("response") or {}).get("body") if isinstance(trace_step.get("response"), dict) else {}
@@ -11701,6 +11937,8 @@ class Handler(BaseHTTPRequestHandler):
                         "chat_mode": trace_entry.get("chatMode"),
                         "guardrails_enabled": bool(trace_entry.get("guardrailsEnabled")),
                         "proxy_mode": bool(trace_entry.get("zscalerProxyMode")),
+                        "das_mode": zscaler_das_mode,
+                        "policy_id": zscaler_policy_id,
                     },
                     "content_lengths": {
                         "prompt": len(prompt_text),
@@ -11783,6 +12021,11 @@ class Handler(BaseHTTPRequestHandler):
         demo_user = str(self.headers.get("X-Demo-User") or "").strip()
         guardrails_enabled = bool(data.get("guardrails_enabled"))
         zscaler_proxy_mode = bool(data.get("zscaler_proxy_mode")) and guardrails_enabled
+        zscaler_das_mode = str(data.get("zscaler_das_mode") or os.getenv("ZS_GUARDRAILS_DAS_MODE", "resolve")).strip().lower()
+        if zscaler_das_mode not in {"resolve", "execute"}:
+            zscaler_das_mode = "resolve"
+        zscaler_policy_id_raw = str(data.get("zscaler_policy_id") or os.getenv("ZS_GUARDRAILS_POLICY_ID", "")).strip()
+        zscaler_policy_id = zscaler_policy_id_raw if zscaler_policy_id_raw.isdigit() else ""
         tools_enabled = bool(data.get("tools_enabled"))
         local_tasks_enabled = bool(data.get("local_tasks_enabled")) and tools_enabled
         tool_permission_profile = str(data.get("tool_permission_profile") or "standard").strip().lower().replace("-", "_")
@@ -11866,6 +12109,8 @@ class Handler(BaseHTTPRequestHandler):
             "anthropic_model": ANTHROPIC_MODEL,
             "openai_model": OPENAI_MODEL,
             "zscaler_proxy_mode": zscaler_proxy_mode,
+            "zscaler_das_mode": zscaler_das_mode,
+            "zscaler_policy_id": zscaler_policy_id,
             "conversation_id": conversation_id,
             "demo_user": demo_user,
         }
@@ -12294,8 +12539,14 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 trace_steps: list[dict] = []
+                guardrails_warnings: list[dict] = []
                 in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
-                    "IN", prompt, conversation_id=conversation_id, demo_user=demo_user
+                    "IN",
+                    prompt,
+                    conversation_id=conversation_id,
+                    demo_user=demo_user,
+                    zscaler_das_mode=zscaler_das_mode,
+                    zscaler_policy_id=zscaler_policy_id,
                 )
                 trace_steps.append(in_meta.get("trace_step", {}))
                 if in_meta.get("error"):
@@ -12309,13 +12560,23 @@ class Handler(BaseHTTPRequestHandler):
                         status=int(in_meta.get("status_code", 502)),
                     )
                     return
+                if isinstance(in_meta.get("notice"), dict):
+                    guardrails_warnings.append(in_meta["notice"])
                 if in_blocked:
                     in_block_body = (
                         (in_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
                     payload = {
                         "response": guardrails._block_message("Prompt", in_block_body),  # noqa: SLF001
-                        "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
+                        "guardrails": {
+                            "enabled": True,
+                            "mode": "api_das",
+                            "das_mode": zscaler_das_mode,
+                            "policy_id": zscaler_policy_id,
+                            **({"warnings": guardrails_warnings} if guardrails_warnings else {}),
+                            "blocked": True,
+                            "stage": "IN",
+                        },
                         "trace": {"steps": trace_steps},
                         "agent_trace": [],
                         "multi_agent": {"enabled": True, "implemented": True},
@@ -12340,7 +12601,14 @@ class Handler(BaseHTTPRequestHandler):
                         payload_trace_steps = steps
                 trace_steps.extend(payload_trace_steps)
                 payload["trace"] = {"steps": trace_steps}
-                payload["guardrails"] = {"enabled": True, "blocked": False}
+                payload["guardrails"] = {
+                    "enabled": True,
+                    "mode": "api_das",
+                    "das_mode": zscaler_das_mode,
+                    "policy_id": zscaler_policy_id,
+                    **({"warnings": guardrails_warnings} if guardrails_warnings else {}),
+                    "blocked": False,
+                }
 
                 if status != 200:
                     self._send_json(payload, status=status)
@@ -12348,7 +12616,12 @@ class Handler(BaseHTTPRequestHandler):
 
                 final_text = str(payload.get("response") or "").strip()
                 out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
-                    "OUT", final_text, conversation_id=conversation_id, demo_user=demo_user
+                    "OUT",
+                    final_text,
+                    conversation_id=conversation_id,
+                    demo_user=demo_user,
+                    zscaler_das_mode=zscaler_das_mode,
+                    zscaler_policy_id=zscaler_policy_id,
                 )
                 trace_steps.append(out_meta.get("trace_step", {}))
                 payload["trace"] = {"steps": trace_steps}
@@ -12364,12 +12637,24 @@ class Handler(BaseHTTPRequestHandler):
                         status=int(out_meta.get("status_code", 502)),
                     )
                     return
+                if isinstance(out_meta.get("notice"), dict):
+                    guardrails_warnings.append(out_meta["notice"])
                 if out_blocked:
                     out_block_body = (
                         (out_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
                     payload["response"] = guardrails._block_message("Response", out_block_body)  # noqa: SLF001
-                    payload["guardrails"] = {"enabled": True, "blocked": True, "stage": "OUT"}
+                    payload["guardrails"] = {
+                        "enabled": True,
+                        "mode": "api_das",
+                        "das_mode": zscaler_das_mode,
+                        "policy_id": zscaler_policy_id,
+                        **({"warnings": guardrails_warnings} if guardrails_warnings else {}),
+                        "blocked": True,
+                        "stage": "OUT",
+                    }
+                elif guardrails_warnings:
+                    payload["guardrails"]["warnings"] = guardrails_warnings
 
                 if chat_mode == "multi" and status == 200 and payload.get("response"):
                     payload["conversation"] = messages_for_provider + [
@@ -12450,8 +12735,14 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 trace_steps: list[dict] = []
+                guardrails_warnings: list[dict] = []
                 in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
-                    "IN", prompt, conversation_id=conversation_id, demo_user=demo_user
+                    "IN",
+                    prompt,
+                    conversation_id=conversation_id,
+                    demo_user=demo_user,
+                    zscaler_das_mode=zscaler_das_mode,
+                    zscaler_policy_id=zscaler_policy_id,
                 )
                 trace_steps.append(in_meta.get("trace_step", {}))
                 if in_meta.get("error"):
@@ -12465,13 +12756,23 @@ class Handler(BaseHTTPRequestHandler):
                         status=int(in_meta.get("status_code", 502)),
                     )
                     return
+                if isinstance(in_meta.get("notice"), dict):
+                    guardrails_warnings.append(in_meta["notice"])
                 if in_blocked:
                     in_block_body = (
                         (in_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
                     payload = {
                         "response": guardrails._block_message("Prompt", in_block_body),  # noqa: SLF001
-                        "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
+                        "guardrails": {
+                            "enabled": True,
+                            "mode": "api_das",
+                            "das_mode": zscaler_das_mode,
+                            "policy_id": zscaler_policy_id,
+                            **({"warnings": guardrails_warnings} if guardrails_warnings else {}),
+                            "blocked": True,
+                            "stage": "IN",
+                        },
                         "trace": {"steps": trace_steps},
                         "agent_trace": [],
                     }
@@ -12495,7 +12796,14 @@ class Handler(BaseHTTPRequestHandler):
                         payload_trace_steps = steps
                 trace_steps.extend(payload_trace_steps)
                 payload["trace"] = {"steps": trace_steps}
-                payload["guardrails"] = {"enabled": True, "blocked": False}
+                payload["guardrails"] = {
+                    "enabled": True,
+                    "mode": "api_das",
+                    "das_mode": zscaler_das_mode,
+                    "policy_id": zscaler_policy_id,
+                    **({"warnings": guardrails_warnings} if guardrails_warnings else {}),
+                    "blocked": False,
+                }
 
                 if status != 200:
                     self._send_json(payload, status=status)
@@ -12503,7 +12811,12 @@ class Handler(BaseHTTPRequestHandler):
 
                 final_text = str(payload.get("response") or "").strip()
                 out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
-                    "OUT", final_text, conversation_id=conversation_id, demo_user=demo_user
+                    "OUT",
+                    final_text,
+                    conversation_id=conversation_id,
+                    demo_user=demo_user,
+                    zscaler_das_mode=zscaler_das_mode,
+                    zscaler_policy_id=zscaler_policy_id,
                 )
                 trace_steps.append(out_meta.get("trace_step", {}))
                 payload["trace"] = {"steps": trace_steps}
@@ -12518,12 +12831,24 @@ class Handler(BaseHTTPRequestHandler):
                         status=int(out_meta.get("status_code", 502)),
                     )
                     return
+                if isinstance(out_meta.get("notice"), dict):
+                    guardrails_warnings.append(out_meta["notice"])
                 if out_blocked:
                     out_block_body = (
                         (out_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
                     payload["response"] = guardrails._block_message("Response", out_block_body)  # noqa: SLF001
-                    payload["guardrails"] = {"enabled": True, "blocked": True, "stage": "OUT"}
+                    payload["guardrails"] = {
+                        "enabled": True,
+                        "mode": "api_das",
+                        "das_mode": zscaler_das_mode,
+                        "policy_id": zscaler_policy_id,
+                        **({"warnings": guardrails_warnings} if guardrails_warnings else {}),
+                        "blocked": True,
+                        "stage": "OUT",
+                    }
+                elif guardrails_warnings:
+                    payload["guardrails"]["warnings"] = guardrails_warnings
 
                 if chat_mode == "multi" and status == 200 and payload.get("response"):
                     payload["conversation"] = messages_for_provider + [
@@ -12611,6 +12936,8 @@ class Handler(BaseHTTPRequestHandler):
                     llm_call=lambda p: _provider_messages_call(messages_for_provider),
                     conversation_id=conversation_id,
                     demo_user=demo_user,
+                    zscaler_das_mode=zscaler_das_mode,
+                    zscaler_policy_id=zscaler_policy_id,
                 )
             except Exception as exc:
                 self._send_json(

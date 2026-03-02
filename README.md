@@ -4,6 +4,11 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.2`
+  - Zscaler AI Guard API/DAS mode now supports two policy endpoints directly in the chat UI:
+    - `Resolve`: automatically resolves and executes the matching configured policy.
+    - `Execute`: sends checks to `execute-policy` for the exact `Policy ID` entered.
+
 - `v1.5.1`
   - Added a new latency analysis workflow across Flow Graph and Latency Bench, including per-hop timing labels, an in-graph end-to-end summary (total/app/provider/AI Guard), clearer fixed-order mode comparisons (Baseline, Proxy, API/DAS), explicit Zscaler-vs-baseline deltas, and cleaner handling of unsupported proxy modes with transparent `unknown` attribution when exact timing cannot be measured.
 
@@ -239,6 +244,9 @@ All model overrides are optional and can be configured later.
 
 - `ZS_GUARDRAILS_API_KEY`
 - Optional: `ZS_GUARDRAILS_URL`, `ZS_GUARDRAILS_TIMEOUT_SECONDS`, `ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME`
+- Optional policy execution defaults:
+  - `ZS_GUARDRAILS_DAS_MODE` (`resolve` or `execute`)
+  - `ZS_GUARDRAILS_POLICY_ID` (required only when DAS mode is `execute`)
 
 ### Proxy mode
 
