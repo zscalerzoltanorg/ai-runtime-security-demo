@@ -3,9 +3,8 @@ import os
 from urllib import error, request
 
 
-DEFAULT_ZS_GUARDRAILS_URL = (
-    "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
-)
+DEFAULT_ZS_GUARDRAILS_URL = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
+DEFAULT_ZS_GUARDRAILS_EXECUTE_URL = "https://api.zseclipse.net/v1/detection/execute-policy"
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 
 
@@ -19,12 +18,44 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
-def _guardrails_config() -> tuple[str, str, float, str]:
-    url = os.getenv("ZS_GUARDRAILS_URL", DEFAULT_ZS_GUARDRAILS_URL)
+def _normalize_das_mode(raw: str | None) -> str:
+    mode = str(raw or "").strip().lower().replace("-", "_")
+    if mode in {"execute", "execute_policy"}:
+        return "execute"
+    return "resolve"
+
+
+def _parse_policy_id(raw: object) -> int | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        value = int(text)
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
+def _resolve_guardrails_url(base_url: str, das_mode: str) -> str:
+    url = str(base_url or DEFAULT_ZS_GUARDRAILS_URL).strip()
+    if not url:
+        url = DEFAULT_ZS_GUARDRAILS_URL
+    suffix = "execute-policy" if das_mode == "execute" else "resolve-and-execute-policy"
+    if url.endswith("/resolve-and-execute-policy") or url.endswith("/execute-policy"):
+        return f"{url.rsplit('/', 1)[0]}/{suffix}"
+    if das_mode == "execute" and url == DEFAULT_ZS_GUARDRAILS_URL:
+        return DEFAULT_ZS_GUARDRAILS_EXECUTE_URL
+    return url
+
+
+def _guardrails_config() -> tuple[str, str, float, str, str, int | None]:
+    url = os.getenv("ZS_GUARDRAILS_URL", DEFAULT_ZS_GUARDRAILS_URL).strip()
     api_key = os.getenv("ZS_GUARDRAILS_API_KEY", "")
     timeout = _float_env("ZS_GUARDRAILS_TIMEOUT_SECONDS", 15.0)
     conversation_id_header = os.getenv("ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "").strip()
-    return url, api_key, timeout, conversation_id_header
+    das_mode = _normalize_das_mode(os.getenv("ZS_GUARDRAILS_DAS_MODE", "resolve"))
+    policy_id = _parse_policy_id(os.getenv("ZS_GUARDRAILS_POLICY_ID", ""))
+    return url, api_key, timeout, conversation_id_header, das_mode, policy_id
 
 
 def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[int, object]:
@@ -86,6 +117,32 @@ def _is_blocked_guardrails_body(body: object) -> bool:
             if detector_action == "BLOCK":
                 return True
     return False
+
+
+def _guardrails_notice_from_body(
+    body: object,
+    *,
+    stage: str,
+    das_mode: str,
+    policy_id: int | None,
+) -> dict | None:
+    if not isinstance(body, dict):
+        return None
+    status_code_raw = body.get("statusCode")
+    try:
+        status_code = int(status_code_raw) if status_code_raw is not None else None
+    except Exception:
+        status_code = None
+    error_msg = str(body.get("errorMsg") or "").strip()
+    if (status_code is None or status_code < 400) and not error_msg:
+        return None
+    return {
+        "stage": str(stage or "").upper(),
+        "das_mode": das_mode,
+        "policy_id": policy_id,
+        "status_code": status_code,
+        "error": error_msg or "AI Guard returned a non-success policy status.",
+    }
 
 
 def _block_message(stage: str, block_body: object) -> str:
@@ -162,8 +219,20 @@ def _zag_check(
     content: str,
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    zscaler_das_mode: str | None = None,
+    zscaler_policy_id: int | str | None = None,
 ) -> tuple[bool, dict]:
-    zag_url, zag_key, zag_timeout, conversation_id_header = _guardrails_config()
+    (
+        zag_base_url,
+        zag_key,
+        zag_timeout,
+        conversation_id_header,
+        cfg_das_mode,
+        cfg_policy_id,
+    ) = _guardrails_config()
+    das_mode = _normalize_das_mode(zscaler_das_mode or cfg_das_mode)
+    policy_id = _parse_policy_id(zscaler_policy_id) if zscaler_policy_id is not None else cfg_policy_id
+    zag_url = _resolve_guardrails_url(zag_base_url, das_mode)
 
     if not zag_key:
         return False, {
@@ -184,7 +253,11 @@ def _zag_check(
                         ),
                         **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
                     },
-                    "payload": {"direction": direction, "content": content or ""},
+                    "payload": {
+                        "direction": direction,
+                        "content": content or "",
+                        **({"policyId": policy_id} if das_mode == "execute" and policy_id else {}),
+                    },
                 },
                 "response": {
                     "status": 500,
@@ -193,7 +266,34 @@ def _zag_check(
             },
         }
 
+    if das_mode == "execute" and not policy_id:
+        payload = {
+            "direction": direction,
+            "content": content or "",
+        }
+        return False, {
+            "error": "ZS_GUARDRAILS_POLICY_ID is required in Execute Policy mode.",
+            "status_code": 400,
+            "trace_step": {
+                "name": f"Zscaler AI Guard ({direction})",
+                "request": {
+                    "method": "POST",
+                    "url": zag_url,
+                    "headers": {
+                        "Authorization": "Bearer ***redacted***",
+                        "Content-Type": "application/json",
+                    },
+                    "payload": payload,
+                },
+                "response": {"status": 400, "body": {"error": "Missing policyId"}},
+            },
+            "das_mode": das_mode,
+            "policy_id": None,
+        }
+
     payload = {"direction": direction, "content": content or ""}
+    if das_mode == "execute" and policy_id:
+        payload["policyId"] = policy_id
     headers = {
         "Authorization": f"Bearer {zag_key}",
         "Content-Type": "application/json",
@@ -253,8 +353,17 @@ def _zag_check(
         }
 
     blocked = _is_blocked_guardrails_body(body)
+    notice = _guardrails_notice_from_body(
+        body,
+        stage=direction,
+        das_mode=das_mode,
+        policy_id=policy_id,
+    )
 
     return blocked, {
+        "das_mode": das_mode,
+        "policy_id": policy_id,
+        **({"notice": notice} if isinstance(notice, dict) else {}),
         "trace_step": {
             "name": f"Zscaler AI Guard ({direction})",
             "request": {
@@ -273,10 +382,23 @@ def guarded_chat(
     llm_call,
     conversation_id: str | None = None,
     demo_user: str | None = None,
+    zscaler_das_mode: str | None = None,
+    zscaler_policy_id: int | str | None = None,
 ) -> tuple[dict, int]:
     trace_steps: list[dict] = []
+    effective_mode = _normalize_das_mode(zscaler_das_mode or _guardrails_config()[4])
+    effective_policy_id = _parse_policy_id(zscaler_policy_id) if zscaler_policy_id is not None else _guardrails_config()[5]
 
-    in_blocked, in_meta = _zag_check("IN", prompt, conversation_id=conversation_id, demo_user=demo_user)
+    warnings: list[dict] = []
+
+    in_blocked, in_meta = _zag_check(
+        "IN",
+        prompt,
+        conversation_id=conversation_id,
+        demo_user=demo_user,
+        zscaler_das_mode=effective_mode,
+        zscaler_policy_id=effective_policy_id,
+    )
     trace_steps.append(in_meta["trace_step"])
     if in_meta.get("error"):
         return (
@@ -287,12 +409,22 @@ def guarded_chat(
             },
             int(in_meta.get("status_code", 502)),
         )
+    if isinstance(in_meta.get("notice"), dict):
+        warnings.append(in_meta["notice"])
     if in_blocked:
         in_block_body = (in_meta.get("trace_step") or {}).get("response", {}).get("body")
         return (
             {
                 "response": _block_message("Prompt", in_block_body),
-                "guardrails": {"enabled": True, "blocked": True, "stage": "IN"},
+                "guardrails": {
+                    "enabled": True,
+                    "mode": "api_das",
+                    "das_mode": effective_mode,
+                    "policy_id": effective_policy_id,
+                    **({"warnings": warnings} if warnings else {}),
+                    "blocked": True,
+                    "stage": "IN",
+                },
                 "trace": {"steps": trace_steps},
             },
             200,
@@ -312,7 +444,14 @@ def guarded_chat(
 
     text = (llm_text or "").strip()
 
-    out_blocked, out_meta = _zag_check("OUT", text, conversation_id=conversation_id, demo_user=demo_user)
+    out_blocked, out_meta = _zag_check(
+        "OUT",
+        text,
+        conversation_id=conversation_id,
+        demo_user=demo_user,
+        zscaler_das_mode=effective_mode,
+        zscaler_policy_id=effective_policy_id,
+    )
     trace_steps.append(out_meta["trace_step"])
     if out_meta.get("error"):
         return (
@@ -323,6 +462,8 @@ def guarded_chat(
             },
             int(out_meta.get("status_code", 502)),
         )
+    if isinstance(out_meta.get("notice"), dict):
+        warnings.append(out_meta["notice"])
     if out_blocked:
         out_block_body = (out_meta.get("trace_step") or {}).get("response", {}).get("body")
         safe_trace_steps = _redact_trace_for_out_block(trace_steps)
@@ -330,7 +471,15 @@ def guarded_chat(
         return (
             {
                 "response": _block_message("Response", safe_block_body),
-                "guardrails": {"enabled": True, "blocked": True, "stage": "OUT"},
+                "guardrails": {
+                    "enabled": True,
+                    "mode": "api_das",
+                    "das_mode": effective_mode,
+                    "policy_id": effective_policy_id,
+                    **({"warnings": warnings} if warnings else {}),
+                    "blocked": True,
+                    "stage": "OUT",
+                },
                 "trace": {"steps": safe_trace_steps},
             },
             200,
@@ -339,7 +488,14 @@ def guarded_chat(
     return (
         {
             "response": text,
-            "guardrails": {"enabled": True, "blocked": False},
+            "guardrails": {
+                "enabled": True,
+                "mode": "api_das",
+                "das_mode": effective_mode,
+                "policy_id": effective_policy_id,
+                **({"warnings": warnings} if warnings else {}),
+                "blocked": False,
+            },
             "trace": {"steps": trace_steps},
         },
         200,
