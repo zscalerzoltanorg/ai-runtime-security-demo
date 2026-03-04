@@ -484,7 +484,7 @@ def _update_status_payload() -> dict[str, object]:
             local_tag = _git_output(["describe", "--tags", "--exact-match", "HEAD"], timeout=1.5)
         except Exception:
             local_tag = ""
-        fetch_res = _git_run(["fetch", "--quiet", remote, branch], timeout=20.0)
+        fetch_res = _git_run(["fetch", "--quiet", "--tags", remote, branch], timeout=20.0)
         if fetch_res.returncode != 0:
             raise RuntimeError("Unable to reach remote repository")
         remote_sha = _git_output(["rev-parse", f"{remote}/{branch}"], timeout=2.0)
@@ -565,7 +565,7 @@ def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
                 "ok": False,
                 "error": "Working tree has local changes. Commit/stash first to avoid overwrite.",
             }
-        fetch_res = _git_run(["fetch", "--quiet", remote, branch], timeout=30.0)
+        fetch_res = _git_run(["fetch", "--quiet", "--tags", remote, branch], timeout=30.0)
         if fetch_res.returncode != 0:
             msg = (fetch_res.stderr or fetch_res.stdout or "").strip() or "git fetch failed"
             return {"ok": False, "error": msg}

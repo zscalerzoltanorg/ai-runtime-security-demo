@@ -4,9 +4,10 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
-- `v1.5.4`
+- `v1.5.5`
   - Fixed model-setting hardening so invalid boolean-like values (for example `yes`/`no`/`true`/`false`) no longer become active provider model IDs and now safely fall back to valid defaults.
   - Fixed version badge/update display behavior so the app consistently shows a version-style identifier (tag or tag+sha) instead of only a build label when running non-exact-tag commits.
+  - Fixed updater git sync to fetch tags during update checks/applies so release badge/tag visibility stays consistent after in-app updates.
 
 - `v1.5.2`
   - Zscaler AI Guard API/DAS mode now supports two policy endpoints directly in the chat UI:
