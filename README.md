@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.3`
+  - Fixed model-setting hardening so invalid boolean-like values (for example `yes`/`no`/`true`/`false`) no longer become active provider model IDs and now safely fall back to valid defaults.
+
 - `v1.5.2`
   - Zscaler AI Guard API/DAS mode now supports two policy endpoints directly in the chat UI:
     - `Resolve`: automatically resolves and executes the matching configured policy.

@@ -15,18 +15,57 @@ def _env_or_default(name: str, default: str) -> str:
     return raw or default
 
 
-DEFAULT_ANTHROPIC_MODEL = _env_or_default("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
-DEFAULT_OPENAI_MODEL = _env_or_default("OPENAI_MODEL", "gpt-4o-mini")
+_INVALID_MODEL_LITERALS = {"yes", "no", "true", "false", "on", "off", "1", "0", "null", "none"}
+
+
+def _sanitize_model_value(raw: str | None, *, fallback: str) -> str:
+    val = str(raw or "").strip()
+    if not val:
+        return fallback
+    if val.lower() in _INVALID_MODEL_LITERALS:
+        return fallback
+    return val
+
+
+DEFAULT_ANTHROPIC_MODEL = _sanitize_model_value(
+    _env_or_default("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
+    fallback="claude-3-haiku-20240307",
+)
+DEFAULT_OPENAI_MODEL = _sanitize_model_value(
+    _env_or_default("OPENAI_MODEL", "gpt-4o-mini"),
+    fallback="gpt-4o-mini",
+)
 DEFAULT_AWS_REGION = _env_or_default("AWS_REGION", "us-east-1")
-DEFAULT_BEDROCK_INVOKE_MODEL = _env_or_default("BEDROCK_INVOKE_MODEL", "amazon.nova-lite-v1:0")
-DEFAULT_PERPLEXITY_MODEL = _env_or_default("PERPLEXITY_MODEL", "sonar")
-DEFAULT_XAI_MODEL = _env_or_default("XAI_MODEL", "grok-4")
-DEFAULT_GEMINI_MODEL = _env_or_default("GEMINI_MODEL", "gemini-1.5-flash")
-DEFAULT_LITELLM_MODEL = _env_or_default("LITELLM_MODEL", "claude-3-haiku-20240307")
-DEFAULT_KONG_MODEL = _env_or_default("KONG_MODEL", "")
+DEFAULT_BEDROCK_INVOKE_MODEL = _sanitize_model_value(
+    _env_or_default("BEDROCK_INVOKE_MODEL", "amazon.nova-lite-v1:0"),
+    fallback="amazon.nova-lite-v1:0",
+)
+DEFAULT_PERPLEXITY_MODEL = _sanitize_model_value(
+    _env_or_default("PERPLEXITY_MODEL", "sonar"),
+    fallback="sonar",
+)
+DEFAULT_XAI_MODEL = _sanitize_model_value(
+    _env_or_default("XAI_MODEL", "grok-4"),
+    fallback="grok-4",
+)
+DEFAULT_GEMINI_MODEL = _sanitize_model_value(
+    _env_or_default("GEMINI_MODEL", "gemini-1.5-flash"),
+    fallback="gemini-1.5-flash",
+)
+DEFAULT_LITELLM_MODEL = _sanitize_model_value(
+    _env_or_default("LITELLM_MODEL", "claude-3-haiku-20240307"),
+    fallback="claude-3-haiku-20240307",
+)
+DEFAULT_KONG_MODEL = _sanitize_model_value(_env_or_default("KONG_MODEL", ""), fallback="")
 DEFAULT_VERTEX_LOCATION = _env_or_default("VERTEX_LOCATION", "us-central1")
-DEFAULT_VERTEX_MODEL = _env_or_default("VERTEX_MODEL", "gemini-1.5-flash")
-DEFAULT_AZURE_AI_FOUNDRY_MODEL = _env_or_default("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini")
+DEFAULT_VERTEX_MODEL = _sanitize_model_value(
+    _env_or_default("VERTEX_MODEL", "gemini-1.5-flash"),
+    fallback="gemini-1.5-flash",
+)
+DEFAULT_AZURE_AI_FOUNDRY_MODEL = _sanitize_model_value(
+    _env_or_default("AZURE_AI_FOUNDRY_MODEL", "gpt-4o-mini"),
+    fallback="gpt-4o-mini",
+)
 DEFAULT_ZS_PROXY_BASE_URL = _env_or_default("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = _env_or_default("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
 DEMO_USER_HEADER_NAME = "X-Demo-User"
@@ -44,9 +83,7 @@ _MODEL_ALIAS_MAP: dict[str, str] = {
 
 
 def _normalize_model_alias(model: str | None, *, fallback: str) -> str:
-    raw = str(model or "").strip()
-    if not raw:
-        return fallback
+    raw = _sanitize_model_value(model, fallback=fallback)
     mapped = _MODEL_ALIAS_MAP.get(raw.lower())
     if mapped:
         return mapped

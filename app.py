@@ -63,6 +63,16 @@ def _str_env(name: str, default: str) -> str:
     return raw or default
 
 
+_INVALID_MODEL_LITERALS = {"yes", "no", "true", "false", "on", "off", "1", "0", "null", "none"}
+
+
+def _model_env(name: str, default: str) -> str:
+    raw = _str_env(name, default)
+    if str(raw).strip().lower() in _INVALID_MODEL_LITERALS:
+        return default
+    return raw
+
+
 HOST = _str_env("HOST", "127.0.0.1")
 PORT = _int_env("PORT", 5000)
 MAX_REQUEST_BYTES = _int_env("MAX_REQUEST_BYTES", 1_000_000)
@@ -70,9 +80,9 @@ APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", 30)
 APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", 20))
 APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", 3))
 OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = _str_env("OLLAMA_MODEL", "llama3.2:1b")
-ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
-OPENAI_MODEL = _str_env("OPENAI_MODEL", "gpt-4o-mini")
+OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
+ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+OPENAI_MODEL = _model_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
 UI_THEME = _str_env("UI_THEME", "zscaler_blue")
@@ -11119,9 +11129,9 @@ def _settings_save(values: dict[str, str]) -> None:
     global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT
     global UPDATE_CHECK_INTERVAL_SECONDS, UPDATE_REMOTE_NAME, UPDATE_BRANCH_NAME
     OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
-    OLLAMA_MODEL = _str_env("OLLAMA_MODEL", OLLAMA_MODEL)
-    ANTHROPIC_MODEL = _str_env("ANTHROPIC_MODEL", ANTHROPIC_MODEL)
-    OPENAI_MODEL = _str_env("OPENAI_MODEL", OPENAI_MODEL)
+    OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
+    ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+    OPENAI_MODEL = _model_env("OPENAI_MODEL", "gpt-4o-mini")
     ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", ZS_PROXY_BASE_URL)
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
     APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", APP_RATE_LIMIT_ADMIN_PER_MIN))
