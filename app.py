@@ -166,13 +166,6 @@ DEFAULT_COST_PER_MILLION_TOKENS = {
 def _build_badge_text() -> str:
     repo_root = Path(__file__).resolve().parent
     try:
-        tag_exact = subprocess.check_output(
-            ["git", "describe", "--tags", "--exact-match", "HEAD"],
-            cwd=repo_root,
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=1.0,
-        ).strip()
         sha = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=repo_root,
@@ -187,20 +180,38 @@ def _build_badge_text() -> str:
             stderr=subprocess.DEVNULL,
             timeout=1.0,
         ).strip()
-        if commit_date:
-            if tag_exact:
-                return f"{tag_exact} ({commit_date})"
-            if sha:
-                latest_tag = subprocess.check_output(
-                    ["git", "describe", "--tags", "--abbrev=0"],
-                    cwd=repo_root,
-                    text=True,
-                    stderr=subprocess.DEVNULL,
-                    timeout=1.0,
-                ).strip()
-                if latest_tag:
-                    return f"{latest_tag}+{sha} ({commit_date})"
-                return f"dev+{sha} ({commit_date})"
+
+        tag_exact = ""
+        try:
+            tag_exact = subprocess.check_output(
+                ["git", "describe", "--tags", "--exact-match", "HEAD"],
+                cwd=repo_root,
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=1.0,
+            ).strip()
+        except Exception:
+            tag_exact = ""
+
+        if tag_exact:
+            return f"{tag_exact} ({commit_date})" if commit_date else tag_exact
+
+        latest_tag = ""
+        try:
+            latest_tag = subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=repo_root,
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=1.0,
+            ).strip()
+        except Exception:
+            latest_tag = ""
+
+        if latest_tag and sha:
+            return f"{latest_tag}+{sha} ({commit_date})" if commit_date else f"{latest_tag}+{sha}"
+        if sha:
+            return f"dev+{sha} ({commit_date})" if commit_date else f"dev+{sha}"
     except Exception:
         pass
     return datetime.now().strftime("build %m-%d-%y")
