@@ -86,9 +86,9 @@ OPENAI_MODEL = _model_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
 UI_THEME = _str_env("UI_THEME", "zscaler_blue")
-UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", "origin")
-UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", "main")
-UPDATE_CHECK_INTERVAL_SECONDS = max(10, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", 3600))
+UPDATE_REMOTE_NAME = "origin"
+UPDATE_BRANCH_NAME = "main"
+UPDATE_CHECK_INTERVAL_SECONDS = 3600
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
 PRESET_OVERRIDES_ENV_KEY = "AI_GUARD_PRESET_OVERRIDES_JSON"
@@ -1970,6 +1970,18 @@ HTML = f"""<!doctype html>
         font-size: 0.8rem;
         padding-left: 2px;
       }}
+      .flow-label-legend {{
+        color: var(--muted);
+        font-size: 0.76rem;
+        padding-left: 2px;
+        white-space: nowrap;
+      }}
+      .flow-label-legend code {{
+        background: rgba(148, 163, 184, 0.15);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0 4px;
+      }}
       .flow-toolbar-status {{
         color: var(--muted);
         font-size: 0.82rem;
@@ -2335,14 +2347,42 @@ HTML = f"""<!doctype html>
         padding: 10px 12px;
         border-bottom: 1px solid var(--border);
         background: #f8fafc;
+        cursor: pointer;
+      }}
+      .settings-group-head:hover {{
+        background: #f1f5f9;
+      }}
+      .settings-group-head-left {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }}
       .settings-group-title {{
+        font-weight: 700;
+      }}
+      .settings-group-toggle {{
+        border: 1px solid var(--border);
+        background: #fff;
+        color: #1f2937 !important;
+        border-radius: 7px;
+        width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 0.82rem;
+        line-height: 1;
+        padding: 0 !important;
         font-weight: 700;
       }}
       .settings-group-body {{
         display: grid;
         gap: 10px;
         padding: 12px;
+      }}
+      .settings-group.collapsed .settings-group-body {{
+        display: none;
       }}
       .settings-subgroup {{
         border: 1px solid var(--border);
@@ -2385,6 +2425,7 @@ HTML = f"""<!doctype html>
         display: flex;
         align-items: center;
         gap: 6px;
+        position: relative;
       }}
       .settings-input-wrap input {{
         flex: 1;
@@ -2419,6 +2460,44 @@ HTML = f"""<!doctype html>
       }}
       .settings-model-toggle:hover {{
         background: #f8fafc;
+      }}
+      .settings-secret-toggle {{
+        border: 1px solid #cbd5e1;
+        background: rgba(148, 163, 184, 0.12);
+        color: #1f2937 !important;
+        border-radius: 6px;
+        width: 24px;
+        height: 24px;
+        cursor: pointer;
+        line-height: 1;
+        font-size: 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 2;
+        padding: 0 !important;
+      }}
+      .settings-secret-toggle:hover {{
+        background: rgba(148, 163, 184, 0.22);
+        border-color: #94a3b8;
+        color: #0f172a;
+      }}
+      .settings-secret-icon {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        font-size: 13px;
+        line-height: 1;
+        pointer-events: none;
+      }}
+      .settings-input-wrap.has-secret-toggle input {{
+        padding-right: 38px;
       }}
       .settings-model-dropdown {{
         margin-top: 4px;
@@ -2530,6 +2609,34 @@ HTML = f"""<!doctype html>
       }}
       .update-confirm-dialog {{
         width: min(760px, 94vw);
+      }}
+      .restart-progress-dialog {{
+        width: min(520px, 92vw);
+      }}
+      .restart-progress-row {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }}
+      .restart-spinner {{
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(148, 163, 184, 0.45);
+        border-top-color: #22c55e;
+        border-radius: 999px;
+        animation: spin 0.9s linear infinite;
+        flex: 0 0 auto;
+      }}
+      .restart-progress-text {{
+        color: var(--ink);
+        font-weight: 600;
+      }}
+      .restart-progress-text.error {{
+        color: #dc2626;
+      }}
+      @keyframes spin {{
+        from {{ transform: rotate(0deg); }}
+        to {{ transform: rotate(360deg); }}
       }}
       .confirm-head {{
         padding: 12px 14px;
@@ -2927,10 +3034,23 @@ HTML = f"""<!doctype html>
         border-color: #334155;
       }}
       body[data-theme="dark"] .settings-model-toggle,
-      body[data-theme="dark"] .settings-model-dropdown {{
-        background: #0f172a;
-        color: #e2e8f0;
-        border-color: #334155;
+      body[data-theme="dark"] .settings-model-dropdown,
+      body[data-theme="dark"] .settings-group-toggle,
+      body[data-theme="dark"] .settings-secret-toggle {{
+        color: #e2e8f0 !important;
+      }}
+      body[data-theme="dark"] .settings-group-toggle {{
+        background: #0f172a !important;
+        border-color: #334155 !important;
+      }}
+      body[data-theme="dark"] .settings-secret-toggle {{
+        background: rgba(51, 65, 85, 0.38) !important;
+        border-color: #334155 !important;
+      }}
+      body[data-theme="dark"] .settings-secret-toggle:hover {{
+        background: rgba(71, 85, 105, 0.55) !important;
+        border-color: #475569 !important;
+        color: #f8fafc !important;
       }}
       body[data-theme="dark"] .settings-model-option {{
         color: #e2e8f0 !important;
@@ -3174,10 +3294,28 @@ HTML = f"""<!doctype html>
         border-color: #3b2e5f;
       }}
       body[data-theme="fun"] .settings-model-toggle,
-      body[data-theme="fun"] .settings-model-dropdown {{
-        background: #17122b;
-        color: #e9e7ff;
-        border-color: #3b2e5f;
+      body[data-theme="fun"] .settings-model-dropdown,
+      body[data-theme="fun"] .settings-group-toggle,
+      body[data-theme="fun"] .settings-secret-toggle {{
+        color: #e9e7ff !important;
+      }}
+      body[data-theme="fun"] .settings-group-toggle {{
+        background: #17122b !important;
+        border-color: #3b2e5f !important;
+      }}
+      body[data-theme="fun"] .settings-secret-toggle {{
+        background: rgba(80, 62, 120, 0.42) !important;
+        border-color: #4b3a74 !important;
+      }}
+      body[data-theme="fun"] .settings-secret-toggle:hover {{
+        background: rgba(106, 82, 168, 0.55) !important;
+        border-color: #6a52a8 !important;
+        color: #ffffff !important;
+      }}
+      body[data-theme="fun"] .settings-group-toggle {{
+        color: #ffffff !important;
+        border-color: #6d5ab0;
+        font-weight: 700;
       }}
       body[data-theme="fun"] .settings-model-option {{
         color: #e9e7ff !important;
@@ -3680,6 +3818,9 @@ HTML = f"""<!doctype html>
             <button id="flowLatencyBenchBtn" class="secondary" type="button" title="Run baseline vs AI Guard mode latency benchmark for this prompt/provider">Latency Bench</button>
             <button id="flowScenarioRunnerBtn" class="secondary" type="button" title="Run a preset prompt suite across selected providers and summarize outcomes">Scenario Runner</button>
             <span id="flowReplayStatus" class="flow-replay-status">Trace replay: none</span>
+            <span id="flowLabelLegend" class="flow-label-legend" title="Flow label key">
+              Label key: <code>2a/2b/2c</code> = parallel request branches, <code>r2a/r2b/r2c</code> = matched return paths
+            </span>
           </div>
           <div id="flowToolbarStatus" class="flow-toolbar-status">Latest flow graph: none</div>
         </div>
@@ -3755,6 +3896,21 @@ HTML = f"""<!doctype html>
           <div class="confirm-actions">
             <button id="restartConfirmCancelBtn" class="secondary" type="button">Not now</button>
             <button id="restartConfirmOkBtn" type="button">Restart now</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="restartProgressModal" class="confirm-modal" aria-hidden="true">
+        <div class="confirm-dialog restart-progress-dialog" role="dialog" aria-modal="true" aria-labelledby="restartProgressTitle">
+          <div id="restartProgressTitle" class="confirm-head">Restarting Services...</div>
+          <div class="confirm-body">
+            <div class="restart-progress-row">
+              <span id="restartProgressSpinner" class="restart-spinner" aria-hidden="true"></span>
+              <span id="restartProgressText" class="restart-progress-text">Restarting services... please wait.</span>
+            </div>
+          </div>
+          <div class="confirm-actions">
+            <button id="restartProgressCloseBtn" class="secondary" type="button" style="display:none;">Close</button>
           </div>
         </div>
       </div>
@@ -4168,6 +4324,10 @@ HTML = f"""<!doctype html>
       const restartConfirmModalEl = document.getElementById("restartConfirmModal");
       const restartConfirmOkBtnEl = document.getElementById("restartConfirmOkBtn");
       const restartConfirmCancelBtnEl = document.getElementById("restartConfirmCancelBtn");
+      const restartProgressModalEl = document.getElementById("restartProgressModal");
+      const restartProgressTextEl = document.getElementById("restartProgressText");
+      const restartProgressSpinnerEl = document.getElementById("restartProgressSpinner");
+      const restartProgressCloseBtnEl = document.getElementById("restartProgressCloseBtn");
       const settingsCloseBtnEl = document.getElementById("settingsCloseBtn");
       const settingsReloadBtnEl = document.getElementById("settingsReloadBtn");
       const settingsRefreshModelsBtnEl = document.getElementById("settingsRefreshModelsBtn");
@@ -4351,9 +4511,11 @@ HTML = f"""<!doctype html>
       let settingsValues = {{}};
       let settingsModelCatalog = {{}};
       let settingsCustomModelCatalog = {{}};
+      let settingsGroupCollapsed = {{}};
       let settingsSecretMask = "********";
       let settingsSecretKeySet = new Set();
       const SETTINGS_CUSTOM_MODELS_LS_KEY = "ai_runtime_demo_custom_models_v1";
+      const SETTINGS_GROUP_COLLAPSE_LS_KEY = "ai_runtime_demo_settings_groups_collapsed_v1";
       const providerModelMap = {{
         anthropic: "{providers.DEFAULT_ANTHROPIC_MODEL}",
         azure_foundry: "{providers.DEFAULT_AZURE_AI_FOUNDRY_MODEL}",
@@ -4698,6 +4860,22 @@ HTML = f"""<!doctype html>
           localStorage.setItem(SETTINGS_CUSTOM_MODELS_LS_KEY, JSON.stringify(settingsCustomModelCatalog || {{}}));
         }} catch {{}}
       }}
+      function _loadSettingsGroupCollapseState() {{
+        try {{
+          const raw = localStorage.getItem(SETTINGS_GROUP_COLLAPSE_LS_KEY);
+          if (!raw) return {{}};
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object") return {{}};
+          return parsed;
+        }} catch {{
+          return {{}};
+        }}
+      }}
+      function _saveSettingsGroupCollapseState() {{
+        try {{
+          localStorage.setItem(SETTINGS_GROUP_COLLAPSE_LS_KEY, JSON.stringify(settingsGroupCollapsed || {{}}));
+        }} catch {{}}
+      }}
       function _settingsModelOptions(item) {{
         const key = String(item?.key || "");
         if (!key.toUpperCase().includes("MODEL")) return [];
@@ -4800,6 +4978,8 @@ HTML = f"""<!doctype html>
         const sortedGroups = Array.from(grouped.entries()).sort((a, b) => {{
           const aName = String(a[0] || "");
           const bName = String(b[0] || "");
+          if (aName === "Tools / MCP" && bName !== "Tools / MCP") return 1;
+          if (bName === "Tools / MCP" && aName !== "Tools / MCP") return -1;
           const aPinnedIdx = pinnedGroups.indexOf(aName);
           const bPinnedIdx = pinnedGroups.indexOf(bName);
           if (aPinnedIdx >= 0 && bPinnedIdx >= 0) return aPinnedIdx - bPinnedIdx;
@@ -4808,6 +4988,8 @@ HTML = f"""<!doctype html>
           return aName.localeCompare(bName, undefined, {{ sensitivity: "base" }});
         }});
         settingsGroupsEl.innerHTML = sortedGroups.map(([groupName, items]) => {{
+          const visibleCount = items.filter((item) => !item.hidden_in_form).length;
+          if (!visibleCount) return "";
           const subgroupMap = new Map();
           for (const item of items) {{
             const subgroup = String(item.subgroup || "").trim() || "_default";
@@ -4859,10 +5041,13 @@ HTML = f"""<!doctype html>
             const modelHint = modelOptions.length
               ? ` Pick or type model ID + Enter.`
               : "";
+            const secretToggle = item.secret
+              ? `<button type="button" class="settings-secret-toggle" data-settings-secret-toggle="${{_escapeAttr(key)}}" data-secret-visible="false" title="Show value" aria-label="Show value"><span class="settings-secret-icon" aria-hidden="true">👁</span></button>`
+              : "";
             return `
               <div class="settings-field">
                 <label for="settings_${{_escapeAttr(key)}}">${{escapeHtml(item.label || key)}}</label>
-                <div class="settings-input-wrap">
+                <div class="settings-input-wrap ${{item.secret ? "has-secret-toggle" : ""}}">
                   <input
                     id="settings_${{_escapeAttr(key)}}"
                     data-settings-key="${{_escapeAttr(key)}}"
@@ -4878,6 +5063,7 @@ HTML = f"""<!doctype html>
                     autocorrect="off"
                     ${{isModelField ? `data-settings-model-key="${{_escapeAttr(key)}}"` : ""}}
                   />
+                  ${{secretToggle}}
                   ${{modelToggle}}
                   ${{modelDatalist}}
                 </div>
@@ -4886,12 +5072,19 @@ HTML = f"""<!doctype html>
               </div>
             `;
             }}).join("");
+            const subgroupLabel = (groupName === "Zscaler AI Guard Proxy" && subgroupName === "Provider Keys")
+              ? "Zscaler AI Guard Provider Keys (Proxy Mode)"
+              : subgroupName;
+            const subgroupNote = (groupName === "Zscaler AI Guard Proxy" && subgroupName === "Provider Keys")
+              ? `<div class="hint" style="padding:0 10px 8px;">Used only for Proxy Mode upstream provider calls.</div>`
+              : "";
             if (subgroupName === "_default") {{
               return `<div class="settings-grid">${{fields}}</div>`;
             }}
             return `
               <div class="settings-subgroup">
-                <div class="settings-subgroup-title">${{escapeHtml(subgroupName)}}</div>
+                <div class="settings-subgroup-title">${{escapeHtml(subgroupLabel)}}</div>
+                ${{subgroupNote}}
                 <div class="settings-grid">${{fields}}</div>
               </div>
             `;
@@ -4901,17 +5094,25 @@ HTML = f"""<!doctype html>
           const providerHelp = helper
             ? `<div class="provider-help">Getting started: <a href="${{_escapeAttr(helper.signup_url)}}" target="_blank" rel="noopener noreferrer">Sign up / setup</a> · <a href="${{_escapeAttr(helper.pricing_url)}}" target="_blank" rel="noopener noreferrer">Pricing</a> · Cost: ${{escapeHtml(helper.cost)}}</div>`
             : "";
+          if (!Object.prototype.hasOwnProperty.call(settingsGroupCollapsed, groupName)) {{
+            settingsGroupCollapsed[groupName] = true;
+          }}
+          const collapsed = !!settingsGroupCollapsed[groupName];
 
           return `
-            <div class="settings-group">
-              <div class="settings-group-head">
-                <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
-                <span class="status">${{items.filter((item) => !item.hidden_in_form).length}} variable${{items.filter((item) => !item.hidden_in_form).length === 1 ? "" : "s"}}</span>
+            <div class="settings-group ${{collapsed ? "collapsed" : ""}}" data-settings-group="${{_escapeAttr(groupName)}}">
+              <div class="settings-group-head" data-settings-group-toggle="${{_escapeAttr(groupName)}}">
+                <div class="settings-group-head-left">
+                  <button type="button" class="settings-group-toggle" data-settings-group-toggle="${{_escapeAttr(groupName)}}" aria-label="Expand or collapse section">${{collapsed ? "▸" : "▾"}}</button>
+                  <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
+                </div>
+                <span class="status">${{visibleCount}} variable${{visibleCount === 1 ? "" : "s"}}</span>
               </div>
               <div class="settings-group-body">${{providerHelp}}${{subgroupBlocks}}</div>
             </div>
           `;
         }}).join("");
+        _saveSettingsGroupCollapseState();
       }}
 
       async function loadSettingsModal(forceText = "") {{
@@ -4921,6 +5122,7 @@ HTML = f"""<!doctype html>
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Failed to load settings");
           settingsSchema = Array.isArray(data.schema) ? data.schema : [];
+          settingsGroupCollapsed = _loadSettingsGroupCollapseState();
           settingsSecretMask = String(data.secret_mask || "********");
           settingsSecretKeySet = new Set(
             settingsSchema
@@ -5008,20 +5210,36 @@ HTML = f"""<!doctype html>
         }});
       }}
 
+      function setRestartProgressState(message, opts = {{}}) {{
+        const isError = !!opts.error;
+        const canClose = !!opts.canClose;
+        restartProgressTextEl.textContent = String(message || "");
+        restartProgressTextEl.classList.toggle("error", isError);
+        restartProgressSpinnerEl.style.display = isError ? "none" : "inline-block";
+        restartProgressCloseBtnEl.style.display = canClose ? "inline-flex" : "none";
+      }}
+
+      function openRestartProgressModal(message) {{
+        setRestartProgressState(message || "Restarting services... please wait.", {{ error: false, canClose: false }});
+        restartProgressModalEl.classList.add("open");
+        restartProgressModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeRestartProgressModal() {{
+        restartProgressModalEl.classList.remove("open");
+        restartProgressModalEl.setAttribute("aria-hidden", "true");
+      }}
+
       async function saveSettingsModal() {{
         const values = {{}};
         const rawValues = {{}};
+        let restartTriggered = false;
         settingsGroupsEl.querySelectorAll("[data-settings-key]").forEach((input) => {{
           const key = input.getAttribute("data-settings-key");
           if (!key) return;
           rawValues[key] = input.value ?? "";
-          const previous = String(settingsValues[key] ?? "");
           const current = String(input.value ?? "");
-          const isSecret = settingsSecretKeySet.has(String(key));
-          const unchangedMaskedSecret = isSecret && current === settingsSecretMask && previous === settingsSecretMask;
-          if (!unchangedMaskedSecret) {{
-            values[key] = current;
-          }}
+          values[key] = current;
         }});
         rawValues.UI_THEME = normalizeUiTheme(activeUiTheme);
         values.UI_THEME = rawValues.UI_THEME;
@@ -5058,8 +5276,11 @@ HTML = f"""<!doctype html>
           if (data.restart_recommended && nonThemeChangedKeys.length > 0) {{
             const shouldRestart = await showRestartConfirmModal();
             if (shouldRestart) {{
+              restartTriggered = true;
+              closeSettingsModal();
+              openRestartProgressModal("Restarting services... please wait.");
               settingsStatusTextEl.textContent = "Restarting app...";
-              settingsFootNoteEl.textContent = "The app is restarting. This page will auto-refresh in a few seconds.";
+              settingsFootNoteEl.textContent = "The app is restarting. This page will auto-refresh once services are back.";
               try {{
                 const rr = await fetch("/restart", {{
                   method: "POST",
@@ -5070,11 +5291,14 @@ HTML = f"""<!doctype html>
                 if (!rr.ok || restartData.ok === false) {{
                   throw new Error(restartData.error || "Restart request failed");
                 }}
+                setRestartProgressState("Restart command sent. Reloading in a few seconds...", {{ error: false, canClose: false }});
                 setTimeout(() => {{
+                  closeRestartProgressModal();
                   window.location.reload();
                 }}, 5000);
               }} catch (restartErr) {{
                 settingsStatusTextEl.textContent = `Restart failed: ${{restartErr.message || restartErr}}`;
+                setRestartProgressState(`Restart failed: ${{restartErr.message || restartErr}}`, {{ error: true, canClose: true }});
               }}
             }}
           }} else if (changedKeys.length === 0) {{
@@ -5082,7 +5306,9 @@ HTML = f"""<!doctype html>
           }} else {{
             settingsFootNoteEl.textContent = "Theme/UI-only changes applied immediately. Restart not required.";
           }}
-          closeSettingsModal();
+          if (!restartTriggered) {{
+            closeSettingsModal();
+          }}
         }} catch (err) {{
           settingsStatusTextEl.textContent = `Save failed: ${{err.message || err}}`;
         }} finally {{
@@ -7246,6 +7472,7 @@ HTML = f"""<!doctype html>
           latencyMs: clientHop.resp,
         }});
 
+        // Keep per-node group indexing for edge lane offsets.
         for (const direction of ["request", "response"]) {{
           const dirEdges = edges.filter(e => e.direction === direction);
           const groups = new Map();
@@ -7258,22 +7485,62 @@ HTML = f"""<!doctype html>
             }}
             groups.get(key).push(e);
           }}
-          let counter = 1;
           for (const key of order) {{
             const list = groups.get(key) || [];
             list.forEach((e, idx) => {{
               e.flow_group_index = idx;
               e.flow_group_size = list.length;
             }});
-            if (list.length === 1) {{
-              list[0].flow_label = `${{direction === "response" ? "r" : ""}}${{counter}}`;
-            }} else {{
-              list.forEach((e, idx) => {{
-                const letter = String.fromCharCode(97 + idx);
-                e.flow_label = `${{direction === "response" ? "r" : ""}}${{counter}}${{letter}}`;
-              }});
-            }}
-            counter += 1;
+          }}
+        }}
+
+        // Chronological request labeling with fan-out suffixes (a/b/c).
+        const requestEdges = edges.filter(e => e.direction === "request");
+        let reqCounter = 1;
+        for (let i = 0; i < requestEdges.length; ) {{
+          const anchorFrom = String(requestEdges[i].from || "");
+          let j = i + 1;
+          while (j < requestEdges.length && String(requestEdges[j].from || "") === anchorFrom) {{
+            j += 1;
+          }}
+          const burst = requestEdges.slice(i, j);
+          if (burst.length === 1) {{
+            burst[0].flow_label = String(reqCounter);
+          }} else {{
+            burst.forEach((e, idx) => {{
+              const letter = String.fromCharCode(97 + idx);
+              e.flow_label = `${{reqCounter}}${{letter}}`;
+            }});
+          }}
+          reqCounter += 1;
+          i = j;
+        }}
+
+        // Response labels: pair to matching request label where possible.
+        const requestLabelQueues = new Map();
+        for (const e of requestEdges) {{
+          const key = `${{e.from}}→${{e.to}}`;
+          if (!requestLabelQueues.has(key)) requestLabelQueues.set(key, []);
+          requestLabelQueues.get(key).push(String(e.flow_label || ""));
+        }}
+        const responseFallbackCounters = new Map();
+        let responseFallbackSeq = 1;
+        const responseEdges = edges.filter(e => e.direction === "response");
+        for (const e of responseEdges) {{
+          const pairKey = `${{e.to}}→${{e.from}}`;
+          const queue = requestLabelQueues.get(pairKey) || [];
+          let matchedLabel = "";
+          if (queue.length) {{
+            matchedLabel = String(queue.shift() || "");
+          }}
+          if (matchedLabel) {{
+            e.flow_label = `r${{matchedLabel}}`;
+          }} else {{
+            const fbKey = `${{e.from}}→${{e.to}}`;
+            const seen = responseFallbackCounters.get(fbKey) || 0;
+            responseFallbackCounters.set(fbKey, seen + 1);
+            e.flow_label = `r${{responseFallbackSeq}}`;
+            responseFallbackSeq += 1;
           }}
         }}
         edges.forEach((e) => {{
@@ -7520,6 +7787,26 @@ HTML = f"""<!doctype html>
         flowGraphTooltipEl.style.display = "none";
       }}
 
+      function _flowEdgeTooltipText(edge) {{
+        if (!edge || !edge.flow_label) return "";
+        const label = String(edge.flow_label || "");
+        if (label.startsWith("r")) {{
+          return `Return flow label: ${{label}} maps to request ${{label.slice(1)}} when paired.`;
+        }}
+        if (/[a-z]$/i.test(label)) {{
+          return `Request branch label: ${{label}} indicates a parallel branch in this step.`;
+        }}
+        return `Request flow label: ${{label}}.`;
+      }}
+
+      function _showFlowEdgeTooltip(edge, evt) {{
+        const text = _flowEdgeTooltipText(edge);
+        if (!text) return;
+        flowGraphTooltipEl.textContent = text;
+        flowGraphTooltipEl.style.display = "block";
+        _moveFlowTooltip(evt);
+      }}
+
       function refreshFlowGraphGeometry() {{
         if (!flowGraphState) return;
         const state = flowGraphState;
@@ -7687,6 +7974,14 @@ HTML = f"""<!doctype html>
             flowGraphDragState = null;
             el.classList.remove("dragging");
           }});
+        }});
+        flowGraphSvgEl.querySelectorAll(".flow-edge-label[data-edge-label-idx]").forEach((labelEl) => {{
+          const idx = Number(labelEl.getAttribute("data-edge-label-idx") || "-1");
+          const edge = state.edges[idx];
+          if (!edge) return;
+          labelEl.addEventListener("mouseenter", (evt) => _showFlowEdgeTooltip(edge, evt));
+          labelEl.addEventListener("mousemove", (evt) => _moveFlowTooltip(evt));
+          labelEl.addEventListener("mouseleave", () => _hideFlowTooltip());
         }});
 
         flowGraphEmptyEl.style.display = "none";
@@ -9654,6 +9949,7 @@ HTML = f"""<!doctype html>
       }});
       settingsBtnEl.addEventListener("click", openSettingsModal);
       settingsCloseBtnEl.addEventListener("click", closeSettingsModal);
+      restartProgressCloseBtnEl.addEventListener("click", closeRestartProgressModal);
       settingsRefreshModelsBtnEl.addEventListener("click", refreshModelCatalogNow);
       settingsReloadBtnEl.addEventListener("click", () => loadSettingsModal("Reloading from backend source (.env.local + env)..."));
       settingsSaveBtnEl.addEventListener("click", saveSettingsModal);
@@ -9712,6 +10008,33 @@ HTML = f"""<!doctype html>
         }}
       }};
       settingsGroupsEl.addEventListener("click", (e) => {{
+        const groupToggleEl = e.target.closest("[data-settings-group-toggle]");
+        if (groupToggleEl) {{
+          const groupName = String(groupToggleEl.getAttribute("data-settings-group-toggle") || "").trim();
+          if (groupName) {{
+            settingsGroupCollapsed[groupName] = !settingsGroupCollapsed[groupName];
+            _saveSettingsGroupCollapseState();
+            _renderSettingsGroups();
+          }}
+          return;
+        }}
+        const secretToggleBtn = e.target.closest("[data-settings-secret-toggle]");
+        if (secretToggleBtn) {{
+          const key = String(secretToggleBtn.getAttribute("data-settings-secret-toggle") || "").trim();
+          if (!key) return;
+          let inputEl = null;
+          if (window.CSS && CSS.escape) {{
+            inputEl = settingsGroupsEl.querySelector(`[data-settings-key="${{CSS.escape(key)}}"]`);
+          }}
+          if (!inputEl) return;
+          const show = inputEl.type === "password";
+          inputEl.type = show ? "text" : "password";
+          secretToggleBtn.setAttribute("data-secret-visible", show ? "true" : "false");
+          secretToggleBtn.title = show ? "Hide value" : "Show value";
+          secretToggleBtn.setAttribute("aria-label", show ? "Hide value" : "Show value");
+          secretToggleBtn.innerHTML = `<span class="settings-secret-icon" aria-hidden="true">${{show ? "🙈" : "👁"}}</span>`;
+          return;
+        }}
         const toggleBtn = e.target.closest("[data-settings-model-toggle]");
         if (toggleBtn) {{
           const key = String(toggleBtn.getAttribute("data-settings-model-toggle") || "");
@@ -10912,16 +11235,16 @@ SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_RATE_LIMIT_CHAT_PER_MIN", "label": "Chat Rate Limit / Min", "secret": False, "hint": "Per-client-IP limit for /chat (default 30/min)"},
     {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (20/min default)"},
     {"group": "App", "key": "APP_MAX_CONCURRENT_CHAT", "label": "Max Concurrent Chats", "secret": False, "hint": "Global in-process cap for simultaneous /chat requests"},
-    {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "How often UI checks for updates (default 3600; set 10 for local testing)"},
-    {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Git remote used for update checks/apply (default origin)"},
-    {"group": "App", "key": "UPDATE_BRANCH_NAME", "label": "Update Branch", "secret": False, "hint": "Branch to compare/pull for updates (default main)"},
+    {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "Fixed at 3600 seconds (1 hour)", "hidden_in_form": True},
+    {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Fixed at origin", "hidden_in_form": True},
+    {"group": "App", "key": "UPDATE_BRANCH_NAME", "label": "Update Branch", "secret": False, "hint": "Fixed at main", "hidden_in_form": True},
     {"group": "App", "key": "USAGE_PRICE_OVERRIDES_JSON", "label": "Usage Price Overrides (JSON)", "secret": False, "hint": "Optional per-provider token pricing overrides, per 1M tokens. Example: {\"openai\":{\"input\":0.15,\"output\":0.6}}", "hidden_in_form": True},
     {"group": "Anthropic", "key": "ANTHROPIC_API_KEY", "label": "Anthropic API Key", "secret": True, "hint": "Provider credential used for direct Anthropic SDK calls"},
     {"group": "Anthropic", "key": "ANTHROPIC_MODEL", "label": "Anthropic Model", "secret": False, "hint": "Default Anthropic model"},
     {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_REGION", "label": "AWS Region", "secret": False, "hint": "Shared region for both Bedrock Runtime and Bedrock Agent"},
     {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_ACCESS_KEY_ID", "label": "AWS Access Key ID", "secret": True, "hint": "Optional explicit credentials (used before ambient CLI/SSO creds)"},
     {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_SECRET_ACCESS_KEY", "label": "AWS Secret Access Key", "secret": True, "hint": "Optional explicit credentials (used before ambient CLI/SSO creds)"},
-    {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_SESSION_TOKEN", "label": "AWS Session Token", "secret": True, "hint": "Optional temporary STS token; leave blank for long-lived access keys"},
+    {"group": "AWS", "subgroup": "Shared Credentials", "key": "AWS_SESSION_TOKEN", "label": "AWS Session Token (Optional)", "secret": True, "hint": "Optional temporary STS token; leave blank for long-lived access keys"},
     {"group": "AWS", "subgroup": "Bedrock Runtime", "key": "BEDROCK_INVOKE_MODEL", "label": "Bedrock Model", "secret": False, "hint": "Model ID for AWS Bedrock provider (for example amazon.nova-lite-v1:0)"},
     {"group": "AWS", "subgroup": "Bedrock Agent", "key": "BEDROCK_AGENT_ID", "label": "Bedrock Agent ID", "secret": False, "hint": "Required when provider is AWS Bedrock Agent"},
     {"group": "AWS", "subgroup": "Bedrock Agent", "key": "BEDROCK_AGENT_ALIAS_ID", "label": "Bedrock Agent Alias ID", "secret": False, "hint": "Required when provider is AWS Bedrock Agent"},
@@ -10951,11 +11274,11 @@ SETTINGS_SCHEMA = [
     {"group": "xAI", "key": "XAI_API_KEY", "label": "xAI API Key", "secret": True, "hint": "xAI (Grok) API key"},
     {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default xAI model"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Base URL for AI Guard DAS/API endpoint"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard API Key", "secret": True, "hint": "API key/token used for DAS/API checks"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Optional header name forwarded to AI Guard"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard DAS/API Key", "secret": True, "hint": "API key/token used for DAS/API checks"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15", "hidden_in_form": True},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Optional header name forwarded to AI Guard", "hidden_in_form": True},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
-    {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Default X-ApiKey"},
+    {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Always X-ApiKey", "hidden_in_form": True},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "ANTHROPIC_ZS_PROXY_API_KEY", "label": "Anthropic Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "AZURE_FOUNDRY_ZS_PROXY_API_KEY", "label": "Azure Foundry Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Provider Keys", "key": "BEDROCK_INVOKE_ZS_PROXY_API_KEY", "label": "AWS Bedrock Proxy Key", "secret": True, "hint": "Provider-specific proxy key (optional)"},
@@ -10983,8 +11306,8 @@ SETTINGS_SCHEMA = [
     {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "TOOL_PROGRESSIVE_COUNT", "label": "Tool Progressive Count", "secret": False, "hint": "Number of tools included when Tool Include Mode is progressive"},
     {"group": "Tools / MCP", "subgroup": "LLM Tool Payload", "key": "TOOL_NAME_PREFIX_STRATEGY", "label": "Tool Name Prefix Strategy", "secret": False, "hint": "Provider tool naming strategy: serverPrefix | hash | none"},
     {"group": "Tools / MCP", "subgroup": "Advanced", "key": "TOOLSET_DEBUG_LOGS", "label": "Toolset Debug Logs", "secret": False, "hint": "Debug toggle: logs MCP server/tool inventory and per-call inclusion details"},
-    {"group": "Agentic / Multi-Agent", "key": "AGENTIC_MAX_STEPS", "label": "Agentic Max Steps", "secret": False, "hint": "Optional single-agent loop cap"},
-    {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "How many researcher rounds to allow (default 1 if empty)"},
+    {"group": "Agentic / Multi-Agent", "key": "AGENTIC_MAX_STEPS", "label": "Agentic Max Steps", "secret": False, "hint": "Optional single-agent loop cap", "hidden_in_form": True},
+    {"group": "Agentic / Multi-Agent", "key": "MULTI_AGENT_MAX_SPECIALIST_ROUNDS", "label": "Multi-Agent Specialist Rounds", "secret": False, "hint": "How many researcher rounds to allow (default 1 if empty)", "hidden_in_form": True},
     {"group": "Local TLS (Corp)", "key": "SSL_CERT_FILE", "label": "SSL_CERT_FILE", "secret": False, "hint": "Optional custom CA bundle (local corp envs)"},
     {"group": "Local TLS (Corp)", "key": "REQUESTS_CA_BUNDLE", "label": "REQUESTS_CA_BUNDLE", "secret": False, "hint": "Optional custom CA bundle (requests/urllib)"},
 ]
@@ -11138,7 +11461,6 @@ def _settings_save(values: dict[str, str]) -> None:
             os.environ.pop(key, None)
     global OLLAMA_URL, OLLAMA_MODEL, ANTHROPIC_MODEL, OPENAI_MODEL, ZS_PROXY_BASE_URL
     global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT
-    global UPDATE_CHECK_INTERVAL_SECONDS, UPDATE_REMOTE_NAME, UPDATE_BRANCH_NAME
     OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
     OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
     ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
@@ -11147,9 +11469,8 @@ def _settings_save(values: dict[str, str]) -> None:
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
     APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", APP_RATE_LIMIT_ADMIN_PER_MIN))
     APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", APP_MAX_CONCURRENT_CHAT))
-    UPDATE_CHECK_INTERVAL_SECONDS = max(10, _int_env("UPDATE_CHECK_INTERVAL_SECONDS", UPDATE_CHECK_INTERVAL_SECONDS))
-    UPDATE_REMOTE_NAME = _str_env("UPDATE_REMOTE_NAME", UPDATE_REMOTE_NAME)
-    UPDATE_BRANCH_NAME = _str_env("UPDATE_BRANCH_NAME", UPDATE_BRANCH_NAME)
+    # Updater source and check cadence are intentionally fixed in-app
+    # (origin/main, 1h) to reduce settings confusion.
 
 
 def _proxy_block_message(stage: str, block_body: object) -> str:
@@ -11503,7 +11824,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "env_file": str(ENV_LOCAL_PATH),
                     "schema": SETTINGS_SCHEMA,
-                    "values": _settings_values(redact_secrets=True),
+                    "values": _settings_values(redact_secrets=False),
                     "model_catalog": _model_catalog_payload(),
                     "secret_mask": SETTINGS_SECRET_MASK,
                     "restart_recommended": True,
@@ -11778,7 +12099,7 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "saved_keys": sorted(normalized.keys()),
-                    "values": _settings_values(redact_secrets=True),
+                    "values": _settings_values(redact_secrets=False),
                     "secret_mask": SETTINGS_SECRET_MASK,
                     "restart_recommended": True,
                     "message": "Saved to .env.local. Restart is recommended for all server-side changes to take effect.",
@@ -12047,6 +12368,8 @@ class Handler(BaseHTTPRequestHandler):
             zscaler_das_mode = "resolve"
         zscaler_policy_id_raw = str(data.get("zscaler_policy_id") or os.getenv("ZS_GUARDRAILS_POLICY_ID", "")).strip()
         zscaler_policy_id = zscaler_policy_id_raw if zscaler_policy_id_raw.isdigit() else ""
+        if (not guardrails_enabled) or zscaler_proxy_mode or zscaler_das_mode != "execute":
+            zscaler_policy_id = ""
         tools_enabled = bool(data.get("tools_enabled"))
         local_tasks_enabled = bool(data.get("local_tasks_enabled")) and tools_enabled
         tool_permission_profile = str(data.get("tool_permission_profile") or "standard").strip().lower().replace("-", "_")

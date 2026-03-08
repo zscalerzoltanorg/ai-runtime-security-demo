@@ -4,6 +4,11 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.6`
+  - Improved Flow Graph clarity with persistent label legend and edge hover tooltips explaining request/return branch labels (`2a/2b/2c`, `r2a/r2b/r2c`).
+  - Polished Settings UX with collapsible provider sections by default, clearer secret visibility controls, and improved save/restart feedback behavior.
+  - Added stability fixes for provider model handling and guardrail-related UI behavior.
+
 - `v1.5.5`
   - Fixed model-setting hardening so invalid boolean-like values (for example `yes`/`no`/`true`/`false`) no longer become active provider model IDs and now safely fall back to valid defaults.
   - Fixed version badge/update display behavior so the app consistently shows a version-style identifier (tag or tag+sha) instead of only a build label when running non-exact-tag commits.

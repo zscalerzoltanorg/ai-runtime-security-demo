@@ -67,7 +67,7 @@ DEFAULT_AZURE_AI_FOUNDRY_MODEL = _sanitize_model_value(
     fallback="gpt-4o-mini",
 )
 DEFAULT_ZS_PROXY_BASE_URL = _env_or_default("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
-DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = _env_or_default("ZS_PROXY_API_KEY_HEADER_NAME", "X-ApiKey")
+DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME = "X-ApiKey"
 DEMO_USER_HEADER_NAME = "X-Demo-User"
 DEFAULT_INCLUDE_TOOLS_IN_LLM_REQUEST = False
 DEFAULT_MAX_TOOLS_IN_REQUEST = 20
@@ -484,10 +484,7 @@ def _zscaler_proxy_sdk_config(
             proxy_key_source = env_name
             break
     base_url = os.getenv("ZS_PROXY_BASE_URL", DEFAULT_ZS_PROXY_BASE_URL).strip() or DEFAULT_ZS_PROXY_BASE_URL
-    api_key_header_name = (
-        os.getenv("ZS_PROXY_API_KEY_HEADER_NAME", DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME).strip()
-        or DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME
-    )
+    api_key_header_name = DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME
     headers: dict[str, str] = {}
     if proxy_key:
         headers[api_key_header_name] = proxy_key
