@@ -43,6 +43,7 @@ _normalize_ca_env_path("SSL_CERT_FILE")
 _normalize_ca_env_path("REQUESTS_CA_BUNDLE")
 
 import agentic
+import guardrails as ai_guard
 import multi_agent
 import providers
 import tooling
@@ -2376,6 +2377,13 @@ HTML = f"""<!doctype html>
         padding: 0 !important;
         font-weight: 700;
       }}
+      .settings-group-toggle svg {{
+        width: 12px;
+        height: 12px;
+        display: block;
+        fill: currentColor;
+        pointer-events: none;
+      }}
       .settings-group-body {{
         display: grid;
         gap: 10px;
@@ -2466,8 +2474,8 @@ HTML = f"""<!doctype html>
         background: rgba(148, 163, 184, 0.12);
         color: #1f2937 !important;
         border-radius: 6px;
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         cursor: pointer;
         line-height: 1;
         font-size: 0.9rem;
@@ -2492,12 +2500,17 @@ HTML = f"""<!doctype html>
         justify-content: center;
         width: 100%;
         height: 100%;
-        font-size: 13px;
-        line-height: 1;
+        pointer-events: none;
+      }}
+      .settings-secret-icon svg {{
+        width: 15px;
+        height: 15px;
+        display: block;
+        fill: currentColor;
         pointer-events: none;
       }}
       .settings-input-wrap.has-secret-toggle input {{
-        padding-right: 38px;
+        padding-right: 42px;
       }}
       .settings-model-dropdown {{
         margin-top: 4px;
@@ -4695,6 +4708,18 @@ HTML = f"""<!doctype html>
         }}
       }}
 
+      function settingsChevronIcon(expanded) {{
+        return expanded
+          ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 5.5 8 10.3l4.8-4.8 1.2 1.2L8 12.7 2 6.7z"/></svg>'
+          : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 3.2 4.8 4.8-4.8 4.8-1.2-1.2L9.1 8 4.3 3.2z"/></svg>';
+      }}
+
+      function settingsSecretIcon(visible) {{
+        return visible
+          ? '<span class="settings-secret-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2.6 4 1.2 5.4l3.2 3.2C2.9 9.8 1.8 11.1 1 12c2.6 3.2 6.4 5 11 5 1.8 0 3.4-.3 4.9-.9l4 4 1.4-1.4Zm7 7 1.7 1.7c.2 0 .5.1.7.1a3 3 0 0 0 0-6c-.2 0-.5 0-.7.1l1.6 1.6-.9.9-1.6-1.6c0 .2-.1.5-.1.7 0 .8.3 1.6.9 2.2Zm2.4-6c4.6 0 8.4 1.8 11 5-.7.9-1.8 2.2-3.4 3.4l-1.5-1.5A12.3 12.3 0 0 0 20.6 12 11.4 11.4 0 0 0 12 7c-.7 0-1.4.1-2 .2L8.2 5.4A12.6 12.6 0 0 1 12 5Z"/></svg></span>'
+          : '<span class="settings-secret-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5c4.6 0 8.4 1.8 11 5-2.6 3.2-6.4 5-11 5S3.6 13.2 1 10c2.6-3.2 6.4-5 11-5Zm0 2C8.4 7 5.4 8.3 3.3 10 5.4 11.7 8.4 13 12 13s6.6-1.3 8.7-3C18.6 8.3 15.6 7 12 7Zm0 1.5A2.5 2.5 0 1 1 9.5 11 2.5 2.5 0 0 1 12 8.5Zm0 2a.5.5 0 1 0 .5.5.5.5 0 0 0-.5-.5Z"/></svg></span>';
+      }}
+
       function normalizeUiTheme(themeName) {{
         const key = String(themeName || "").trim().toLowerCase();
         if (key in themePresets) return key;
@@ -4930,7 +4955,8 @@ HTML = f"""<!doctype html>
             APP_RATE_LIMIT_CHAT_PER_MIN: 2,
             APP_RATE_LIMIT_ADMIN_PER_MIN: 3,
             APP_MAX_CONCURRENT_CHAT: 4,
-            USAGE_PRICE_OVERRIDES_JSON: 5,
+            AI_GUARD_BLOCK_CONTACT_TEXT: 5,
+            USAGE_PRICE_OVERRIDES_JSON: 6,
           }};
           if (Object.prototype.hasOwnProperty.call(explicit, key)) return explicit[key];
         }}
@@ -5042,27 +5068,28 @@ HTML = f"""<!doctype html>
               ? ` Pick or type model ID + Enter.`
               : "";
             const secretToggle = item.secret
-              ? `<button type="button" class="settings-secret-toggle" data-settings-secret-toggle="${{_escapeAttr(key)}}" data-secret-visible="false" title="Show value" aria-label="Show value"><span class="settings-secret-icon" aria-hidden="true">👁</span></button>`
+              ? `<button type="button" class="settings-secret-toggle" data-settings-secret-toggle="${{_escapeAttr(key)}}" data-secret-visible="false" title="Show value" aria-label="Show value">${{settingsSecretIcon(false)}}</button>`
               : "";
+            const inputEl = `<input
+                  id="settings_${{_escapeAttr(key)}}"
+                  data-settings-key="${{_escapeAttr(key)}}"
+                  type="${{_settingsFieldType(item)}}"
+                  value="${{_escapeAttr(val)}}"
+                  placeholder="${{_escapeAttr(item.placeholder || "")}}"
+                  ${{modelListAttr}}
+                  autocomplete="${{item.secret ? "new-password" : "off"}}"
+                  spellcheck="false"
+                  data-lpignore="${{isModelField ? "true" : "false"}}"
+                  data-1p-ignore="${{isModelField ? "true" : "false"}}"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  ${{isModelField ? `data-settings-model-key="${{_escapeAttr(key)}}"` : ""}}
+                />`;
             return `
               <div class="settings-field">
                 <label for="settings_${{_escapeAttr(key)}}">${{escapeHtml(item.label || key)}}</label>
                 <div class="settings-input-wrap ${{item.secret ? "has-secret-toggle" : ""}}">
-                  <input
-                    id="settings_${{_escapeAttr(key)}}"
-                    data-settings-key="${{_escapeAttr(key)}}"
-                    type="${{_settingsFieldType(item)}}"
-                    value="${{_escapeAttr(val)}}"
-                    placeholder="${{_escapeAttr(item.placeholder || "")}}"
-                    ${{modelListAttr}}
-                    autocomplete="${{item.secret ? "new-password" : "off"}}"
-                    spellcheck="false"
-                    data-lpignore="${{isModelField ? "true" : "false"}}"
-                    data-1p-ignore="${{isModelField ? "true" : "false"}}"
-                    autocapitalize="off"
-                    autocorrect="off"
-                    ${{isModelField ? `data-settings-model-key="${{_escapeAttr(key)}}"` : ""}}
-                  />
+                  ${{inputEl}}
                   ${{secretToggle}}
                   ${{modelToggle}}
                   ${{modelDatalist}}
@@ -5103,7 +5130,7 @@ HTML = f"""<!doctype html>
             <div class="settings-group ${{collapsed ? "collapsed" : ""}}" data-settings-group="${{_escapeAttr(groupName)}}">
               <div class="settings-group-head" data-settings-group-toggle="${{_escapeAttr(groupName)}}">
                 <div class="settings-group-head-left">
-                  <button type="button" class="settings-group-toggle" data-settings-group-toggle="${{_escapeAttr(groupName)}}" aria-label="Expand or collapse section">${{collapsed ? "▸" : "▾"}}</button>
+                  <button type="button" class="settings-group-toggle" data-settings-group-toggle="${{_escapeAttr(groupName)}}" aria-label="Expand or collapse section">${{settingsChevronIcon(!collapsed)}}</button>
                   <div class="settings-group-title">${{escapeHtml(groupName)}}</div>
                 </div>
                 <span class="status">${{visibleCount}} variable${{visibleCount === 1 ? "" : "s"}}</span>
@@ -10032,7 +10059,7 @@ HTML = f"""<!doctype html>
           secretToggleBtn.setAttribute("data-secret-visible", show ? "true" : "false");
           secretToggleBtn.title = show ? "Hide value" : "Show value";
           secretToggleBtn.setAttribute("aria-label", show ? "Hide value" : "Show value");
-          secretToggleBtn.innerHTML = `<span class="settings-secret-icon" aria-hidden="true">${{show ? "🙈" : "👁"}}</span>`;
+          secretToggleBtn.innerHTML = settingsSecretIcon(show);
           return;
         }}
         const toggleBtn = e.target.closest("[data-settings-model-toggle]");
@@ -11235,6 +11262,7 @@ SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_RATE_LIMIT_CHAT_PER_MIN", "label": "Chat Rate Limit / Min", "secret": False, "hint": "Per-client-IP limit for /chat (default 30/min)"},
     {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (20/min default)"},
     {"group": "App", "key": "APP_MAX_CONCURRENT_CHAT", "label": "Max Concurrent Chats", "secret": False, "hint": "Global in-process cap for simultaneous /chat requests"},
+    {"group": "App", "key": "AI_GUARD_BLOCK_CONTACT_TEXT", "label": "AI Guard Block Contact Text", "secret": False, "hint": "Editable text shown above AI Guard block details"},
     {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "Fixed at 3600 seconds (1 hour)", "hidden_in_form": True},
     {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Fixed at origin", "hidden_in_form": True},
     {"group": "App", "key": "UPDATE_BRANCH_NAME", "label": "Update Branch", "secret": False, "hint": "Fixed at main", "hidden_in_form": True},
@@ -11314,6 +11342,7 @@ SETTINGS_SCHEMA = [
 
 SETTINGS_DEFAULT_VALUES = {
     "UI_THEME": "zscaler_blue",
+    "AI_GUARD_BLOCK_CONTACT_TEXT": "If you believe this is incorrect or have an exception to make please contact helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555.",
     "APP_RATE_LIMIT_CHAT_PER_MIN": "30",
     "APP_RATE_LIMIT_ADMIN_PER_MIN": "20",
     "APP_MAX_CONCURRENT_CHAT": "3",
@@ -11471,29 +11500,6 @@ def _settings_save(values: dict[str, str]) -> None:
     APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", APP_MAX_CONCURRENT_CHAT))
     # Updater source and check cadence are intentionally fixed in-app
     # (origin/main, 1h) to reduce settings confusion.
-
-
-def _proxy_block_message(stage: str, block_body: object) -> str:
-    if not isinstance(block_body, dict):
-        return f"This {stage} was blocked by AI Guard per Company Policy."
-    policy_name = block_body.get("policyName") or "n/a"
-    reason = block_body.get("reason") or "Your request was blocked by Zscaler AI Guard"
-    detections = []
-    if isinstance(block_body.get("inputDetections"), list):
-        detections.extend([str(x) for x in block_body.get("inputDetections") or []])
-    if isinstance(block_body.get("outputDetections"), list):
-        detections.extend([str(x) for x in block_body.get("outputDetections") or []])
-    detectors_text = ", ".join(detections) if detections else "n/a"
-    return (
-        f"This {stage} was blocked by AI Guard per Company Policy. "
-        "If you believe this is incorrect or have an exception to make please contact "
-        "helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555.\n\n"
-        "Block details:\n"
-        f"- policyName: {policy_name}\n"
-        f"- reason: {reason}\n"
-        f"- triggeredDetectors: {detectors_text}"
-    )
-
 
 def _parse_proxy_block_dict_from_text(text: object) -> dict | None:
     s = str(text or "").strip()
@@ -12230,7 +12236,7 @@ class Handler(BaseHTTPRequestHandler):
                     "OUT": {"skipped": not bool(out_content)},
                 }
                 if in_content:
-                    blocked, meta = guardrails._zag_check(  # noqa: SLF001
+                    blocked, meta = ai_guard._zag_check(  # noqa: SLF001
                         "IN",
                         in_content,
                         conversation_id=conversation_id,
@@ -12250,7 +12256,7 @@ class Handler(BaseHTTPRequestHandler):
                         "error": meta.get("error"),
                     }
                 if out_content:
-                    blocked, meta = guardrails._zag_check(  # noqa: SLF001
+                    blocked, meta = ai_guard._zag_check(  # noqa: SLF001
                         "OUT",
                         out_content,
                         conversation_id=conversation_id,
@@ -12838,7 +12844,7 @@ class Handler(BaseHTTPRequestHandler):
                     if block_stage == "UNKNOWN":
                         block_stage = _infer_proxy_block_stage_from_payload(payload, fallback="IN")
                     block_payload = {
-                        "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
+                        "response": ai_guard.proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
                         "guardrails": {
                             "enabled": True,
                             "mode": "proxy",
@@ -12873,18 +12879,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if guardrails_enabled:
-                try:
-                    import guardrails
-                except Exception as exc:
-                    self._send_json(
-                        {"error": "Guardrails module failed.", "details": str(exc)},
-                        status=500,
-                    )
-                    return
-
                 trace_steps: list[dict] = []
                 guardrails_warnings: list[dict] = []
-                in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
+                in_blocked, in_meta = ai_guard._zag_check(  # noqa: SLF001
                     "IN",
                     prompt,
                     conversation_id=conversation_id,
@@ -12911,7 +12908,7 @@ class Handler(BaseHTTPRequestHandler):
                         (in_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
                     payload = {
-                        "response": guardrails._block_message("Prompt", in_block_body),  # noqa: SLF001
+                        "response": ai_guard._block_message("Prompt", in_block_body),  # noqa: SLF001
                         "guardrails": {
                             "enabled": True,
                             "mode": "api_das",
@@ -12959,7 +12956,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 final_text = str(payload.get("response") or "").strip()
-                out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
+                out_blocked, out_meta = ai_guard._zag_check(  # noqa: SLF001
                     "OUT",
                     final_text,
                     conversation_id=conversation_id,
@@ -12987,7 +12984,7 @@ class Handler(BaseHTTPRequestHandler):
                     out_block_body = (
                         (out_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
-                    payload["response"] = guardrails._block_message("Response", out_block_body)  # noqa: SLF001
+                    payload["response"] = ai_guard._block_message("Response", out_block_body)  # noqa: SLF001
                     payload["guardrails"] = {
                         "enabled": True,
                         "mode": "api_das",
@@ -13035,7 +13032,7 @@ class Handler(BaseHTTPRequestHandler):
                     if block_stage == "UNKNOWN":
                         block_stage = _infer_proxy_block_stage_from_payload(payload, fallback="IN")
                     block_payload = {
-                        "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
+                        "response": ai_guard.proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
                         "guardrails": {
                             "enabled": True,
                             "mode": "proxy",
@@ -13069,18 +13066,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if guardrails_enabled:
-                try:
-                    import guardrails
-                except Exception as exc:
-                    self._send_json(
-                        {"error": "Guardrails module failed.", "details": str(exc)},
-                        status=500,
-                    )
-                    return
-
                 trace_steps: list[dict] = []
                 guardrails_warnings: list[dict] = []
-                in_blocked, in_meta = guardrails._zag_check(  # noqa: SLF001
+                in_blocked, in_meta = ai_guard._zag_check(  # noqa: SLF001
                     "IN",
                     prompt,
                     conversation_id=conversation_id,
@@ -13107,7 +13095,7 @@ class Handler(BaseHTTPRequestHandler):
                         (in_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
                     payload = {
-                        "response": guardrails._block_message("Prompt", in_block_body),  # noqa: SLF001
+                        "response": ai_guard._block_message("Prompt", in_block_body),  # noqa: SLF001
                         "guardrails": {
                             "enabled": True,
                             "mode": "api_das",
@@ -13154,7 +13142,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 final_text = str(payload.get("response") or "").strip()
-                out_blocked, out_meta = guardrails._zag_check(  # noqa: SLF001
+                out_blocked, out_meta = ai_guard._zag_check(  # noqa: SLF001
                     "OUT",
                     final_text,
                     conversation_id=conversation_id,
@@ -13181,7 +13169,7 @@ class Handler(BaseHTTPRequestHandler):
                     out_block_body = (
                         (out_meta.get("trace_step") or {}).get("response", {}).get("body")
                     )
-                    payload["response"] = guardrails._block_message("Response", out_block_body)  # noqa: SLF001
+                    payload["response"] = ai_guard._block_message("Response", out_block_body)  # noqa: SLF001
                     payload["guardrails"] = {
                         "enabled": True,
                         "mode": "api_das",
@@ -13225,7 +13213,7 @@ class Handler(BaseHTTPRequestHandler):
                     if proxy_block:
                         block_stage = str(proxy_block.get("stage") or "IN").upper()
                         payload = {
-                            "response": _proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
+                            "response": ai_guard.proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block),
                             "guardrails": {
                                 "enabled": True,
                                 "mode": "proxy",
@@ -13274,8 +13262,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             try:
-                import guardrails
-                payload, status = guardrails.guarded_chat(
+                payload, status = ai_guard.guarded_chat(
                     prompt=prompt,
                     llm_call=lambda p: _provider_messages_call(messages_for_provider),
                     conversation_id=conversation_id,

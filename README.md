@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.7`
+  - Fixed Zscaler AI Guard Proxy-mode blocked requests so the app now returns the same formatted assistant block message as DAS/API mode instead of falling through to a generic `Failed to fetch` error.
+
 - `v1.5.6`
   - Improved Flow Graph clarity with persistent label legend and edge hover tooltips explaining request/return branch labels (`2a/2b/2c`, `r2a/r2b/r2c`).
   - Polished Settings UX with collapsible provider sections by default, clearer secret visibility controls, and improved save/restart feedback behavior.

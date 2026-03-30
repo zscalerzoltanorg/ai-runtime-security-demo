@@ -6,6 +6,10 @@ from urllib import error, request
 DEFAULT_ZS_GUARDRAILS_URL = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
 DEFAULT_ZS_GUARDRAILS_EXECUTE_URL = "https://api.zseclipse.net/v1/detection/execute-policy"
 DEMO_USER_HEADER_NAME = "X-Demo-User"
+DEFAULT_AI_GUARD_BLOCK_CONTACT_TEXT = (
+    "If you believe this is incorrect or have an exception to make please contact "
+    "helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555."
+)
 
 
 def _float_env(name: str, default: float) -> float:
@@ -34,6 +38,11 @@ def _parse_policy_id(raw: object) -> int | None:
     except Exception:
         return None
     return value if value > 0 else None
+
+
+def _block_contact_text() -> str:
+    text = str(os.getenv("AI_GUARD_BLOCK_CONTACT_TEXT", DEFAULT_AI_GUARD_BLOCK_CONTACT_TEXT) or "").strip()
+    return text or DEFAULT_AI_GUARD_BLOCK_CONTACT_TEXT
 
 
 def _resolve_guardrails_url(base_url: str, das_mode: str) -> str:
@@ -159,15 +168,39 @@ def _block_message(stage: str, block_body: object) -> str:
     policy_id_text = str(policy_id) if policy_id is not None else "n/a"
 
     return (
-        f"This {stage} was blocked by AI Guard per Company Policy. "
-        "If you believe this is incorrect or have an exception to make please contact "
-        "helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555.\n\n"
+        f"This {stage} was blocked by AI Guard per Company Policy.\n"
+        f"{_block_contact_text()}\n\n"
         "Block details:\n"
         f"- transactionId: {transaction_id}\n"
         f"- policyName: {policy_name}\n"
         f"- policyId: {policy_id_text}\n"
         f"- severity: {severity}\n"
         f"- maskedContent: {masked_content}\n"
+        f"- triggeredDetectors: {detectors_text}"
+    )
+
+
+def proxy_block_message(stage: str, block_body: object) -> str:
+    if not isinstance(block_body, dict):
+        return (
+            f"This {stage} was blocked by AI Guard per Company Policy.\n"
+            f"{_block_contact_text()}"
+        )
+
+    policy_name = block_body.get("policyName") or "n/a"
+    reason = block_body.get("reason") or "Your request was blocked by Zscaler AI Guard"
+    detections: list[str] = []
+    if isinstance(block_body.get("inputDetections"), list):
+        detections.extend([str(x) for x in block_body.get("inputDetections") or []])
+    if isinstance(block_body.get("outputDetections"), list):
+        detections.extend([str(x) for x in block_body.get("outputDetections") or []])
+    detectors_text = ", ".join(detections) if detections else "n/a"
+    return (
+        f"This {stage} was blocked by AI Guard per Company Policy.\n"
+        f"{_block_contact_text()}\n\n"
+        "Block details:\n"
+        f"- policyName: {policy_name}\n"
+        f"- reason: {reason}\n"
         f"- triggeredDetectors: {detectors_text}"
     )
 
