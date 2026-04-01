@@ -4,6 +4,10 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.8`
+  - Added configurable request timeout settings for both the app chat flow and Zscaler AI Guard DAS/API checks to help avoid false timeout failures on slower local runs.
+  - Improved local Ollama model selection with installed/not-installed validation plus clearer setup guidance when switching to a model that has not been pulled yet.
+
 - `v1.5.7`
   - Fixed Zscaler AI Guard Proxy-mode blocked requests so the app now returns the same formatted assistant block message as DAS/API mode instead of falling through to a generic `Failed to fetch` error.
 

@@ -80,6 +80,7 @@ MAX_REQUEST_BYTES = _int_env("MAX_REQUEST_BYTES", 1_000_000)
 APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", 30))
 APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", 20))
 APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", 3))
+APP_CHAT_REQUEST_TIMEOUT_SECONDS = max(5, _int_env("APP_CHAT_REQUEST_TIMEOUT_SECONDS", 60))
 OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
 ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
@@ -144,6 +145,7 @@ _MODEL_CATALOG_CACHE: dict[str, object] = {
     "fetched_at": 0.0,
     "ttl_seconds": int(MODEL_CATALOG_TTL_SECONDS),
     "models": copy.deepcopy(MODEL_CATALOG_STATIC),
+    "availability": {},
     "source": "static",
     "last_error": "",
 }
@@ -303,6 +305,7 @@ def _refresh_model_catalog() -> None:
     now = time.time()
     with _MODEL_CATALOG_LOCK:
         merged: dict[str, list[str]] = copy.deepcopy(MODEL_CATALOG_STATIC)
+        availability: dict[str, dict[str, list[str]]] = {}
         errors: list[str] = []
         if MODEL_CATALOG_DYNAMIC_FETCH:
             try:
@@ -314,6 +317,9 @@ def _refresh_model_catalog() -> None:
                         if isinstance(item, dict):
                             tags.append(str(item.get("name") or item.get("model") or "").strip())
                 _merge_model_catalog(merged, "OLLAMA_MODEL", tags)
+                availability["OLLAMA_MODEL"] = {
+                    "installed": [tag for tag in tags if tag],
+                }
             except Exception as exc:
                 errors.append(f"ollama:{exc}")
             try:
@@ -407,6 +413,7 @@ def _refresh_model_catalog() -> None:
                 "fetched_at": now,
                 "ttl_seconds": int(MODEL_CATALOG_TTL_SECONDS),
                 "models": merged,
+                "availability": availability,
                 "source": "dynamic" if MODEL_CATALOG_DYNAMIC_FETCH else "static",
                 "last_error": "; ".join(errors)[:1000],
             }
@@ -435,6 +442,7 @@ def _model_catalog_payload(*, force: bool = False) -> dict[str, object]:
             "source": str(_MODEL_CATALOG_CACHE.get("source") or "static"),
             "last_error": str(_MODEL_CATALOG_CACHE.get("last_error") or ""),
             "models": models,
+            "availability": copy.deepcopy(_MODEL_CATALOG_CACHE.get("availability") or {}),
         }
 
 
@@ -1915,6 +1923,17 @@ HTML = f"""<!doctype html>
         font-size: 0.82rem;
         color: var(--muted);
       }}
+      .provider-help-subtle {{
+        margin-top: -4px;
+      }}
+      .provider-help code {{
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.8rem;
+        background: rgba(148, 163, 184, 0.12);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 1px 6px;
+      }}
       .provider-help a {{
         color: var(--accent-2);
         text-decoration: underline;
@@ -2551,6 +2570,39 @@ HTML = f"""<!doctype html>
         text-overflow: ellipsis;
         white-space: nowrap;
       }}
+      .settings-model-option-meta {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+      }}
+      .settings-model-badge {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        line-height: 1.2;
+        border: 1px solid transparent;
+        white-space: nowrap;
+      }}
+      .settings-model-badge.installed {{
+        background: #ecfdf5;
+        border-color: #86efac;
+        color: #166534;
+      }}
+      .settings-model-badge.missing {{
+        background: #fef2f2;
+        border-color: #fca5a5;
+        color: #b91c1c;
+      }}
+      .settings-model-badge.unknown {{
+        background: #f8fafc;
+        border-color: #cbd5e1;
+        color: #475569;
+      }}
       .settings-model-remove {{
         flex: 0 0 auto;
         border: 1px solid var(--border);
@@ -2569,6 +2621,20 @@ HTML = f"""<!doctype html>
       .settings-model-remove:hover {{
         background: #fef2f2;
         border-color: #fca5a5;
+      }}
+      .settings-model-status {{
+        margin-top: 6px;
+        font-size: 0.76rem;
+        font-weight: 700;
+      }}
+      .settings-model-status.installed {{
+        color: #166534;
+      }}
+      .settings-model-status.missing {{
+        color: #b91c1c;
+      }}
+      .settings-model-status.unknown {{
+        color: var(--muted);
       }}
       .settings-mini-btn {{
         border: 1px solid var(--border);
@@ -3052,6 +3118,15 @@ HTML = f"""<!doctype html>
       body[data-theme="dark"] .settings-secret-toggle {{
         color: #e2e8f0 !important;
       }}
+      body[data-theme="dark"] .settings-model-toggle,
+      body[data-theme="dark"] .settings-model-dropdown {{
+        background: #0f172a !important;
+        border-color: #334155 !important;
+      }}
+      body[data-theme="dark"] .settings-model-toggle:hover {{
+        background: #111d33 !important;
+        border-color: #475569 !important;
+      }}
       body[data-theme="dark"] .settings-group-toggle {{
         background: #0f172a !important;
         border-color: #334155 !important;
@@ -3311,6 +3386,15 @@ HTML = f"""<!doctype html>
       body[data-theme="fun"] .settings-group-toggle,
       body[data-theme="fun"] .settings-secret-toggle {{
         color: #e9e7ff !important;
+      }}
+      body[data-theme="fun"] .settings-model-toggle,
+      body[data-theme="fun"] .settings-model-dropdown {{
+        background: #17122b !important;
+        border-color: #3b2e5f !important;
+      }}
+      body[data-theme="fun"] .settings-model-toggle:hover {{
+        background: #221b39 !important;
+        border-color: #6a52a8 !important;
       }}
       body[data-theme="fun"] .settings-group-toggle {{
         background: #17122b !important;
@@ -4519,10 +4603,11 @@ HTML = f"""<!doctype html>
       let pendingAssistantText = "";
       let pendingAssistantElapsed = 0;
       let lastObservedModelMap = {{}};
-      const CHAT_REQUEST_TIMEOUT_MS = 60000;
+      const CHAT_REQUEST_TIMEOUT_MS = {max(5000, APP_CHAT_REQUEST_TIMEOUT_SECONDS * 1000)};
       let settingsSchema = [];
       let settingsValues = {{}};
       let settingsModelCatalog = {{}};
+      let settingsModelAvailability = {{}};
       let settingsCustomModelCatalog = {{}};
       let settingsGroupCollapsed = {{}};
       let settingsSecretMask = "********";
@@ -4927,6 +5012,21 @@ HTML = f"""<!doctype html>
         const custom = Array.isArray(settingsCustomModelCatalog[k]) ? settingsCustomModelCatalog[k] : [];
         return custom.includes(v);
       }}
+      function _installedModelSet(key) {{
+        const entry = settingsModelAvailability && typeof settingsModelAvailability === "object"
+          ? settingsModelAvailability[String(key || "").trim()]
+          : null;
+        const vals = Array.isArray(entry?.installed) ? entry.installed : [];
+        return new Set(vals.map((v) => String(v || "").trim()).filter(Boolean));
+      }}
+      function _isInstalledModel(key, value) {{
+        const modelKey = String(key || "").trim();
+        const modelVal = String(value || "").trim();
+        if (!modelKey || !modelVal) return null;
+        const installed = _installedModelSet(modelKey);
+        if (!installed.size) return null;
+        return installed.has(modelVal);
+      }}
 
       function _rememberModelOption(key, value) {{
         const modelKey = String(key || "").trim();
@@ -5056,11 +5156,17 @@ HTML = f"""<!doctype html>
             const modelToggle = (isModelField && modelOptions.length)
               ? `<button type="button" class="settings-model-toggle" data-settings-model-toggle="${{_escapeAttr(key)}}" title="Show model suggestions" aria-label="Show model suggestions">▾</button>`
               : "";
+            const isOllamaModelField = key === "OLLAMA_MODEL";
+            const currentInstalledState = isOllamaModelField ? _isInstalledModel(key, val) : null;
             const modelDropdown = (isModelField && modelOptions.length)
               ? `<div class="settings-model-dropdown" data-settings-model-dropdown="${{_escapeAttr(key)}}">
                   ${{modelOptions.map((m) => {{
                     const removable = _isCustomModelOption(key, m);
-                    return `<button type="button" class="settings-model-option" data-settings-model-option="${{_escapeAttr(key)}}" data-value="${{_escapeAttr(m)}}"><span class="settings-model-option-label">${{escapeHtml(m)}}</span>${{removable ? `<span class="settings-model-remove" data-settings-model-remove="${{_escapeAttr(key)}}" data-value="${{_escapeAttr(m)}}" title="Remove custom model">×</span>` : ""}}</button>`;
+                    const installedState = isOllamaModelField ? _isInstalledModel(key, m) : null;
+                    const statusBadge = isOllamaModelField
+                      ? `<span class="settings-model-badge ${{installedState === true ? "installed" : installedState === false ? "missing" : "unknown"}}">${{installedState === true ? "Installed" : installedState === false ? "Not installed" : "Unknown"}}</span>`
+                      : "";
+                    return `<button type="button" class="settings-model-option" data-settings-model-option="${{_escapeAttr(key)}}" data-value="${{_escapeAttr(m)}}"><span class="settings-model-option-label">${{escapeHtml(m)}}</span><span class="settings-model-option-meta">${{statusBadge}}${{removable ? `<span class="settings-model-remove" data-settings-model-remove="${{_escapeAttr(key)}}" data-value="${{_escapeAttr(m)}}" title="Remove custom model">×</span>` : ""}}</span></button>`;
                   }}).join("")}}
                 </div>`
               : "";
@@ -5085,6 +5191,9 @@ HTML = f"""<!doctype html>
                   autocorrect="off"
                   ${{isModelField ? `data-settings-model-key="${{_escapeAttr(key)}}"` : ""}}
                 />`;
+            const installedNote = isOllamaModelField
+              ? `<div class="settings-model-status ${{currentInstalledState === true ? "installed" : currentInstalledState === false ? "missing" : "unknown"}}">${{currentInstalledState === true ? "Installed locally" : currentInstalledState === false ? "Not installed locally" : "Installation status unavailable"}}</div>`
+              : "";
             return `
               <div class="settings-field">
                 <label for="settings_${{_escapeAttr(key)}}">${{escapeHtml(item.label || key)}}</label>
@@ -5095,6 +5204,7 @@ HTML = f"""<!doctype html>
                   ${{modelDatalist}}
                 </div>
                 ${{modelDropdown}}
+                ${{installedNote}}
                 <div class="hint">${{escapeHtml(item.hint || item.desc || "")}}${{escapeHtml(modelHint)}}</div>
               </div>
             `;
@@ -5121,6 +5231,9 @@ HTML = f"""<!doctype html>
           const providerHelp = helper
             ? `<div class="provider-help">Getting started: <a href="${{_escapeAttr(helper.signup_url)}}" target="_blank" rel="noopener noreferrer">Sign up / setup</a> · <a href="${{_escapeAttr(helper.pricing_url)}}" target="_blank" rel="noopener noreferrer">Pricing</a> · Cost: ${{escapeHtml(helper.cost)}}</div>`
             : "";
+          const providerHelpExtra = groupName === "Ollama"
+            ? `<div class="provider-help provider-help-subtle">If the model is not installed, run <code>ollama pull &lt;model&gt;</code>, then click <strong>Refresh Models</strong> and save or restart the app.</div>`
+            : "";
           if (!Object.prototype.hasOwnProperty.call(settingsGroupCollapsed, groupName)) {{
             settingsGroupCollapsed[groupName] = true;
           }}
@@ -5135,7 +5248,7 @@ HTML = f"""<!doctype html>
                 </div>
                 <span class="status">${{visibleCount}} variable${{visibleCount === 1 ? "" : "s"}}</span>
               </div>
-              <div class="settings-group-body">${{providerHelp}}${{subgroupBlocks}}</div>
+              <div class="settings-group-body">${{providerHelp}}${{providerHelpExtra}}${{subgroupBlocks}}</div>
             </div>
           `;
         }}).join("");
@@ -5159,6 +5272,10 @@ HTML = f"""<!doctype html>
           settingsModelCatalog =
             (data.model_catalog && data.model_catalog.models && typeof data.model_catalog.models === "object")
               ? data.model_catalog.models
+              : {{}};
+          settingsModelAvailability =
+            (data.model_catalog && data.model_catalog.availability && typeof data.model_catalog.availability === "object")
+              ? data.model_catalog.availability
               : {{}};
           settingsCustomModelCatalog = _loadCustomModelCatalog();
           settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
@@ -5184,6 +5301,10 @@ HTML = f"""<!doctype html>
           settingsModelCatalog =
             (data.models && typeof data.models === "object")
               ? data.models
+              : {{}};
+          settingsModelAvailability =
+            (data.availability && typeof data.availability === "object")
+              ? data.availability
               : {{}};
           _renderSettingsGroups();
           settingsStatusTextEl.textContent = "Model catalog refreshed (unsaved settings preserved)";
@@ -11262,6 +11383,7 @@ SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_RATE_LIMIT_CHAT_PER_MIN", "label": "Chat Rate Limit / Min", "secret": False, "hint": "Per-client-IP limit for /chat (default 30/min)"},
     {"group": "App", "key": "APP_RATE_LIMIT_ADMIN_PER_MIN", "label": "Admin Rate Limit / Min", "secret": False, "hint": "Per-IP local admin limit (20/min default)"},
     {"group": "App", "key": "APP_MAX_CONCURRENT_CHAT", "label": "Max Concurrent Chats", "secret": False, "hint": "Global in-process cap for simultaneous /chat requests"},
+    {"group": "App", "key": "APP_CHAT_REQUEST_TIMEOUT_SECONDS", "label": "Chat Request Timeout (s)", "secret": False, "hint": "Browser/UI timeout for a single /chat request"},
     {"group": "App", "key": "AI_GUARD_BLOCK_CONTACT_TEXT", "label": "AI Guard Block Contact Text", "secret": False, "hint": "Editable text shown above AI Guard block details"},
     {"group": "App", "key": "UPDATE_CHECK_INTERVAL_SECONDS", "label": "Update Check Interval (s)", "secret": False, "hint": "Fixed at 3600 seconds (1 hour)", "hidden_in_form": True},
     {"group": "App", "key": "UPDATE_REMOTE_NAME", "label": "Update Remote", "secret": False, "hint": "Fixed at origin", "hidden_in_form": True},
@@ -11303,7 +11425,7 @@ SETTINGS_SCHEMA = [
     {"group": "xAI", "key": "XAI_MODEL", "label": "xAI Model", "secret": False, "hint": "Default xAI model"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Base URL for AI Guard DAS/API endpoint"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard DAS/API Key", "secret": True, "hint": "API key/token used for DAS/API checks"},
-    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Default 15", "hidden_in_form": True},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Backend timeout for a single DAS/API call"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Optional header name forwarded to AI Guard", "hidden_in_form": True},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Always X-ApiKey", "hidden_in_form": True},
@@ -11346,6 +11468,7 @@ SETTINGS_DEFAULT_VALUES = {
     "APP_RATE_LIMIT_CHAT_PER_MIN": "30",
     "APP_RATE_LIMIT_ADMIN_PER_MIN": "20",
     "APP_MAX_CONCURRENT_CHAT": "3",
+    "APP_CHAT_REQUEST_TIMEOUT_SECONDS": "60",
     "UPDATE_CHECK_INTERVAL_SECONDS": "3600",
     "UPDATE_REMOTE_NAME": "origin",
     "UPDATE_BRANCH_NAME": "main",
@@ -11489,7 +11612,7 @@ def _settings_save(values: dict[str, str]) -> None:
         else:
             os.environ.pop(key, None)
     global OLLAMA_URL, OLLAMA_MODEL, ANTHROPIC_MODEL, OPENAI_MODEL, ZS_PROXY_BASE_URL
-    global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT
+    global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT, APP_CHAT_REQUEST_TIMEOUT_SECONDS
     OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
     OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
     ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
@@ -11498,6 +11621,7 @@ def _settings_save(values: dict[str, str]) -> None:
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
     APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", APP_RATE_LIMIT_ADMIN_PER_MIN))
     APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", APP_MAX_CONCURRENT_CHAT))
+    APP_CHAT_REQUEST_TIMEOUT_SECONDS = max(5, _int_env("APP_CHAT_REQUEST_TIMEOUT_SECONDS", APP_CHAT_REQUEST_TIMEOUT_SECONDS))
     # Updater source and check cadence are intentionally fixed in-app
     # (origin/main, 1h) to reduce settings confusion.
 
