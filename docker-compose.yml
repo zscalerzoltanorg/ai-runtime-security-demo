@@ -8,10 +8,13 @@ services:
       HOST: 0.0.0.0
       PORT: 5000
       OLLAMA_URL: http://ollama:11434
-    env_file:
-      - .env.local
+      APP_ENV_FILE_PATH: /app/.env.local
+      APP_USAGE_DB_PATH: /app-data/usage_metrics.db
     ports:
       - "127.0.0.1:5000:5000"
+    volumes:
+      - ${APP_SETTINGS_FILE:-./.env.local}:/app/.env.local
+      - app_data:/app-data
     depends_on:
       - ollama
     restart: unless-stopped
@@ -27,3 +30,4 @@ services:
 
 volumes:
   ollama_data:
+  app_data:

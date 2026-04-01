@@ -49,6 +49,48 @@ import providers
 import tooling
 
 
+def _configured_env_local_path() -> Path:
+    raw = str(os.getenv("APP_ENV_FILE_PATH", "")).strip()
+    if not raw:
+        return Path(__file__).with_name(".env.local")
+    return Path(raw).expanduser()
+
+
+def _configured_usage_db_path() -> Path:
+    raw = str(os.getenv("APP_USAGE_DB_PATH", "")).strip()
+    if not raw:
+        return Path(__file__).with_name("usage_metrics.db")
+    return Path(raw).expanduser()
+
+
+def _load_env_file_into_environ(path: Path) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
+    for line in lines:
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        val = val.strip()
+        if (val.startswith("'") and val.endswith("'")) or (val.startswith('"') and val.endswith('"')):
+            val = val[1:-1]
+        os.environ.setdefault(key, val)
+
+
+_BOOT_ENV_LOCAL_PATH = _configured_env_local_path()
+_load_env_file_into_environ(_BOOT_ENV_LOCAL_PATH)
+
+
+def _running_in_container() -> bool:
+    return Path("/.dockerenv").exists() or str(os.getenv("CONTAINER", "")).strip().lower() in {"1", "true", "docker"}
+
+
 def _int_env(name: str, default: int) -> int:
     raw = str(os.getenv(name, "")).strip()
     if not raw:
@@ -92,10 +134,10 @@ UPDATE_REMOTE_NAME = "origin"
 UPDATE_BRANCH_NAME = "main"
 UPDATE_CHECK_INTERVAL_SECONDS = 3600
 DEMO_USER_HEADER_NAME = "X-Demo-User"
-ENV_LOCAL_PATH = Path(__file__).with_name(".env.local")
+ENV_LOCAL_PATH = _BOOT_ENV_LOCAL_PATH
 PRESET_OVERRIDES_ENV_KEY = "AI_GUARD_PRESET_OVERRIDES_JSON"
 SETTINGS_SECRET_MASK = "********"
-USAGE_DB_PATH = Path(__file__).with_name("usage_metrics.db")
+USAGE_DB_PATH = _configured_usage_db_path()
 ATTACK_SANDBOX_SAMPLES_DIR = Path(__file__).with_name("attack_sandbox_samples")
 _RESTART_LOCK = threading.Lock()
 _RESTART_PENDING = False
@@ -484,6 +526,16 @@ def _update_status_payload() -> dict[str, object]:
         "reason": "",
         "whats_new": "",
     }
+    if _running_in_container():
+        out.update(
+            {
+                "latest": False,
+                "can_update": False,
+                "reason": "In-app updater is disabled in Docker deployments. Pull latest code on the host, then rebuild/restart the container.",
+                "docker_mode": True,
+            }
+        )
+        return out
     try:
         local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
         current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
@@ -557,6 +609,11 @@ def _update_status_payload() -> dict[str, object]:
 
 
 def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
+    if _running_in_container():
+        return {
+            "ok": False,
+            "error": "In-app updater is disabled in Docker deployments. Pull latest code on the host, then rebuild/restart the container.",
+        }
     global _UPDATE_RUNNING
     with _UPDATE_LOCK:
         if _UPDATE_RUNNING:
@@ -5148,11 +5205,6 @@ HTML = f"""<!doctype html>
             const val = settingsValues[key] ?? "";
             const modelOptions = _settingsModelOptions(item);
             const isModelField = key.toUpperCase().includes("MODEL");
-            const modelListId = `settings_model_options_${{_escapeAttr(key)}}`;
-            const modelDatalist = isModelField && modelOptions.length
-              ? `<datalist id="${{modelListId}}">${{modelOptions.map((m) => `<option value="${{_escapeAttr(m)}}"></option>`).join("")}}</datalist>`
-              : "";
-            const modelListAttr = (isModelField && modelOptions.length) ? `list="${{modelListId}}"` : "";
             const modelToggle = (isModelField && modelOptions.length)
               ? `<button type="button" class="settings-model-toggle" data-settings-model-toggle="${{_escapeAttr(key)}}" title="Show model suggestions" aria-label="Show model suggestions">▾</button>`
               : "";
@@ -5182,7 +5234,6 @@ HTML = f"""<!doctype html>
                   type="${{_settingsFieldType(item)}}"
                   value="${{_escapeAttr(val)}}"
                   placeholder="${{_escapeAttr(item.placeholder || "")}}"
-                  ${{modelListAttr}}
                   autocomplete="${{item.secret ? "new-password" : "off"}}"
                   spellcheck="false"
                   data-lpignore="${{isModelField ? "true" : "false"}}"
@@ -5201,7 +5252,6 @@ HTML = f"""<!doctype html>
                   ${{inputEl}}
                   ${{secretToggle}}
                   ${{modelToggle}}
-                  ${{modelDatalist}}
                 </div>
                 ${{modelDropdown}}
                 ${{installedNote}}
@@ -10111,6 +10161,27 @@ HTML = f"""<!doctype html>
       const _closeModelDropdowns = () => {{
         settingsGroupsEl.querySelectorAll(".settings-model-dropdown.open").forEach((el) => el.classList.remove("open"));
       }};
+      const _filterModelDropdownOptions = (key, query = "") => {{
+        const k = String(key || "").trim();
+        if (!k) return 0;
+        let dropdown = null;
+        if (window.CSS && CSS.escape) {{
+          dropdown = settingsGroupsEl.querySelector(`[data-settings-model-dropdown="${{CSS.escape(k)}}"]`);
+        }}
+        if (!dropdown) {{
+          dropdown = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-model-dropdown]")).find((el) => el.getAttribute("data-settings-model-dropdown") === k) || null;
+        }}
+        if (!dropdown) return 0;
+        const normalizedQuery = String(query || "").trim().toLowerCase();
+        let visibleCount = 0;
+        dropdown.querySelectorAll("[data-settings-model-option]").forEach((optionEl) => {{
+          const value = String(optionEl.getAttribute("data-value") || "").toLowerCase();
+          const visible = !normalizedQuery || value.includes(normalizedQuery);
+          optionEl.style.display = visible ? "" : "none";
+          if (visible) visibleCount += 1;
+        }});
+        return visibleCount;
+      }};
       const _toggleModelDropdown = (key) => {{
         const k = String(key || "").trim();
         if (!k) return;
@@ -10122,7 +10193,15 @@ HTML = f"""<!doctype html>
           dropdown = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-model-dropdown]")).find((el) => el.getAttribute("data-settings-model-dropdown") === k) || null;
         }}
         if (!dropdown) return;
-        const shouldOpen = !dropdown.classList.contains("open");
+        let inputEl = null;
+        if (window.CSS && CSS.escape) {{
+          inputEl = settingsGroupsEl.querySelector(`[data-settings-key="${{CSS.escape(k)}}"]`);
+        }}
+        if (!inputEl) {{
+          inputEl = Array.from(settingsGroupsEl.querySelectorAll("[data-settings-key]")).find((el) => el.getAttribute("data-settings-key") === k) || null;
+        }}
+        const visibleCount = _filterModelDropdownOptions(k, inputEl?.value || "");
+        const shouldOpen = !dropdown.classList.contains("open") && visibleCount > 0;
         _closeModelDropdowns();
         if (shouldOpen) dropdown.classList.add("open");
       }};
@@ -10240,7 +10319,41 @@ HTML = f"""<!doctype html>
         if (!inputEl) return;
         _commitModelInput(inputEl);
       }});
+      settingsGroupsEl.addEventListener("input", (e) => {{
+        const inputEl = e.target.closest("input[data-settings-model-key]");
+        if (!inputEl) return;
+        const key = String(inputEl.getAttribute("data-settings-model-key") || "").trim();
+        if (!key) return;
+        const visibleCount = _filterModelDropdownOptions(key, inputEl.value || "");
+        let dropdown = null;
+        if (window.CSS && CSS.escape) {{
+          dropdown = settingsGroupsEl.querySelector(`[data-settings-model-dropdown="${{CSS.escape(key)}}"]`);
+        }}
+        if (!dropdown) return;
+        if (visibleCount > 0) {{
+          _closeModelDropdowns();
+          dropdown.classList.add("open");
+        }} else {{
+          dropdown.classList.remove("open");
+        }}
+      }});
       settingsGroupsEl.addEventListener("focusin", (e) => {{
+        const inputEl = e.target.closest("input[data-settings-model-key]");
+        if (inputEl) {{
+          const key = String(inputEl.getAttribute("data-settings-model-key") || "").trim();
+          if (key) {{
+            const visibleCount = _filterModelDropdownOptions(key, inputEl.value || "");
+            let dropdown = null;
+            if (window.CSS && CSS.escape) {{
+              dropdown = settingsGroupsEl.querySelector(`[data-settings-model-dropdown="${{CSS.escape(key)}}"]`);
+            }}
+            if (dropdown) {{
+              _closeModelDropdowns();
+              if (visibleCount > 0) dropdown.classList.add("open");
+            }}
+          }}
+          return;
+        }}
         if (!e.target.closest(".settings-model-dropdown")) _closeModelDropdowns();
       }});
       flowZoomInBtn.addEventListener("click", () => flowZoomBy(1.15));

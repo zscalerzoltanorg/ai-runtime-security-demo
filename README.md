@@ -4,6 +4,10 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.9`
+  - Fixed Docker deployment behavior so Local Settings persist through a mounted `.env.local` file and usage data is stored in a persistent Docker volume.
+  - Clarified Docker upgrade behavior: in-app update is disabled in containers, and Docker users should update with `git pull` followed by `docker compose up -d --build`.
+
 - `v1.5.8`
   - Added configurable request timeout settings for both the app chat flow and Zscaler AI Guard DAS/API checks to help avoid false timeout failures on slower local runs.
   - Improved local Ollama model selection with installed/not-installed validation plus clearer setup guidance when switching to a model that has not been pulled yet.
@@ -69,10 +73,18 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 - Local settings are preserved:
   - `.env.local` is not overwritten by this update flow
 
-Config keys (Settings -> App):
-- `UPDATE_CHECK_INTERVAL_SECONDS` (default `3600`, use `60` for local testing)
-- `UPDATE_REMOTE_NAME` (default `origin`)
-- `UPDATE_BRANCH_NAME` (default `main`)
+Defaults:
+- Git remote: `origin`
+- Git branch: `main`
+- Update check interval: `1 hour`
+
+### Docker Upgrade Note
+
+- In-app update is intentionally disabled for Docker deployments.
+- Docker users should update with:
+  1. `git pull`
+  2. `docker compose up -d --build`
+- Docker settings persistence expects your host settings file to be mounted into the container as `.env.local`.
 
 ## Attachments (Multimodal) Support
 
