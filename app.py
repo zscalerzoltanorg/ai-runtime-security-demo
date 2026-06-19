@@ -125,7 +125,7 @@ APP_MAX_CONCURRENT_CHAT = max(1, _int_env("APP_MAX_CONCURRENT_CHAT", 3))
 APP_CHAT_REQUEST_TIMEOUT_SECONDS = max(5, _int_env("APP_CHAT_REQUEST_TIMEOUT_SECONDS", 60))
 OLLAMA_URL = _str_env("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
-ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
 OPENAI_MODEL = _model_env("OPENAI_MODEL", "gpt-4o-mini")
 ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", "https://proxy.zseclipse.net")
 APP_DEMO_NAME = _str_env("APP_DEMO_NAME", "AI Runtime Security Demo")
@@ -161,11 +161,14 @@ MODEL_CATALOG_STATIC: dict[str, list[str]] = {
     "OLLAMA_MODEL": ["llama3.2:1b", "llama3.2", "llama3.1:8b", "qwen2.5:7b", "gemma3:12b", "llava:7b"],
     "OPENAI_MODEL": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "o4-mini"],
     "ANTHROPIC_MODEL": [
-        "claude-3-haiku-20240307",
         "claude-3-5-haiku-20241022",
+        "claude-3-5-haiku-latest",
         "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-latest",
         "claude-3-7-sonnet-20250219",
+        "claude-3-7-sonnet-latest",
         "claude-sonnet-4-20250514",
+        "claude-sonnet-4-0",
     ],
     "PERPLEXITY_MODEL": ["sonar", "sonar-pro", "sonar-reasoning", "sonar-deep-research", "r1-1776"],
     "XAI_MODEL": ["grok-4", "grok-3", "grok-3-mini", "grok-2-vision-1212"],
@@ -1995,6 +1998,83 @@ HTML = f"""<!doctype html>
         color: var(--accent-2);
         text-decoration: underline;
       }}
+      .mode-help-btn {{
+        border: 1px solid var(--border);
+        background: var(--panel-soft);
+        color: var(--ink);
+        border-radius: 999px;
+        width: 26px;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 !important;
+        font-weight: 800;
+        line-height: 1;
+        cursor: pointer;
+      }}
+      .mode-help-btn:hover {{
+        color: var(--accent);
+        border-color: var(--accent);
+      }}
+      .toggle-section-title-row {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }}
+      .demo-path-hint {{
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 2px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel-soft);
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.35;
+      }}
+      .demo-path-hint strong {{
+        color: var(--ink);
+      }}
+      .demo-path-hint .hint-icon {{
+        flex: 0 0 auto;
+        color: var(--accent);
+        font-weight: 900;
+      }}
+      .role-dialog {{
+        width: min(980px, 94vw);
+      }}
+      .role-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+      }}
+      .role-card {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel-soft);
+        padding: 10px 12px;
+      }}
+      .role-name {{
+        font-weight: 800;
+        color: var(--ink);
+      }}
+      .role-tag {{
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }}
+      .role-desc {{
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.4;
+      }}
       .agent-trace-card {{
         margin-top: 20px;
       }}
@@ -2311,6 +2391,85 @@ HTML = f"""<!doctype html>
       .agent-trace-list {{
         display: grid;
         gap: 10px;
+      }}
+      .agent-role-summary {{
+        margin-bottom: 12px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--panel-soft);
+      }}
+      .agent-role-summary-head {{
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: baseline;
+        margin-bottom: 10px;
+      }}
+      .agent-role-summary-title {{
+        font-weight: 900;
+        letter-spacing: -0.01em;
+      }}
+      .agent-role-summary-sub {{
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
+      .agent-role-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 10px;
+      }}
+      .agent-role-card {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--card);
+        padding: 10px;
+        min-width: 0;
+      }}
+      .agent-role-card-title {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-weight: 900;
+        margin-bottom: 6px;
+      }}
+      .agent-role-chip {{
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        padding: 2px 7px;
+        white-space: nowrap;
+      }}
+      .agent-role-row {{
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
+      .agent-role-row strong {{
+        color: var(--text);
+      }}
+      .agent-role-output {{
+        max-height: 7.5em;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }}
+      .agent-role-tools {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 6px;
+      }}
+      .agent-role-tool {{
+        border: 1px solid var(--accent-2);
+        color: var(--accent-2);
+        background: var(--accent-soft);
+        border-radius: 999px;
+        padding: 2px 7px;
+        font-size: 0.72rem;
+        font-weight: 800;
       }}
       .agent-step {{
         border: 1px solid var(--border);
@@ -2849,6 +3008,64 @@ HTML = f"""<!doctype html>
       }}
       .explain-card-body {{
         padding: 10px;
+      }}
+      .wizard-intro {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .wizard-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 10px;
+      }}
+      .wizard-card {{
+        display: grid;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        background: #fff;
+      }}
+      .wizard-card h3 {{
+        margin: 0;
+        font-size: 0.95rem;
+      }}
+      .wizard-card p {{
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.4;
+      }}
+      .wizard-tags {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }}
+      .wizard-tag {{
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 7px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+      }}
+      .wizard-apply {{
+        justify-self: start;
+        margin-top: 2px;
+        padding: 7px 10px;
+      }}
+      .wizard-note {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 9px 10px;
+        background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.4;
       }}
       .latency-bench-summary {{
         margin: 0 0 10px;
@@ -3717,6 +3934,7 @@ HTML = f"""<!doctype html>
               <button id="updateNowBtn" class="header-action-btn" type="button" title="Check and apply update from configured git remote/branch" aria-label="Update app">Update ⤓</button>
             </div>
             <div class="app-title-actions">
+              <button id="demoWizardBtn" class="header-action-btn" type="button" title="Guided setup for common demo configurations" aria-label="Demo configuration wizard">Demo Wizard</button>
               <button id="usageBtn" class="header-action-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">Usage Dashboard</button>
               <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
             </div>
@@ -3777,9 +3995,12 @@ HTML = f"""<!doctype html>
 
           <div class="toggle-sections">
             <div class="toggle-section">
-              <div class="toggle-section-title">Execution</div>
+              <div class="toggle-section-title toggle-section-title-row">
+                <span>Execution</span>
+                <button id="agentRolesBtn" class="mode-help-btn" type="button" title="Explain Agentic, Multi-Agent, tools, and topology">?</button>
+              </div>
               <div class="toggle-section-body">
-            <div id="agentModeWrap" class="mode-toggle" title="Controls orchestration style. Off = single provider response. Agentic = one planner loop that may call tools. Multi-Agent = orchestrator + specialist roles (research/review/finalize).">
+            <div id="agentModeWrap" class="mode-toggle" title="Controls orchestration style. Off = single provider response. Agentic = one planner loop that may call tools. Multi-Agent = an orchestrator that spawns bounded specialist agents, then reviews/finalizes.">
               <span class="mode-toggle-label">Agent Mode</span>
               <div class="mode-toggle-buttons">
                 <button id="agentModeOffBtn" class="mode-toggle-btn active" type="button">Off</button>
@@ -3864,6 +4085,10 @@ HTML = f"""<!doctype html>
                 <span id="zscalerPolicyWarning" class="status warn" style="display:none;"></span>
               </div>
             </div>
+            <div id="demoPathHint" class="demo-path-hint">
+              <span class="hint-icon">i</span>
+              <span><strong>Direct chat.</strong> Browser sends a prompt to the app, then the selected provider answers. Change toggles to preview the planned flow.</span>
+            </div>
           </div>
 
           <div id="conversationView" class="conversation chat-transcript"></div>
@@ -3921,6 +4146,7 @@ HTML = f"""<!doctype html>
             </div>
             <p class="sub">Shows agent decisions and tool calls when Agentic Mode is enabled.</p>
             <div id="agentTraceContent" class="collapsible-content">
+              <div id="agentRoleSummary" class="agent-role-summary" style="display:none;"></div>
               <div id="agentTraceList" class="agent-trace-list">
                 <div class="agent-step">
                   <div class="agent-step-head">
@@ -4011,7 +4237,7 @@ HTML = f"""<!doctype html>
             <span id="settingsStatusText" class="settings-status">Loads/saves `.env.local` for this demo.</span>
             <button id="settingsCloseBtn" class="icon-btn" type="button" title="Close Settings">✕</button>
           </div>
-          <p class="settings-sub">Secrets are masked by default. Saving updates local `.env.local`. Some server-side settings may require restarting the app to fully apply.</p>
+          <p class="settings-sub">Secrets are masked by default. Open only the provider or Zscaler section you need; advanced sections can stay collapsed. Saving updates local `.env.local`.</p>
           <div class="settings-theme-bar">
             <span class="settings-theme-label">Theme</span>
             <div id="settingsThemeWrap" class="mode-toggle" title="Choose a visual theme for this demo UI.">
@@ -4142,6 +4368,134 @@ HTML = f"""<!doctype html>
           </div>
           <div class="explain-foot">
             <button id="flowExplainDoneBtn" class="secondary" type="button">Done</button>
+          </div>
+        </div>
+      </div>
+      <div id="demoWizardModal" class="explain-modal" aria-hidden="true">
+        <div class="explain-dialog" role="dialog" aria-modal="true" aria-labelledby="demoWizardTitle">
+          <div class="explain-head">
+            <h2 id="demoWizardTitle">Demo Configuration Wizard</h2>
+            <button id="demoWizardCloseBtn" class="icon-btn" type="button" title="Close Demo Wizard">✕</button>
+          </div>
+          <div class="explain-body">
+            <p class="wizard-intro">
+              Pick the story you want to teach. The wizard updates the current page toggles and loads a sample prompt, but it does not save settings or send anything automatically.
+            </p>
+            <div class="wizard-grid">
+              <div class="wizard-card">
+                <h3>Baseline Chat</h3>
+                <p>Use this to show the simplest path: browser → app → selected LLM. No agent loop, no tools, no AI Guard.</p>
+                <div class="wizard-tags"><span class="wizard-tag">direct LLM</span><span class="wizard-tag">least moving parts</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="baseline">Apply Baseline</button>
+              </div>
+              <div class="wizard-card">
+                <h3>AI Guard API/DAS</h3>
+                <p>Use this to show prompt and response inspection through the DAS/API path while the app still calls the provider directly.</p>
+                <div class="wizard-tags"><span class="wizard-tag">resolve policy</span><span class="wizard-tag">pre/post checks</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="guard_api">Apply API/DAS</button>
+              </div>
+              <div class="wizard-card">
+                <h3>AI Guard Proxy</h3>
+                <p>Use this to show inline provider traffic through Zscaler AI Guard Proxy. If the current provider cannot proxy, the wizard switches to OpenAI.</p>
+                <div class="wizard-tags"><span class="wizard-tag">inline proxy</span><span class="wizard-tag">provider SDK path</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="guard_proxy">Apply Proxy</button>
+              </div>
+              <div class="wizard-card">
+                <h3>Agentic + Tools</h3>
+                <p>Use this to show a single planner loop deciding whether to call bundled MCP tools before producing an answer.</p>
+                <div class="wizard-tags"><span class="wizard-tag">agent loop</span><span class="wizard-tag">MCP tools</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="agent_tools">Apply Agentic</button>
+              </div>
+              <div class="wizard-card">
+                <h3>Multi-Agent Research</h3>
+                <p>Use this to show orchestrator, specialist, reviewer, and finalizer roles, including the “Who Did What” trace summary.</p>
+                <div class="wizard-tags"><span class="wizard-tag">specialists</span><span class="wizard-tag">role trace</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="multi_agent">Apply Multi-Agent</button>
+              </div>
+              <div class="wizard-card">
+                <h3>Local Workspace Task</h3>
+                <p>Use this to show safe local-task tools scoped to the demo workspace, useful for explaining local file access controls.</p>
+                <div class="wizard-tags"><span class="wizard-tag">local tasks</span><span class="wizard-tag">tool permissions</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="local_workspace">Apply Local Task</button>
+              </div>
+            </div>
+            <div class="wizard-note">
+              Tip: after applying a recipe, the Flow Graph preview updates before you send the prompt. That preview is a teaching aid; the graph changes again after the real request runs.
+            </div>
+          </div>
+          <div class="explain-foot">
+            <button id="demoWizardDoneBtn" class="secondary" type="button">Done</button>
+          </div>
+        </div>
+      </div>
+      <div id="agentRolesModal" class="explain-modal" aria-hidden="true">
+        <div class="explain-dialog role-dialog" role="dialog" aria-modal="true" aria-labelledby="agentRolesTitle">
+          <div class="explain-head">
+            <h2 id="agentRolesTitle">Agent Roles Explainer</h2>
+            <button id="agentRolesCloseBtn" class="icon-btn" type="button" title="Close Agent Roles Explainer">✕</button>
+          </div>
+          <div class="explain-body">
+            <div class="explain-card">
+              <div class="explain-card-head">How to read Agent Mode</div>
+              <div class="explain-card-body">
+                <ul class="explain-list">
+                  <li><strong>Off</strong>: normal chatbot path. One request goes to the selected provider.</li>
+                  <li><strong>Agentic</strong>: one planner loop can decide to call MCP tools before giving a final answer.</li>
+                  <li><strong>Multi-Agent</strong>: an orchestrator chooses bounded specialists, then a reviewer/finalizer produces the answer.</li>
+                </ul>
+              </div>
+            </div>
+            <div class="explain-card">
+              <div class="explain-card-head">Specialist roles used by Multi-Agent</div>
+              <div class="explain-card-body role-grid">
+                <div class="role-card">
+                  <div class="role-name">Researcher</div>
+                  <div class="role-tag">tool-capable specialist</div>
+                  <div class="role-desc">Looks for facts and can use MCP/local tools when the task needs workspace, web, or utility data.</div>
+                </div>
+                <div class="role-card">
+                  <div class="role-name">Tool Auditor</div>
+                  <div class="role-tag">tool safety</div>
+                  <div class="role-desc">Decides whether tools are useful, whether a permission profile should block them, and what evidence tools produced.</div>
+                </div>
+                <div class="role-card">
+                  <div class="role-name">Security Reviewer</div>
+                  <div class="role-tag">risk review</div>
+                  <div class="role-desc">Checks privacy, secrets, policy, unsafe tool use, and whether the answer should mention security caveats.</div>
+                </div>
+                <div class="role-card">
+                  <div class="role-name">Domain Analyst</div>
+                  <div class="role-tag">task reasoning</div>
+                  <div class="role-desc">Handles the subject-matter reasoning when tool use is not the main issue.</div>
+                </div>
+              </div>
+            </div>
+            <div class="explain-grid">
+              <div class="explain-card">
+                <div class="explain-card-head">Topology</div>
+                <div class="explain-card-body">
+                  <ul class="explain-list">
+                    <li><strong>Single Process</strong>: easiest demo path; orchestration runs inline.</li>
+                    <li><strong>Isolated Workers</strong>: agent runtime runs in a worker process.</li>
+                    <li><strong>Per-Role Workers</strong>: multi-agent role calls are isolated per role.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="explain-card">
+                <div class="explain-card-head">Tool Profiles</div>
+                <div class="explain-card-body">
+                  <ul class="explain-list">
+                    <li><strong>Standard</strong>: normal enabled tools can run.</li>
+                    <li><strong>Read-Only</strong>: blocks mutating or external tool actions.</li>
+                    <li><strong>Local-Only</strong>: keeps tools scoped to bundled local/safe tools.</li>
+                    <li><strong>Network-Open</strong>: most permissive demo profile.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="explain-foot">
+            <button id="agentRolesDoneBtn" class="secondary" type="button">Done</button>
           </div>
         </div>
       </div>
@@ -4468,10 +4822,15 @@ HTML = f"""<!doctype html>
       const zscalerDasModeInputEl = document.getElementById("zscalerDasModeInput");
       const zscalerPolicyIdWrapEl = document.getElementById("zscalerPolicyIdWrap");
       const zscalerPolicyIdInputEl = document.getElementById("zscalerPolicyIdInput");
+      const demoPathHintEl = document.getElementById("demoPathHint");
       const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
       const providerTestPillEl = document.getElementById("providerTestPill");
       const currentModelTextEl = document.getElementById("currentModelText");
+      const demoWizardBtnEl = document.getElementById("demoWizardBtn");
+      const demoWizardModalEl = document.getElementById("demoWizardModal");
+      const demoWizardCloseBtnEl = document.getElementById("demoWizardCloseBtn");
+      const demoWizardDoneBtnEl = document.getElementById("demoWizardDoneBtn");
       const usageBtnEl = document.getElementById("usageBtn");
       const settingsBtnEl = document.getElementById("settingsBtn");
       const settingsModalEl = document.getElementById("settingsModal");
@@ -4526,6 +4885,10 @@ HTML = f"""<!doctype html>
       const awsAuthDotEl = document.getElementById("awsAuthDot");
       const awsAuthTextEl = document.getElementById("awsAuthText");
       const agentModeWrapEl = document.getElementById("agentModeWrap");
+      const agentRolesBtnEl = document.getElementById("agentRolesBtn");
+      const agentRolesModalEl = document.getElementById("agentRolesModal");
+      const agentRolesCloseBtnEl = document.getElementById("agentRolesCloseBtn");
+      const agentRolesDoneBtnEl = document.getElementById("agentRolesDoneBtn");
       const agentModeOffBtnEl = document.getElementById("agentModeOffBtn");
       const SESSION_DAS_MODE_KEY = "zscalerDasMode";
       const SESSION_POLICY_ID_KEY = "zscalerPolicyId";
@@ -4533,12 +4896,96 @@ HTML = f"""<!doctype html>
       const agentModeMultiBtnEl = document.getElementById("agentModeMultiBtn");
       const agenticToggleEl = document.getElementById("agenticToggle");
       const multiAgentToggleEl = document.getElementById("multiAgentToggle");
+      const DEMO_WIZARD_RECIPES = {{
+        baseline: {{
+          label: "Baseline Chat",
+          providerFallback: "",
+          agentMode: "off",
+          tools: false,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "single",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Explain what this demo app is doing in one sentence."
+        }},
+        guard_api: {{
+          label: "AI Guard API/DAS",
+          agentMode: "off",
+          tools: false,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "single",
+          guardrails: true,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "I have yubi key ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ"
+        }},
+        guard_proxy: {{
+          label: "AI Guard Proxy",
+          ensureProxyProvider: true,
+          providerFallback: "openai",
+          agentMode: "off",
+          tools: false,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "single",
+          guardrails: true,
+          proxy: true,
+          dasMode: "resolve",
+          prompt: "Summarize why inline AI traffic inspection is useful for a chatbot demo."
+        }},
+        agent_tools: {{
+          label: "Agentic + Tools",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "multi",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Use available tools to search for Model Context Protocol and summarize what it is in three bullets."
+        }},
+        multi_agent: {{
+          label: "Multi-Agent Research",
+          agentMode: "multi",
+          tools: true,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "isolated_per_role",
+          chatMode: "multi",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Compare recent public information about Model Context Protocol using the available tools. Explain what the researcher, reviewer, and finalizer contributed."
+        }},
+        local_workspace: {{
+          label: "Local Workspace Task",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: true,
+          toolProfile: "local_only",
+          topology: "single_process",
+          chatMode: "single",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Find the largest files in the local demo workspace and summarize total size."
+        }}
+      }};
       const codeAutoBtn = document.getElementById("codeAutoBtn");
       const codeBeforeBtn = document.getElementById("codeBeforeBtn");
       const codeAfterBtn = document.getElementById("codeAfterBtn");
       const codeStatusEl = document.getElementById("codeStatus");
       const codePanelsEl = document.getElementById("codePanels");
       const agentTraceListEl = document.getElementById("agentTraceList");
+      const agentRoleSummaryEl = document.getElementById("agentRoleSummary");
       const agentTraceToggleBtn = document.getElementById("agentTraceToggleBtn");
       const agentTraceContentEl = document.getElementById("agentTraceContent");
       const agentTraceCountEl = document.getElementById("agentTraceCount");
@@ -4722,7 +5169,7 @@ HTML = f"""<!doctype html>
       const MODEL_OPTIONS_BY_KEY = {{
         OLLAMA_MODEL: ["llama3.2:1b", "llama3.2", "llama3.1:8b", "qwen2.5:7b", "gemma3:12b", "llava:7b"],
         OPENAI_MODEL: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o3-mini", "o4-mini"],
-        ANTHROPIC_MODEL: ["claude-3-haiku-20240307", "claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet-20250219", "claude-sonnet-4-20250514"],
+        ANTHROPIC_MODEL: ["claude-3-5-haiku-20241022", "claude-3-5-haiku-latest", "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-latest", "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-latest", "claude-sonnet-4-20250514", "claude-sonnet-4-0"],
         PERPLEXITY_MODEL: ["sonar", "sonar-pro", "sonar-reasoning", "sonar-deep-research", "r1-1776"],
         XAI_MODEL: ["grok-4", "grok-3", "grok-3-mini", "grok-2-vision-1212"],
         GEMINI_MODEL: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
@@ -5682,7 +6129,7 @@ HTML = f"""<!doctype html>
           return;
         }}
         agentModeWrapEl.classList.remove("disabled");
-        agentModeWrapEl.title = "Controls orchestration style. Off = single provider response. Agentic = one planner loop that may call tools. Multi-Agent = orchestrator + specialist roles (research/review/finalize).";
+        agentModeWrapEl.title = "Controls orchestration style. Off = single provider response. Agentic = one planner loop that may call tools. Multi-Agent = an orchestrator that spawns bounded specialist agents, then reviews/finalizes.";
         agentModeOffBtnEl.disabled = false;
         agentModeAgenticBtnEl.disabled = false;
         agentModeMultiBtnEl.disabled = false;
@@ -5756,6 +6203,57 @@ HTML = f"""<!doctype html>
         if (policyEnabled) {{
           zscalerPolicyIdInputEl.value = String(zscalerPolicyIdInputEl.value || "").replace(/[^0-9]/g, "").slice(0, 4);
         }}
+      }}
+
+      function updateDemoPathHint() {{
+        if (!demoPathHintEl) return;
+        const provider = (providerSelectEl.value || "ollama").toLowerCase();
+        const providerLabel = providerSelectEl.options[providerSelectEl.selectedIndex]?.text || provider;
+        const guardOn = !!guardrailsToggleEl.checked;
+        const proxyOn = guardOn && !!zscalerProxyModeToggleEl.checked;
+        const dasMode = currentZscalerDasMode();
+        const agenticOn = !!agenticToggleEl.checked;
+        const multiAgentOn = !!multiAgentToggleEl.checked;
+        const toolsOn = !!toolsToggleEl.checked && (agenticOn || multiAgentOn);
+        const localTasksOn = !!localTasksToggleEl.checked && toolsOn;
+        const topology = currentExecutionTopology();
+        let title = "Direct chat";
+        if (multiAgentOn) title = "Multi-agent specialists";
+        else if (agenticOn) title = "Agentic planner";
+        const path = ["Browser", "Demo App"];
+        if (multiAgentOn) {{
+          path.push("Orchestrator", "Selected Specialists", "Reviewer/Finalizer");
+        }} else if (agenticOn) {{
+          path.push("Agent Loop");
+        }}
+        if (guardOn && proxyOn) {{
+          path.push("Zscaler Proxy", providerLabel);
+        }} else if (guardOn) {{
+          path.push(`AI Guard API/DAS (${{dasMode === "execute" ? "Execute Policy" : "Resolve Policy"}})`, providerLabel);
+        }} else {{
+          path.push(providerLabel);
+        }}
+        const details = [];
+        if (toolsOn) {{
+          details.push(localTasksOn ? "MCP tools + local task tools may run" : "MCP tools may run");
+        }} else {{
+          details.push("Tools are off");
+        }}
+        if (agenticOn || multiAgentOn) {{
+          const topologyText = topology === "isolated_per_role"
+            ? "per-role worker processes"
+            : (topology === "isolated_workers" ? "isolated worker process" : "single process");
+          details.push(`Topology: ${{topologyText}}`);
+        }}
+        if (guardOn) {{
+          details.push(proxyOn ? "Guardrails are inline through proxy mode" : "Guardrails check prompt/response through API/DAS");
+        }} else {{
+          details.push("Guardrails are off");
+        }}
+        demoPathHintEl.innerHTML = `
+          <span class="hint-icon">i</span>
+          <span><strong>${{escapeHtml(title)}}.</strong> ${{escapeHtml(path.join(" -> "))}}. ${{escapeHtml(details.join(" · "))}}.</span>
+        `;
       }}
 
       function _validateZscalerPolicyForSend() {{
@@ -6638,6 +7136,10 @@ HTML = f"""<!doctype html>
       function resetAgentTrace() {{
         lastAgentTrace = [];
         setAgentTraceCount(0);
+        if (agentRoleSummaryEl) {{
+          agentRoleSummaryEl.style.display = "none";
+          agentRoleSummaryEl.innerHTML = "";
+        }}
         agentTraceListEl.innerHTML = `
           <div class="agent-step">
             <div class="agent-step-head">
@@ -6646,6 +7148,184 @@ HTML = f"""<!doctype html>
             <pre>Enable Agentic Mode and send a prompt to capture LLM decision steps and tool activity.</pre>
           </div>
         `;
+      }}
+
+      function _agentRoleName(role, label) {{
+        const explicit = String(label || "").trim();
+        if (explicit) return explicit;
+        const raw = String(role || "agent").replaceAll("_", " ").trim();
+        if (!raw) return "Agent";
+        return raw.split(/\s+/).map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1) : "").join(" ");
+      }}
+
+      function _shortTraceText(value, maxLen = 260) {{
+        let text = "";
+        if (value === null || value === undefined) {{
+          text = "";
+        }} else if (typeof value === "string") {{
+          text = value;
+        }} else {{
+          try {{
+            text = JSON.stringify(value);
+          }} catch (_err) {{
+            text = String(value);
+          }}
+        }}
+        text = text.replace(/\s+/g, " ").trim();
+        if (text.length > maxLen) return `${{text.slice(0, Math.max(0, maxLen - 1)).trim()}}...`;
+        return text;
+      }}
+
+      function _ensureRoleSummary(map, order, key, label, role) {{
+        const safeKey = String(key || role || label || "agent").toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+        if (!map.has(safeKey)) {{
+          map.set(safeKey, {{
+            key: safeKey,
+            label: _agentRoleName(role, label),
+            role: String(role || safeKey),
+            task: "",
+            output: "",
+            tools: [],
+            meta: [],
+            usedTools: false,
+          }});
+          order.push(safeKey);
+        }}
+        return map.get(safeKey);
+      }}
+
+      function buildAgentRoleSummary(traceItems) {{
+        const items = Array.isArray(traceItems) ? traceItems : [];
+        const map = new Map();
+        const order = [];
+        const toolEvents = items.filter((item) => item && String(item.kind || "").toLowerCase() === "tool");
+        const hasMultiAgent = items.some((item) => item && String(item.kind || "").toLowerCase() === "multi_agent");
+        const spawned = [];
+
+        items.forEach((item) => {{
+          if (!item || typeof item !== "object") return;
+          const kind = String(item.kind || "").toLowerCase();
+          const event = String(item.event || "").toLowerCase();
+          if (kind === "multi_agent" && event === "pipeline_start") {{
+            const card = _ensureRoleSummary(map, order, "orchestrator", "Orchestrator", "orchestrator");
+            const maxSpecialists = Number(item.max_specialists || 0);
+            card.meta.push(maxSpecialists ? `Plans up to ${{maxSpecialists}} specialist(s)` : "Plans specialist work");
+            if (item.tools_enabled) card.meta.push("Tool-aware planning");
+          }} else if (kind === "multi_agent" && event === "spawn_agent") {{
+            const role = String(item.to_agent || item.role || item.agent || "specialist");
+            const key = String(item.agent_id || role);
+            const card = _ensureRoleSummary(map, order, key, item.label, role);
+            card.task = _shortTraceText(item.task || "Assigned by orchestrator", 340);
+            card.usedTools = !!(item.tools_enabled_for_agent || item.tools_allowed);
+            card.meta.push(card.usedTools ? "Tools allowed" : "No tools requested");
+            spawned.push(card.label);
+          }} else if (kind === "multi_agent" && event === "agent_complete") {{
+            const role = String(item.agent || item.to_agent || "specialist");
+            const key = String(item.agent_id || role);
+            const card = _ensureRoleSummary(map, order, key, item.label, role);
+            if (item.task && !card.task) card.task = _shortTraceText(item.task, 340);
+            card.output = _shortTraceText(item.output_preview || item.output || item.result || "", 520);
+            if (Number(item.output_chars || 0)) card.meta.push(`${{Number(item.output_chars)}} output chars`);
+            if (item.used_tools) card.usedTools = true;
+          }} else if (kind === "multi_agent" && event === "handoff") {{
+            const from = _agentRoleName(item.agent, item.agent);
+            const to = _agentRoleName(item.to_agent, item.to_agent);
+            const card = _ensureRoleSummary(map, order, String(item.to_agent || "agent"), to, item.to_agent);
+            card.meta.push(`Received handoff from ${{from}}`);
+          }} else if (kind !== "tool" && kind !== "mcp" && item.agent) {{
+            const role = String(item.agent || "agent");
+            const key = String(item.agent_id || role);
+            const card = _ensureRoleSummary(map, order, key, item.label, role);
+            card.meta.push("LLM step");
+            const raw = _shortTraceText(item.raw_output || item.text || item.response?.body?.text || "", 420);
+            if (raw && !card.output) card.output = raw;
+          }}
+        }});
+
+        if (spawned.length) {{
+          const orchestrator = _ensureRoleSummary(map, order, "orchestrator", "Orchestrator", "orchestrator");
+          orchestrator.output = `Selected specialist path: ${{spawned.join(", ")}}.`;
+        }}
+
+        if (toolEvents.length) {{
+          const unassignedTools = [];
+          toolEvents.forEach((toolItem) => {{
+            if (toolItem.agent_id || toolItem.agent) {{
+              const role = String(toolItem.agent || "agent");
+              const key = String(toolItem.agent_id || role);
+              const card = _ensureRoleSummary(map, order, key, toolItem.label, role);
+              const toolName = String(toolItem.tool || toolItem.name || "tool");
+              const status = _isLikelyToolError(toolItem) ? "error" : "ok";
+              const output = _shortTraceText(toolItem.output || toolItem.tool_trace?.response || toolItem.tool_trace?.error || "", 120);
+              card.usedTools = true;
+              card.tools.push({{ name: toolName, status, output }});
+            }} else {{
+              unassignedTools.push(toolItem);
+            }}
+          }});
+          let target = null;
+          const researcher = Array.from(map.values()).find((card) => card.role === "researcher" || card.label.toLowerCase().includes("research"));
+          if (researcher) {{
+            target = researcher;
+          }} else if (!hasMultiAgent) {{
+            target = _ensureRoleSummary(map, order, "agentic_loop", "Agentic Loop", "agentic");
+            target.task = "Reasoned over the prompt and called tools when useful.";
+          }}
+          if (target && unassignedTools.length) {{
+            target.usedTools = true;
+            unassignedTools.forEach((toolItem) => {{
+              const toolName = String(toolItem.tool || toolItem.name || "tool");
+              const status = _isLikelyToolError(toolItem) ? "error" : "ok";
+              const output = _shortTraceText(toolItem.output || toolItem.tool_trace?.response || toolItem.tool_trace?.error || "", 120);
+              target.tools.push({{ name: toolName, status, output }});
+            }});
+          }}
+        }}
+
+        if (!map.size && items.length) {{
+          const card = _ensureRoleSummary(map, order, "agent_trace", "Agent / Tool Trace", "agent");
+          card.task = "Captured runtime decisions and tool activity.";
+          card.output = `${{items.length}} trace event(s) captured.`;
+        }}
+
+        return order.map((key) => map.get(key)).filter(Boolean);
+      }}
+
+      function renderAgentRoleSummary(traceItems) {{
+        if (!agentRoleSummaryEl) return [];
+        const summaries = buildAgentRoleSummary(traceItems);
+        if (!summaries.length) {{
+          agentRoleSummaryEl.style.display = "none";
+          agentRoleSummaryEl.innerHTML = "";
+          return summaries;
+        }}
+        const cards = summaries.map((card) => {{
+          const meta = [...new Set(card.meta.filter(Boolean))].slice(0, 4).join(" | ");
+          const toolsHtml = card.tools.length
+            ? `<div class="agent-role-tools">${{card.tools.slice(0, 8).map((tool) => `<span class="agent-role-tool" title="${{escapeHtml(tool.output || "")}}">${{escapeHtml(tool.name)}} · ${{escapeHtml(tool.status)}}</span>`).join("")}}</div>`
+            : "";
+          return `
+            <div class="agent-role-card">
+              <div class="agent-role-card-title">
+                <span>${{escapeHtml(card.label)}}</span>
+                <span class="agent-role-chip">${{escapeHtml(card.role || "agent")}}</span>
+              </div>
+              ${{meta ? `<div class="agent-role-row">${{escapeHtml(meta)}}</div>` : ""}}
+              ${{card.task ? `<div class="agent-role-row"><strong>Did:</strong> ${{escapeHtml(card.task)}}</div>` : ""}}
+              ${{toolsHtml}}
+              ${{card.output ? `<div class="agent-role-row agent-role-output"><strong>Produced:</strong> ${{escapeHtml(card.output)}}</div>` : ""}}
+            </div>
+          `;
+        }}).join("");
+        agentRoleSummaryEl.innerHTML = `
+          <div class="agent-role-summary-head">
+            <div class="agent-role-summary-title">Who Did What</div>
+            <div class="agent-role-summary-sub">Trace-derived role, tool, and handoff summary</div>
+          </div>
+          <div class="agent-role-grid">${{cards}}</div>
+        `;
+        agentRoleSummaryEl.style.display = "block";
+        return summaries;
       }}
 
       function resetInspector() {{
@@ -6846,6 +7526,7 @@ HTML = f"""<!doctype html>
           resetAgentTrace();
           return;
         }}
+        renderAgentRoleSummary(items);
         agentTraceListEl.innerHTML = items.map((item, idx) => {{
           const kind = String(item.kind || "").toLowerCase();
           const agentLabel = item.agent ? ` (${{escapeHtml(String(item.agent))}})` : "";
@@ -6926,7 +7607,7 @@ HTML = f"""<!doctype html>
           return "This block shows the single-agent loop path: reason, optionally call tools, and finalize a response.";
         }}
         if (file.includes("multi_agent") || title.includes("multi-agent")) {{
-          return "This block shows the orchestrated multi-agent path across researcher, reviewer, and finalizer roles.";
+          return "This block shows the orchestrated multi-agent path: planner chooses bounded specialists, then reviewer/finalizer prepares the response.";
         }}
         if (file.includes("mcp") || title.includes("mcp") || title.includes("tool")) {{
           return "This block shows the tools path through MCP/local tool execution and how tool steps are added to agent trace.";
@@ -7012,7 +7693,10 @@ HTML = f"""<!doctype html>
             }},
             trace: {{ steps: [] }},
             agent_trace: multiAgent
-              ? [{{ kind: "multi_agent", event: "pipeline_start", tools_enabled: tools, local_tasks_enabled: localTasks }}]
+              ? [
+                  {{ kind: "multi_agent", event: "pipeline_start", tools_enabled: tools, local_tasks_enabled: localTasks }},
+                  {{ kind: "multi_agent", event: "spawn_agent", to_agent: tools ? "researcher" : "domain_analyst", label: tools ? "Researcher" : "Domain Analyst", task: "Planned specialist chosen by orchestrator", tools_allowed: tools, tools_enabled_for_agent: tools }}
+                ]
               : [],
             toolset_events: tools ? [{{ kind: "mcp", event: "tools_list", tool_count: localTasks ? 17 : 12, server_info: {{ name: "local-llm-demo-mcp-tools" }} }}] : [],
           }},
@@ -7020,6 +7704,7 @@ HTML = f"""<!doctype html>
       }}
 
       function showPlannedFlowPreview() {{
+        updateDemoPathHint();
         const planned = _plannedFlowEntry();
         latestTraceEntry = planned;
         renderFlowGraph(planned);
@@ -7032,6 +7717,7 @@ HTML = f"""<!doctype html>
       }}
 
       function maybeShowPlannedFlowPreview() {{
+        updateDemoPathHint();
         showPlannedFlowPreview();
       }}
 
@@ -7430,35 +8116,58 @@ HTML = f"""<!doctype html>
 
         const pipelineStart = agentTrace.find((i) => (i && i.kind) === "multi_agent" && i.event === "pipeline_start");
         const processHandoffLabel = perRoleWorkers ? "proc (per-role)" : "proc";
+        let firstSpecialistNodeId = "specialist_1";
         if (pipelineStart) {{
+          const multiMeta = (((entry.body || {{}}).multi_agent) || {{}});
+          const spawnEvents = agentTrace.filter((i) => i && i.kind === "multi_agent" && i.event === "spawn_agent");
+          const plannedSpecialists = Array.isArray(multiMeta.spawned_agents) ? multiMeta.spawned_agents : [];
+          const specialistSpecs = (spawnEvents.length ? spawnEvents : plannedSpecialists).slice(0, 4);
+          const specialists = specialistSpecs.length ? specialistSpecs : [{{
+            role: "researcher",
+            label: "Researcher",
+            task: "Gather information for the request.",
+            tools_allowed: !!pipelineStart.tools_enabled
+          }}];
+          const specialistNodeIds = [];
           addNode("orchestrator", "Orchestrator", "agent", nextCol, 1, {{
             "Role": "Planner",
-            "What it does": "Creates the multi-agent plan and routes work to specialist agents.",
+            "What it does": "Chooses which bounded specialist agents to spawn and routes their tasks.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
-            "Tool execution": "No direct tool execution (delegates to researcher)",
+            "Tool execution": "No direct tool execution (delegates to specialists)",
+            "Specialists spawned": specialists.map((s) => String(s.label || s.to_agent || s.role || "specialist")).join(", "),
             "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
             "Network Protocol": "Not applicable (in-process orchestration)"
           }});
-          addNode("researcher", "Researcher", "agent", nextCol + 1, 0, {{
-            "Role": "Research / tools",
-            "Uses Tools": !!pipelineStart.tools_enabled,
-            "Local Tasks Enabled": !!pipelineStart.local_tasks_enabled,
-            "What it does": "Gathers information, can call tools/MCP when enabled, then returns findings.",
-            "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
-            "Tool execution": pipelineStart.tools_enabled ? "Yes (tool/MCP calls may happen here)" : "No (tools disabled)",
-            "Local task tools": pipelineStart.local_tasks_enabled ? "Enabled (whoami/pwd/local ls/sizes/curl-like)" : "Disabled",
-            "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
-            "Network Protocol": "Not applicable (in-process orchestration)"
+          specialists.forEach((spec, idx) => {{
+            const id = `specialist_${{idx + 1}}`;
+            specialistNodeIds.push(id);
+            const role = String(spec.to_agent || spec.role || "specialist");
+            const label = String(spec.label || role.replaceAll("_", " ").replace(/\\b\\w/g, (m) => m.toUpperCase()));
+            const rowPattern = [0, 2, 1, 3];
+            addNode(id, label, "agent", nextCol + 1 + idx, rowPattern[idx] ?? 1, {{
+              "Role": role,
+              "Task": String(spec.task || ""),
+              "Uses Tools": !!(spec.tools_enabled_for_agent || spec.tools_allowed || spec.tools_allowed === true),
+              "Local Tasks Enabled": !!pipelineStart.local_tasks_enabled,
+              "What it does": "Specialist spawned by the orchestrator for this request.",
+              "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
+              "Tool execution": (spec.tools_enabled_for_agent || spec.tools_allowed) ? "Allowed for this specialist" : "Not requested for this specialist",
+              "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
+              "Network Protocol": "Not applicable (in-process orchestration)"
+            }});
           }});
-          addNode("reviewer", "Reviewer", "agent", nextCol + 2, 1, {{
+          const toolSpecialistIndex = specialists.findIndex((s) => !!(s.tools_enabled_for_agent || s.tools_allowed));
+          firstSpecialistNodeId = specialistNodeIds[Math.max(0, toolSpecialistIndex)] || specialistNodeIds[0] || "orchestrator";
+          const reviewerCol = nextCol + 1 + specialists.length;
+          addNode("reviewer", "Reviewer", "agent", reviewerCol, 1, {{
             "Role": "Quality/risk review",
-            "What it does": "Reviews the researcher output for clarity, gaps, and issues before final response.",
+            "What it does": "Reviews specialist outputs for clarity, gaps, tool-use issues, and risks before final response.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
             "Tool execution": "Typically no",
             "Traffic Type": "A2A / in-app orchestration (function calls within demo app)",
             "Network Protocol": "Not applicable (in-process orchestration)"
           }});
-          addNode("finalizer", "Finalizer", "agent", nextCol + 3, 0, {{
+          addNode("finalizer", "Finalizer", "agent", reviewerCol + 1, 0, {{
             "Role": "User-facing answer",
             "What it does": "Produces the final response shown in chat using prior agent outputs.",
             "LLM calls": "Yes (uses selected provider via providers.call_provider_messages)",
@@ -7467,15 +8176,19 @@ HTML = f"""<!doctype html>
             "Network Protocol": "Not applicable (in-process orchestration)"
           }});
           addEdge(currentNodeId, "orchestrator", "request", isolatedWorkers ? {{ style: "dashed", label: processHandoffLabel }} : {{}});
-          addEdge("orchestrator", "researcher", "request");
-          addEdge("researcher", "reviewer", "request");
+          specialistNodeIds.forEach((id) => {{
+            addEdge("orchestrator", id, "request");
+            addEdge(id, "reviewer", "request");
+            addEdge("reviewer", id, "response");
+          }});
           addEdge("reviewer", "finalizer", "request");
           addEdge("finalizer", "reviewer", "response");
-          addEdge("reviewer", "researcher", "response");
-          addEdge("researcher", "orchestrator", "response");
+          if (specialistNodeIds.length) {{
+            addEdge(firstSpecialistNodeId, "orchestrator", "response");
+          }}
           currentNodeId = "finalizer";
           providerRequestSourceNode = "finalizer";
-          nextCol += 4;
+          nextCol = reviewerCol + 2;
         }} else if (entry.agenticEnabled) {{
           addNode("agent", "Agentic Loop", "agent", nextCol++, 1, {{
             "Mode": "Single-agent tool loop",
@@ -7530,7 +8243,7 @@ HTML = f"""<!doctype html>
         }}
         const mcpEvents = agentTrace.filter((i) => (i && i.kind) === "mcp");
         const toolEvents = agentTrace.filter((i) => (i && i.kind) === "tool");
-        const toolAnchor = pipelineStart ? "researcher" : (entry.agenticEnabled ? "agent" : providerNodeId);
+        const toolAnchor = pipelineStart ? firstSpecialistNodeId : (entry.agenticEnabled ? "agent" : providerNodeId);
         if (mcpEvents.length) {{
           const toolsListEvent =
             mcpEvents.find((i) => i.event === "toolset.snapshot")
@@ -7828,11 +8541,14 @@ HTML = f"""<!doctype html>
         const isolated = topology === "isolated_workers" || topology === "isolated_per_role";
         const perRole = topology === "isolated_per_role";
         if (!isolated) return [];
-        const runtimeNodeIds = ["orchestrator", "researcher", "reviewer", "finalizer", "agent"]
+        const positionKeys = state.positions ? Array.from(state.positions.keys()) : [];
+        const specialistIds = positionKeys
+          .filter((id) => String(id).startsWith("specialist_"));
+        const runtimeNodeIds = ["orchestrator", ...specialistIds, "researcher", "reviewer", "finalizer", "agent"]
           .filter((id) => state.positions && state.positions.has(id));
         if (!runtimeNodeIds.length) return [];
         if (perRole && state.entry.multiAgentEnabled) {{
-          const roleIds = ["orchestrator", "researcher", "reviewer", "finalizer"]
+          const roleIds = ["orchestrator", ...specialistIds, "researcher", "reviewer", "finalizer"]
             .filter((id) => state.positions && state.positions.has(id));
           if (roleIds.length) {{
             const padX = 16;
@@ -8497,6 +9213,15 @@ HTML = f"""<!doctype html>
           ...(Array.isArray(body.toolset_events) ? body.toolset_events : []),
           ...(Array.isArray(body.agent_trace) ? body.agent_trace : []),
         ];
+        const roleSummaries = buildAgentRoleSummary(agentTrace);
+        const multiAgentMeta = (body.multi_agent && typeof body.multi_agent === "object") ? body.multi_agent : {{}};
+        const spawnEvents = agentTrace.filter((i) => i && i.kind === "multi_agent" && i.event === "spawn_agent");
+        const spawnedAgents = (spawnEvents.length ? spawnEvents : (Array.isArray(multiAgentMeta.spawned_agents) ? multiAgentMeta.spawned_agents : []))
+          .map((i) => ({{
+            label: String(i?.label || i?.to_agent || i?.role || "Specialist"),
+            role: String(i?.to_agent || i?.role || "specialist"),
+            tools: !!(i?.tools_enabled_for_agent || i?.tools_allowed),
+          }}));
         const guardrails = (body.guardrails && typeof body.guardrails === "object") ? body.guardrails : {{}};
         const providerStep = traceSteps.find((s) => {{
           const n = String((s || {{}}).name || "");
@@ -8536,6 +9261,14 @@ HTML = f"""<!doctype html>
         }}.`);
         summary.push(`Zscaler AI Guard mode: ${{modeText}}.${{guardrailsEnabled ? "" : " Guardrails checks were skipped."}}`);
         summary.push(`Execution topology: ${{topologyText}}.`);
+        if (entry?.multiAgentEnabled) {{
+          summary.push(spawnedAgents.length
+            ? `Multi-agent spawned: ${{spawnedAgents.map((a) => a.label).join(", ")}}.`
+            : "Multi-agent mode ran, but no specialist spawn metadata was captured.");
+        }}
+        if (roleSummaries.length) {{
+          summary.push(`Role activity captured for: ${{roleSummaries.map((a) => a.label).join(", ")}}.`);
+        }}
 
         if (!guardrailsEnabled) {{
           summary.push(providerReached
@@ -8576,6 +9309,8 @@ HTML = f"""<!doctype html>
         ];
 
         const tools = [
+          {{ k: "Specialist Agents", v: spawnedAgents.length ? spawnedAgents.map((a) => a.label).join(", ") : "None" }},
+          {{ k: "Tool-Allowed Specialists", v: spawnedAgents.filter((a) => a.tools).map((a) => a.label).join(", ") || "None" }},
           {{ k: "MCP Servers", v: serverCount ? String(serverCount) : "Unknown" }},
           {{ k: "Available Tools", v: availableToolCount ? String(availableToolCount) : "Unknown" }},
           {{ k: "Invoked Tools", v: String(toolEvents.length) }},
@@ -8615,6 +9350,15 @@ HTML = f"""<!doctype html>
             ].filter(Boolean).join(" | ") || "No additional metadata",
           }});
         }});
+        spawnEvents.forEach((agentItem, idx) => {{
+          timeline.push({{
+            title: `Agent ${{idx + 1}}. Spawn ${{String(agentItem?.label || agentItem?.to_agent || "Specialist")}}`,
+            meta: [
+              agentItem?.task ? `task=${{String(agentItem.task)}}` : "",
+              agentItem?.tools_enabled_for_agent || agentItem?.tools_allowed ? "tools=allowed" : "tools=not requested",
+            ].filter(Boolean).join(" | ") || "specialist selected by orchestrator",
+          }});
+        }});
         toolEvents.forEach((toolItem, idx) => {{
           const tName = String(toolItem?.tool || `tool_${{idx + 1}}`);
           const tHost = _hostFromUrl(toolItem?.tool_trace?.request?.url || "");
@@ -8637,7 +9381,7 @@ HTML = f"""<!doctype html>
           {{ k: "AI Guard Blocks", v: guardrailsBlocks > 0 ? String(guardrailsBlocks) : "0" }},
         ];
 
-        return {{ summary, security, tools, performance, timeline }};
+        return {{ summary, security, tools, performance, timeline, roles: roleSummaries }};
       }}
 
       function renderFlowExplain(entry) {{
@@ -8680,6 +9424,26 @@ HTML = f"""<!doctype html>
               </div>
             </div>
           </div>
+          ${{data.roles && data.roles.length ? `
+            <div class="explain-card">
+              <div class="explain-card-head">Agent / Tool Responsibilities</div>
+              <div class="explain-card-body">
+                <div class="agent-role-grid">
+                  ${{data.roles.map((card) => `
+                    <div class="agent-role-card">
+                      <div class="agent-role-card-title">
+                        <span>${{escapeHtml(card.label)}}</span>
+                        <span class="agent-role-chip">${{escapeHtml(card.role || "agent")}}</span>
+                      </div>
+                      ${{card.task ? `<div class="agent-role-row"><strong>Did:</strong> ${{escapeHtml(card.task)}}</div>` : ""}}
+                      ${{card.tools && card.tools.length ? `<div class="agent-role-tools">${{card.tools.slice(0, 8).map((tool) => `<span class="agent-role-tool">${{escapeHtml(tool.name)}} · ${{escapeHtml(tool.status)}}</span>`).join("")}}</div>` : ""}}
+                      ${{card.output ? `<div class="agent-role-row agent-role-output"><strong>Produced:</strong> ${{escapeHtml(card.output)}}</div>` : ""}}
+                    </div>
+                  `).join("")}}
+                </div>
+              </div>
+            </div>
+          ` : ""}}
           <div class="explain-card">
             <div class="explain-card-head">Timeline</div>
             <div class="explain-card-body explain-timeline">
@@ -8698,6 +9462,85 @@ HTML = f"""<!doctype html>
       function closeFlowExplainModal() {{
         flowExplainModalEl.classList.remove("open");
         flowExplainModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      function openAgentRolesModal() {{
+        agentRolesModalEl.classList.add("open");
+        agentRolesModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeAgentRolesModal() {{
+        agentRolesModalEl.classList.remove("open");
+        agentRolesModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      function openDemoWizardModal() {{
+        demoWizardModalEl.classList.add("open");
+        demoWizardModalEl.setAttribute("aria-hidden", "false");
+      }}
+
+      function closeDemoWizardModal() {{
+        demoWizardModalEl.classList.remove("open");
+        demoWizardModalEl.setAttribute("aria-hidden", "true");
+      }}
+
+      function _setProviderForWizard(providerId) {{
+        if (!providerId || !providerSelectEl) return;
+        const wanted = String(providerId || "").toLowerCase();
+        const option = Array.from(providerSelectEl.options || []).find((opt) => String(opt.value || "").toLowerCase() === wanted);
+        if (!option) return;
+        if (String(providerSelectEl.value || "").toLowerCase() === wanted) return;
+        providerSelectEl.value = option.value;
+        providerSelectEl.dispatchEvent(new Event("change"));
+      }}
+
+      function applyDemoWizardRecipe(recipeKey) {{
+        const recipe = DEMO_WIZARD_RECIPES[recipeKey];
+        if (!recipe) return;
+        const currentProvider = String(providerSelectEl?.value || "ollama").toLowerCase();
+        if (recipe.ensureProxyProvider && !providerSupportsProxy(currentProvider)) {{
+          _setProviderForWizard(recipe.providerFallback || "openai");
+        }} else if ((recipe.agentMode === "agentic" || recipe.agentMode === "multi") && currentProvider === "bedrock_agent") {{
+          _setProviderForWizard(recipe.providerFallback || "openai");
+        }} else if (recipe.providerFallback && !currentProvider) {{
+          _setProviderForWizard(recipe.providerFallback);
+        }}
+
+        setAgentMode(recipe.agentMode || "off");
+
+        toolsToggleEl.checked = !!recipe.tools;
+        syncToolsToggleState();
+        if (toolsToggleEl.disabled) toolsToggleEl.checked = false;
+
+        localTasksToggleEl.checked = !!recipe.localTasks;
+        syncLocalTasksToggleState();
+        if (localTasksToggleEl.disabled) localTasksToggleEl.checked = false;
+
+        setToolPermissionProfile(recipe.toolProfile || "standard");
+        setExecutionTopology(recipe.topology || "single_process");
+        setChatContextMode(recipe.chatMode || "single");
+
+        guardrailsToggleEl.checked = !!recipe.guardrails;
+        zscalerProxyModeToggleEl.checked = !!recipe.proxy;
+        setZscalerDasMode(recipe.dasMode || "resolve");
+        if (recipe.dasMode !== "execute" && zscalerPolicyIdInputEl) {{
+          zscalerPolicyIdInputEl.value = "";
+        }}
+        syncZscalerProxyModeState();
+
+        if (promptEl && recipe.prompt) {{
+          promptEl.value = recipe.prompt;
+          promptEl.dispatchEvent(new Event("input"));
+          promptEl.focus();
+        }}
+
+        refreshCurrentModelText();
+        refreshProviderValidationText();
+        updateDemoPathHint();
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+        statusEl.textContent = "Wizard applied: " + recipe.label + ". Review the preview, then click Send when ready.";
+        closeDemoWizardModal();
       }}
 
       function exportFlowEvidence() {{
@@ -9641,7 +10484,8 @@ HTML = f"""<!doctype html>
                   "        messages=messages_if_multi_turn,",
                   "        tools_enabled=tools_enabled,",
                   "    )",
-                  "    # orchestrator -> researcher -> reviewer -> finalizer",
+                  "    # orchestrator chooses bounded specialists",
+                  "    # spawned specialists -> reviewer -> finalizer",
                 ].join(\"\\n\")
               : [
                   "if agentic_enabled:",
@@ -10367,12 +11211,30 @@ HTML = f"""<!doctype html>
       flowDeterminismBtn.addEventListener("click", openDeterminismModal);
       flowLatencyBenchBtn.addEventListener("click", openLatencyBenchModal);
       flowScenarioRunnerBtn.addEventListener("click", openScenarioRunnerModal);
+      demoWizardBtnEl.addEventListener("click", openDemoWizardModal);
+      demoWizardCloseBtnEl.addEventListener("click", closeDemoWizardModal);
+      demoWizardDoneBtnEl.addEventListener("click", closeDemoWizardModal);
+      demoWizardModalEl.addEventListener("click", (e) => {{
+        if (e.target === demoWizardModalEl) {{
+          closeDemoWizardModal();
+          return;
+        }}
+        const btn = e.target.closest("[data-wizard-apply]");
+        if (!btn) return;
+        applyDemoWizardRecipe(btn.dataset.wizardApply || "");
+      }});
       usageBtnEl.addEventListener("click", openUsageModal);
       flowGraphWrapEl.addEventListener("mouseleave", () => _hideFlowTooltip());
       flowExplainCloseBtnEl.addEventListener("click", closeFlowExplainModal);
       flowExplainDoneBtnEl.addEventListener("click", closeFlowExplainModal);
       flowExplainModalEl.addEventListener("click", (e) => {{
         if (e.target === flowExplainModalEl) closeFlowExplainModal();
+      }});
+      agentRolesBtnEl.addEventListener("click", openAgentRolesModal);
+      agentRolesCloseBtnEl.addEventListener("click", closeAgentRolesModal);
+      agentRolesDoneBtnEl.addEventListener("click", closeAgentRolesModal);
+      agentRolesModalEl.addEventListener("click", (e) => {{
+        if (e.target === agentRolesModalEl) closeAgentRolesModal();
       }});
       policyReplayCloseBtnEl.addEventListener("click", closePolicyReplayModal);
       policyReplayDoneBtnEl.addEventListener("click", closePolicyReplayModal);
@@ -10605,10 +11467,22 @@ HTML = f"""<!doctype html>
       agentModeOffBtnEl.addEventListener("click", () => setAgentMode("off"));
       agentModeAgenticBtnEl.addEventListener("click", () => setAgentMode("agentic"));
       agentModeMultiBtnEl.addEventListener("click", () => setAgentMode("multi"));
-      toolProfileStandardBtnEl.addEventListener("click", () => setToolPermissionProfile("standard"));
-      toolProfileReadOnlyBtnEl.addEventListener("click", () => setToolPermissionProfile("read_only"));
-      toolProfileLocalOnlyBtnEl.addEventListener("click", () => setToolPermissionProfile("local_only"));
-      toolProfileNetworkOpenBtnEl.addEventListener("click", () => setToolPermissionProfile("network_open"));
+      toolProfileStandardBtnEl.addEventListener("click", () => {{
+        setToolPermissionProfile("standard");
+        maybeShowPlannedFlowPreview();
+      }});
+      toolProfileReadOnlyBtnEl.addEventListener("click", () => {{
+        setToolPermissionProfile("read_only");
+        maybeShowPlannedFlowPreview();
+      }});
+      toolProfileLocalOnlyBtnEl.addEventListener("click", () => {{
+        setToolPermissionProfile("local_only");
+        maybeShowPlannedFlowPreview();
+      }});
+      toolProfileNetworkOpenBtnEl.addEventListener("click", () => {{
+        setToolPermissionProfile("network_open");
+        maybeShowPlannedFlowPreview();
+      }});
       topologySingleBtnEl.addEventListener("click", () => {{
         setExecutionTopology("single_process");
         renderCodeViewer();
@@ -10665,6 +11539,14 @@ HTML = f"""<!doctype html>
         }}
         if (e.key === "Escape" && flowExplainModalEl.classList.contains("open")) {{
           closeFlowExplainModal();
+          return;
+        }}
+        if (e.key === "Escape" && agentRolesModalEl.classList.contains("open")) {{
+          closeAgentRolesModal();
+          return;
+        }}
+        if (e.key === "Escape" && demoWizardModalEl.classList.contains("open")) {{
+          closeDemoWizardModal();
           return;
         }}
         if (e.key === "Escape" && policyReplayModalEl.classList.contains("open")) {{
@@ -11556,6 +12438,9 @@ SETTINGS_SCHEMA = [
     {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "BRAVE_SEARCH_BASE_URL", "label": "Brave Search Base URL", "secret": False, "hint": "Override Brave API URL only if required by your environment"},
     {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "BRAVE_SEARCH_API_KEY", "label": "Brave Search API Key", "secret": True, "hint": "Optional API key used by the `brave_search` tool"},
     {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "BRAVE_SEARCH_MAX_RESULTS", "label": "Brave Search Max Results", "secret": False, "hint": "Default max results returned by the `brave_search` tool"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "DUCKDUCKGO_SEARCH_MAX_RESULTS", "label": "DuckDuckGo Max Results", "secret": False, "hint": "Default results returned by no-key `duckduckgo_search`"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "WIKIPEDIA_SEARCH_MAX_RESULTS", "label": "Wikipedia Max Results", "secret": False, "hint": "Default results returned by `wikipedia_search`"},
+    {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "ARXIV_SEARCH_MAX_RESULTS", "label": "arXiv Max Results", "secret": False, "hint": "Default results returned by `arxiv_search`"},
     {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "MCP_SERVER_COMMAND", "label": "MCP Server Command", "secret": False, "hint": "Advanced override for the MCP stdio launch command (leave blank to use bundled server)"},
     {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "MCP_PROTOCOL_VERSION", "label": "MCP Protocol Version", "secret": False, "hint": "Advanced override of MCP protocol version; default is recommended"},
     {"group": "Tools / MCP", "subgroup": "Core Connections", "key": "MCP_TIMEOUT_SECONDS", "label": "MCP Timeout (s)", "secret": False, "hint": "Advanced timeout override for MCP tool calls"},
@@ -11597,6 +12482,10 @@ SETTINGS_DEFAULT_VALUES = {
     "ZS_GUARDRAILS_POLICY_ID": "",
     "ZS_PROXY_BASE_URL": "https://proxy.zseclipse.net",
     "BRAVE_SEARCH_BASE_URL": "https://api.search.brave.com",
+    "BRAVE_SEARCH_MAX_RESULTS": "5",
+    "DUCKDUCKGO_SEARCH_MAX_RESULTS": "5",
+    "WIKIPEDIA_SEARCH_MAX_RESULTS": "5",
+    "ARXIV_SEARCH_MAX_RESULTS": "5",
 }
 
 
@@ -11728,7 +12617,7 @@ def _settings_save(values: dict[str, str]) -> None:
     global APP_RATE_LIMIT_CHAT_PER_MIN, APP_RATE_LIMIT_ADMIN_PER_MIN, APP_MAX_CONCURRENT_CHAT, APP_CHAT_REQUEST_TIMEOUT_SECONDS
     OLLAMA_URL = _str_env("OLLAMA_URL", OLLAMA_URL)
     OLLAMA_MODEL = _model_env("OLLAMA_MODEL", "llama3.2:1b")
-    ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+    ANTHROPIC_MODEL = _model_env("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
     OPENAI_MODEL = _model_env("OPENAI_MODEL", "gpt-4o-mini")
     ZS_PROXY_BASE_URL = _str_env("ZS_PROXY_BASE_URL", ZS_PROXY_BASE_URL)
     APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", APP_RATE_LIMIT_CHAT_PER_MIN))
@@ -12762,18 +13651,16 @@ class Handler(BaseHTTPRequestHandler):
                     "kind": "multi_agent",
                     "event": "pipeline_start",
                     "agent": "orchestrator",
-                    "agents": ["orchestrator", "researcher", "reviewer", "finalizer"],
+                    "agents": ["orchestrator", "specialists", "reviewer", "finalizer"],
+                    "allowed_specialists": multi_agent._allowed_specialist_roles(),  # noqa: SLF001
+                    "max_specialists": multi_agent.MULTI_AGENT_MAX_SPECIALISTS,
                     "tools_enabled": bool(tools_enabled),
                     "local_tasks_enabled": bool(local_tasks_enabled),
                     "topology": "isolated_per_role",
                 }
             )
 
-            planner_prompt = (
-                "You are the Orchestrator agent for a multi-agent demo.\n"
-                "Create a concise plan for specialist agents. Return ONLY JSON with this shape:\n"
-                '{"goal":"...","needs_tools":true|false,"research_focus":"...","analysis_focus":"...","final_style":"..."}'
-            )
+            planner_prompt = multi_agent._planner_system_prompt()  # noqa: SLF001
             planner_payload, planner_status = _run_turn_isolated(
                 "llm_agent_step",
                 {
@@ -12809,85 +13696,165 @@ class Handler(BaseHTTPRequestHandler):
                     int(planner_meta.get("status_code", 502)),
                 )
 
-            plan = agentic._extract_json(str(planner_text)) or {}  # noqa: SLF001
-            needs_tools = bool(plan.get("needs_tools")) if isinstance(plan, dict) else False
-            research_focus = str((plan or {}).get("research_focus") or latest_user)
-            analysis_focus = str((plan or {}).get("analysis_focus") or "Extract key facts, risks, and recommendations.")
-            final_style = str((plan or {}).get("final_style") or "Clear, concise answer with bullets when helpful.")
+            plan = multi_agent._normalize_specialist_plan(agentic._extract_json(str(planner_text)), latest_user)  # noqa: SLF001
+            specialists = list(plan.get("specialists") or [])
+            final_style = str(plan.get("final_style") or "Clear, concise answer with bullets when helpful.")
 
-            research_outputs: list[str] = []
-            research_agent_trace: list[dict] = []
-            agent_trace.append(
-                {
-                    "kind": "multi_agent",
-                    "event": "handoff",
-                    "agent": "orchestrator",
-                    "to_agent": "researcher",
-                    "needs_tools_plan": needs_tools,
-                    "research_focus": research_focus,
-                }
-            )
-            for round_idx in range(1, max(1, multi_agent.MULTI_AGENT_MAX_SPECIALIST_ROUNDS) + 1):
-                research_task = (
-                    f"Research task round {round_idx}: {research_focus}\n"
-                    "Use tools when helpful and available. Return a useful answer for the analyst."
-                )
-                research_messages = list(conversation_messages) + [{"role": "user", "content": research_task}]
-                research_payload, research_status = _run_turn_isolated(
-                    "research_agent_round",
+            specialist_outputs: list[dict] = []
+            specialist_agent_trace: list[dict] = []
+            for index, specialist in enumerate(specialists, start=1):
+                role = str((specialist or {}).get("role") or "domain_analyst")
+                label = str((specialist or {}).get("label") or multi_agent._specialist_label(role))  # noqa: SLF001
+                task = str((specialist or {}).get("task") or latest_user)
+                specialist_id = f"{role}_{index}"
+                use_tools_for_agent = bool(tools_enabled and (specialist or {}).get("tools_allowed"))
+                agent_trace.append(
                     {
-                        "provider_ctx": provider_ctx,
-                        "tool_defs": _serialize_tool_defs(mcp_tool_defs),
-                        "conversation_messages": research_messages,
-                        "tools_enabled": bool(tools_enabled and needs_tools),
-                        "local_tasks_enabled": bool(local_tasks_enabled),
-                        "tool_permission_profile": tool_permission_profile,
-                    },
+                        "kind": "multi_agent",
+                        "event": "spawn_agent",
+                        "agent": "orchestrator",
+                        "to_agent": role,
+                        "agent_id": specialist_id,
+                        "label": label,
+                        "task": task,
+                        "tools_allowed": bool((specialist or {}).get("tools_allowed")),
+                        "tools_enabled_for_agent": use_tools_for_agent,
+                    }
                 )
-                round_trace = list(research_payload.get("agent_trace", []) or [])
-                for item in round_trace:
-                    if isinstance(item, dict):
-                        item.setdefault("agent", "researcher")
-                        item["agent_round"] = round_idx
-                research_agent_trace.extend(round_trace)
-                if research_status != 200:
-                    return (
-                        {
-                            "error": research_payload.get("error", "Research agent failed."),
-                            "details": research_payload.get("details"),
-                            "agent_trace": agent_trace + research_agent_trace,
-                            "trace": research_payload.get("trace", {"steps": []}),
-                            "multi_agent": {
-                                "enabled": True,
-                                "implemented": True,
-                                "failed_agent": "researcher",
-                            },
-                        },
-                        research_status,
-                    )
-                research_outputs.append(str(research_payload.get("response") or "").strip())
-                if research_outputs[-1]:
-                    break
 
-            agent_trace.extend(research_agent_trace)
-            research_output = research_outputs[-1] if research_outputs else "(No research output)"
+                if role == "researcher" and use_tools_for_agent:
+                    outputs: list[str] = []
+                    for round_idx in range(1, max(1, multi_agent.MULTI_AGENT_MAX_SPECIALIST_ROUNDS) + 1):
+                        research_task = (
+                            f"{label} task round {round_idx}: {task}\n"
+                            "Use tools when helpful and available. Return concise findings for the next agent."
+                        )
+                        research_messages = list(conversation_messages) + [{"role": "user", "content": research_task}]
+                        research_payload, research_status = _run_turn_isolated(
+                            "research_agent_round",
+                            {
+                                "provider_ctx": provider_ctx,
+                                "tool_defs": _serialize_tool_defs(mcp_tool_defs),
+                                "conversation_messages": research_messages,
+                                "tools_enabled": True,
+                                "local_tasks_enabled": bool(local_tasks_enabled),
+                                "tool_permission_profile": tool_permission_profile,
+                            },
+                        )
+                        round_trace = list(research_payload.get("agent_trace", []) or [])
+                        for item in round_trace:
+                            if isinstance(item, dict):
+                                item.setdefault("agent", role)
+                                item["agent_id"] = specialist_id
+                                item["agent_round"] = round_idx
+                        specialist_agent_trace.extend(round_trace)
+                        if research_status != 200:
+                            return (
+                                {
+                                    "error": research_payload.get("error", f"{label} failed."),
+                                    "details": research_payload.get("details"),
+                                    "agent_trace": agent_trace + specialist_agent_trace,
+                                    "trace": research_payload.get("trace", {"steps": []}),
+                                    "multi_agent": {
+                                        "enabled": True,
+                                        "implemented": True,
+                                        "failed_agent": role,
+                                        "spawned_agents": specialists,
+                                        "topology": "isolated_per_role",
+                                    },
+                                },
+                                research_status,
+                            )
+                        outputs.append(str(research_payload.get("response") or "").strip())
+                        if outputs[-1]:
+                            break
+                    output = outputs[-1] if outputs else ""
+                else:
+                    specialist_task = (
+                        f"Assigned specialist role: {label}\n"
+                        f"Assigned task:\n{task}\n\n"
+                        "Return a concise specialist report. Include assumptions or gaps if relevant."
+                    )
+                    specialist_payload, specialist_status = _run_turn_isolated(
+                        "llm_agent_step",
+                        {
+                            "provider_ctx": provider_ctx,
+                            "tool_defs": _serialize_tool_defs(mcp_tool_defs),
+                            "agent_name": role,
+                            "system_prompt": multi_agent._specialist_system_prompt(role),  # noqa: SLF001
+                            "user_prompt": specialist_task,
+                            "context_messages": conversation_messages,
+                        },
+                    )
+                    if specialist_status != 200:
+                        return specialist_payload, specialist_status
+                    specialist_text = specialist_payload.get("text")
+                    specialist_meta = specialist_payload.get("meta") if isinstance(specialist_payload.get("meta"), dict) else {}
+                    specialist_trace = specialist_payload.get("trace_item") if isinstance(specialist_payload.get("trace_item"), dict) else {}
+                    if specialist_trace:
+                        specialist_trace["agent_id"] = specialist_id
+                        specialist_agent_trace.append(specialist_trace)
+                    if specialist_text is None:
+                        return (
+                            {
+                                "error": specialist_meta.get("error", f"{label} failed."),
+                                "details": specialist_meta.get("details"),
+                                **(
+                                    {"proxy_guardrails_block": specialist_meta.get("proxy_guardrails_block")}
+                                    if isinstance(specialist_meta.get("proxy_guardrails_block"), dict)
+                                    else {}
+                                ),
+                                "agent_trace": agent_trace + specialist_agent_trace,
+                                "trace": {"steps": [specialist_meta.get("trace_step", {})]},
+                                "multi_agent": {
+                                    "enabled": True,
+                                    "implemented": True,
+                                    "failed_agent": role,
+                                    "spawned_agents": specialists,
+                                    "topology": "isolated_per_role",
+                                },
+                            },
+                            int(specialist_meta.get("status_code", 502)),
+                        )
+                    output = str(specialist_text or "").strip()
+
+                specialist_outputs.append({"role": role, "label": label, "task": task, "output": output})
+                agent_trace.append(
+                    {
+                        "kind": "multi_agent",
+                        "event": "agent_complete",
+                        "agent": role,
+                        "agent_id": specialist_id,
+                        "label": label,
+                        "task": task,
+                        "output_chars": len(output),
+                        "output_preview": multi_agent._clean_text(output)[:700],  # noqa: SLF001
+                        "used_tools": bool(role == "researcher" and use_tools_for_agent),
+                    }
+                )
+
+            agent_trace.extend(specialist_agent_trace)
+            specialist_report = "\n\n".join(
+                f"{item['label']} ({item['role']})\nTask: {item['task']}\nOutput:\n{item['output'] or '(No output)'}"
+                for item in specialist_outputs
+            ) or "(No specialist output)"
 
             reviewer_prompt = (
                 "You are the Reviewer agent.\n"
-                "Review the research output for accuracy risks, gaps, and clarity.\n"
+                "Review the specialist outputs for accuracy risks, gaps, tool-use issues, and clarity.\n"
                 "Return ONLY JSON with this shape:\n"
                 '{"strengths":["..."],"risks":["..."],"fixes":["..."],"approved_summary":"..."}'
             )
             reviewer_task = (
                 f"Original user request:\n{latest_user}\n\n"
-                f"Research output:\n{research_output}\n\n"
-                f"Analysis focus:\n{analysis_focus}"
+                f"Orchestrator goal:\n{plan.get('goal')}\n\n"
+                f"Specialist outputs:\n{specialist_report}"
             )
             agent_trace.append(
                 {
                     "kind": "multi_agent",
                     "event": "handoff",
-                    "agent": "researcher",
+                    "agent": "specialists",
                     "to_agent": "reviewer",
                 }
             )
@@ -12936,7 +13903,7 @@ class Handler(BaseHTTPRequestHandler):
             finalizer_task = (
                 f"User request:\n{latest_user}\n\n"
                 f"Orchestrator plan (raw):\n{planner_text}\n\n"
-                f"Research output:\n{research_output}\n\n"
+                f"Specialist outputs:\n{specialist_report}\n\n"
                 f"Reviewer notes:\n{json.dumps(reviewer_json) if reviewer_json else reviewer_text}"
             )
             agent_trace.append(
@@ -12989,10 +13956,11 @@ class Handler(BaseHTTPRequestHandler):
                     "multi_agent": {
                         "enabled": True,
                         "implemented": True,
-                        "agents": ["orchestrator", "researcher", "reviewer", "finalizer"],
+                        "agents": ["orchestrator", "specialists", "reviewer", "finalizer"],
+                        "spawned_agents": specialists,
                         "tools_enabled": bool(tools_enabled),
-                        "research_used_tools": any((i or {}).get("kind") == "tool" for i in research_agent_trace),
-                        "needs_tools_plan": needs_tools,
+                        "research_used_tools": any((i or {}).get("kind") == "tool" for i in specialist_agent_trace),
+                        "needs_tools_plan": any(bool((i or {}).get("tools_allowed")) for i in specialists),
                         "topology": "isolated_per_role",
                     },
                     "trace": {"steps": []},

@@ -28,8 +28,8 @@ def _sanitize_model_value(raw: str | None, *, fallback: str) -> str:
 
 
 DEFAULT_ANTHROPIC_MODEL = _sanitize_model_value(
-    _env_or_default("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
-    fallback="claude-3-haiku-20240307",
+    _env_or_default("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022"),
+    fallback="claude-3-5-haiku-20241022",
 )
 DEFAULT_OPENAI_MODEL = _sanitize_model_value(
     _env_or_default("OPENAI_MODEL", "gpt-4o-mini"),
@@ -53,8 +53,8 @@ DEFAULT_GEMINI_MODEL = _sanitize_model_value(
     fallback="gemini-1.5-flash",
 )
 DEFAULT_LITELLM_MODEL = _sanitize_model_value(
-    _env_or_default("LITELLM_MODEL", "claude-3-haiku-20240307"),
-    fallback="claude-3-haiku-20240307",
+    _env_or_default("LITELLM_MODEL", "claude-3-5-haiku-20241022"),
+    fallback="claude-3-5-haiku-20241022",
 )
 DEFAULT_KONG_MODEL = _sanitize_model_value(_env_or_default("KONG_MODEL", ""), fallback="")
 DEFAULT_VERTEX_LOCATION = _env_or_default("VERTEX_LOCATION", "us-central1")

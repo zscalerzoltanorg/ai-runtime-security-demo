@@ -1,12 +1,14 @@
 import base64
 import getpass
 import hashlib
+import html as html_lib
 import ipaddress
 import json
 import os
 import platform
 import re
 import socket
+import xml.etree.ElementTree as ET
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,9 @@ def _int_env(name: str, default: int) -> int:
 
 BRAVE_SEARCH_BASE_URL = os.getenv("BRAVE_SEARCH_BASE_URL", "https://api.search.brave.com")
 BRAVE_SEARCH_MAX_RESULTS = _int_env("BRAVE_SEARCH_MAX_RESULTS", 5)
+DUCKDUCKGO_SEARCH_MAX_RESULTS = _int_env("DUCKDUCKGO_SEARCH_MAX_RESULTS", 5)
+WIKIPEDIA_SEARCH_MAX_RESULTS = _int_env("WIKIPEDIA_SEARCH_MAX_RESULTS", 5)
+ARXIV_SEARCH_MAX_RESULTS = _int_env("ARXIV_SEARCH_MAX_RESULTS", 5)
 AGENTIC_MAX_STEPS = _int_env("AGENTIC_MAX_STEPS", 3)
 ALLOW_PRIVATE_TOOL_NETWORK = str(os.getenv("ALLOW_PRIVATE_TOOL_NETWORK", "")).strip().lower() in {
     "1",
@@ -57,6 +62,29 @@ TOOLS = {
     "brave_search": {
         "description": "Search the web via Brave Search API and return top results (requires BRAVE_SEARCH_API_KEY).",
         "input_schema": {"query": "string"},
+    },
+    "duckduckgo_search": {
+        "description": "Search the public web via DuckDuckGo HTML results without an API key.",
+        "input_schema": {"query": "string", "max_results": "integer (optional)"},
+    },
+    "wikipedia_search": {
+        "description": "Search Wikipedia article summaries and links for a topic.",
+        "input_schema": {"query": "string", "max_results": "integer (optional)"},
+    },
+    "arxiv_search": {
+        "description": "Search arXiv papers by keyword and return titles, authors, summaries, and links.",
+        "input_schema": {"query": "string", "max_results": "integer (optional)"},
+    },
+    "demo_calendar_create": {
+        "description": "Simulate creating a calendar event for demos. Does not modify an external calendar.",
+        "input_schema": {
+            "title": "string",
+            "date": "string (optional)",
+            "time": "string (optional)",
+            "duration_minutes": "integer (optional)",
+            "location": "string (optional)",
+            "notes": "string (optional)",
+        },
     },
     "current_time": {
         "description": "Get current date/time in a timezone (IANA tz, e.g., America/Chicago).",
@@ -131,9 +159,16 @@ NETWORK_TOOL_NAMES = {
     "weather",
     "web_fetch",
     "brave_search",
+    "duckduckgo_search",
+    "wikipedia_search",
+    "arxiv_search",
     "dns_lookup",
     "http_head",
     "local_curl",
+}
+
+WRITE_TOOL_NAMES = {
+    "demo_calendar_create",
 }
 
 TOOL_PERMISSION_PROFILES = {
@@ -155,6 +190,18 @@ TOOL_NAME_ALIASES = {
     "du": "local_file_sizes",
     "file_sizes": "local_file_sizes",
     "filesizes": "local_file_sizes",
+    "search": "duckduckgo_search",
+    "web_search": "duckduckgo_search",
+    "ddg": "duckduckgo_search",
+    "duckduckgo": "duckduckgo_search",
+    "wiki": "wikipedia_search",
+    "wikipedia": "wikipedia_search",
+    "arxiv": "arxiv_search",
+    "paper_search": "arxiv_search",
+    "calendar": "demo_calendar_create",
+    "calendar_create": "demo_calendar_create",
+    "create_calendar_event": "demo_calendar_create",
+    "schedule_event": "demo_calendar_create",
 }
 
 
@@ -185,6 +232,8 @@ def _is_tool_allowed_by_profile(tool: str, tool_input: dict, profile: str, *, lo
         return True, ""
 
     if profile == "read_only":
+        if tool in WRITE_TOOL_NAMES:
+            return False, "blocked_write_tool_read_only"
         if tool == "local_curl":
             method = str((tool_input or {}).get("method") or "GET").strip().upper() or "GET"
             if method == "POST":
@@ -346,6 +395,18 @@ def _normalize_agent_decision(
     # Happy path
     if dtype in {"final", "tool"}:
         normalized_response = response
+        if dtype == "tool" and (not tool_name or tool_name not in known_canonical):
+            available = ", ".join(sorted(known_canonical)) or "none"
+            bad_name = tool_name or "(blank)"
+            return {
+                "type": "final",
+                "tool": "",
+                "input": {},
+                "response": (
+                    f"Agent requested an unavailable tool `{bad_name}`. "
+                    f"Available tools for this run: {available}."
+                ),
+            }
         if dtype == "final" and (not isinstance(normalized_response, str) or not normalized_response.strip()):
             if "output" in decision:
                 normalized_response = str(decision.get("output") or "")
@@ -420,6 +481,34 @@ def _http_get(url: str, headers: dict | None = None, timeout: float = 15.0) -> t
     with request.urlopen(req, timeout=timeout) as resp:
         body = resp.read().decode("utf-8", errors="replace")
         return resp.status, body
+
+
+def _bounded_result_count(args: dict, default: int, *, hard_max: int = 10) -> int:
+    try:
+        requested = int((args or {}).get("max_results") or default)
+    except (TypeError, ValueError):
+        requested = default
+    return max(1, min(requested, hard_max))
+
+
+def _strip_html(text: str) -> str:
+    cleaned = re.sub(r"<script[\s\S]*?</script>", " ", str(text or ""), flags=re.IGNORECASE)
+    cleaned = re.sub(r"<style[\s\S]*?</style>", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    return html_lib.unescape(re.sub(r"\s+", " ", cleaned).strip())
+
+
+def _decode_duckduckgo_url(href: str) -> str:
+    raw = html_lib.unescape(str(href or "").strip())
+    parsed = parse.urlparse(raw)
+    query = parse.parse_qs(parsed.query)
+    if "uddg" in query and query["uddg"]:
+        return query["uddg"][0]
+    if raw.startswith("//"):
+        return f"https:{raw}"
+    if raw.startswith("/"):
+        return f"https://duckduckgo.com{raw}"
+    return raw
 
 
 def _http_head(url: str, headers: dict | None = None, timeout: float = 15.0) -> tuple[int, dict]:
@@ -596,6 +685,269 @@ def _tool_brave_search(args: dict) -> tuple[str, dict]:
         "input": args,
         "request": {"method": "GET", "url": url, "headers": {"X-Subscription-Token": "***redacted***"}},
         "response": {"status": status, "body": payload},
+    }
+
+
+def _tool_duckduckgo_search(args: dict) -> tuple[str, dict]:
+    query = str((args or {}).get("query") or "").strip()
+    if not query:
+        return "Error: duckduckgo_search requires `query`.", {"tool": "duckduckgo_search", "input": args, "error": "missing query"}
+
+    max_results = _bounded_result_count(args, DUCKDUCKGO_SEARCH_MAX_RESULTS)
+    url = f"https://html.duckduckgo.com/html/?q={parse.quote(query)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; LocalLLMDemo/1.0; +https://localhost)",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    try:
+        status, body = _http_get(url, headers=headers, timeout=15.0)
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return f"Error: DuckDuckGo Search HTTP {exc.code}", {
+            "tool": "duckduckgo_search",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "response": {"status": exc.code, "body": detail[:1000]},
+        }
+    except Exception as exc:
+        return f"Error: DuckDuckGo Search failed: {exc}", {
+            "tool": "duckduckgo_search",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "error": str(exc),
+        }
+
+    results = []
+    blocks = re.split(r'<div[^>]+class="[^"]*\bresult\b[^"]*"', body, flags=re.IGNORECASE)
+    for block in blocks[1:]:
+        link_match = re.search(
+            r'<a[^>]+class="[^"]*\bresult__a\b[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            block,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not link_match:
+            continue
+        snippet_match = re.search(
+            r'<(?:a|div)[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>(.*?)</(?:a|div)>',
+            block,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        title = _strip_html(link_match.group(2))
+        result_url = _decode_duckduckgo_url(link_match.group(1))
+        description = _strip_html(snippet_match.group(1)) if snippet_match else ""
+        if title and result_url:
+            results.append({"title": title, "url": result_url, "description": description})
+        if len(results) >= max_results:
+            break
+
+    if not results:
+        fallback_url = (
+            "https://api.duckduckgo.com/?"
+            f"q={parse.quote(query)}&format=json&no_html=1&skip_disambig=1"
+        )
+        try:
+            fallback_status, fallback_body = _http_get(
+                fallback_url,
+                headers={"User-Agent": "LocalLLMDemo/1.0", "Accept": "application/json"},
+                timeout=15.0,
+            )
+            fallback_data = json.loads(fallback_body)
+            if fallback_data.get("Heading") and (fallback_data.get("AbstractText") or fallback_data.get("AbstractURL")):
+                results.append(
+                    {
+                        "title": fallback_data.get("Heading"),
+                        "url": fallback_data.get("AbstractURL") or fallback_data.get("OfficialWebsite") or "",
+                        "description": fallback_data.get("AbstractText") or fallback_data.get("Definition") or "",
+                    }
+                )
+            for item in (fallback_data.get("Results") or []) + (fallback_data.get("RelatedTopics") or []):
+                if len(results) >= max_results:
+                    break
+                if "Topics" in item:
+                    nested = item.get("Topics") or []
+                else:
+                    nested = [item]
+                for sub_item in nested:
+                    if len(results) >= max_results:
+                        break
+                    text = str(sub_item.get("Text") or "").strip()
+                    first_url = str(sub_item.get("FirstURL") or "").strip()
+                    if text and first_url:
+                        title = text.split(" - ", 1)[0][:120]
+                        results.append({"title": title, "url": first_url, "description": text})
+            if results:
+                payload = {"query": query, "source": "duckduckgo_instant_answer", "results": results[:max_results]}
+                return json.dumps(payload), {
+                    "tool": "duckduckgo_search",
+                    "input": args,
+                    "request": {"method": "GET", "url": fallback_url},
+                    "response": {"status": fallback_status, "body": payload},
+                }
+        except Exception:
+            # Preserve the primary HTML trace if the fallback also fails.
+            pass
+
+    payload = {"query": query, "source": "duckduckgo_html", "results": results}
+    return json.dumps(payload), {
+        "tool": "duckduckgo_search",
+        "input": args,
+        "request": {"method": "GET", "url": url},
+        "response": {"status": status, "body": payload},
+    }
+
+
+def _tool_wikipedia_search(args: dict) -> tuple[str, dict]:
+    query = str((args or {}).get("query") or "").strip()
+    if not query:
+        return "Error: wikipedia_search requires `query`.", {"tool": "wikipedia_search", "input": args, "error": "missing query"}
+
+    max_results = _bounded_result_count(args, WIKIPEDIA_SEARCH_MAX_RESULTS)
+    url = (
+        "https://en.wikipedia.org/w/api.php?"
+        f"action=query&list=search&srsearch={parse.quote(query)}&format=json&srlimit={max_results}&utf8=1"
+    )
+    headers = {
+        "User-Agent": "LocalLLMDemo/1.0 (demo educational tool)",
+        "Accept": "application/json",
+    }
+    try:
+        status, body = _http_get(url, headers=headers, timeout=15.0)
+        data = json.loads(body)
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return f"Error: Wikipedia Search HTTP {exc.code}", {
+            "tool": "wikipedia_search",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "response": {"status": exc.code, "body": detail[:1000]},
+        }
+    except Exception as exc:
+        return f"Error: Wikipedia Search failed: {exc}", {
+            "tool": "wikipedia_search",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "error": str(exc),
+        }
+
+    results = []
+    for item in ((data or {}).get("query") or {}).get("search") or []:
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        results.append(
+            {
+                "title": title,
+                "url": f"https://en.wikipedia.org/wiki/{parse.quote(title.replace(' ', '_'))}",
+                "description": _strip_html(item.get("snippet") or ""),
+                "pageid": item.get("pageid"),
+            }
+        )
+    payload = {"query": query, "source": "wikipedia", "results": results[:max_results]}
+    return json.dumps(payload), {
+        "tool": "wikipedia_search",
+        "input": args,
+        "request": {"method": "GET", "url": url},
+        "response": {"status": status, "body": payload},
+    }
+
+
+def _tool_arxiv_search(args: dict) -> tuple[str, dict]:
+    query = str((args or {}).get("query") or "").strip()
+    if not query:
+        return "Error: arxiv_search requires `query`.", {"tool": "arxiv_search", "input": args, "error": "missing query"}
+
+    max_results = _bounded_result_count(args, ARXIV_SEARCH_MAX_RESULTS)
+    url = (
+        "https://export.arxiv.org/api/query?"
+        f"search_query=all:{parse.quote(query)}&start=0&max_results={max_results}"
+    )
+    headers = {"User-Agent": "LocalLLMDemo/1.0 (demo educational tool)"}
+    try:
+        status, body = _http_get(url, headers=headers, timeout=20.0)
+        root = ET.fromstring(body)
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return f"Error: arXiv Search HTTP {exc.code}", {
+            "tool": "arxiv_search",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "response": {"status": exc.code, "body": detail[:1000]},
+        }
+    except Exception as exc:
+        return f"Error: arXiv Search failed: {exc}", {
+            "tool": "arxiv_search",
+            "input": args,
+            "request": {"method": "GET", "url": url},
+            "error": str(exc),
+        }
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    results = []
+    for entry in root.findall("atom:entry", ns):
+        title = re.sub(r"\s+", " ", entry.findtext("atom:title", "", ns)).strip()
+        summary = re.sub(r"\s+", " ", entry.findtext("atom:summary", "", ns)).strip()
+        authors = [
+            re.sub(r"\s+", " ", author.findtext("atom:name", "", ns)).strip()
+            for author in entry.findall("atom:author", ns)
+        ]
+        links = entry.findall("atom:link", ns)
+        result_url = ""
+        for link in links:
+            if link.attrib.get("rel") == "alternate":
+                result_url = link.attrib.get("href", "")
+                break
+        if not result_url and links:
+            result_url = links[0].attrib.get("href", "")
+        if title:
+            results.append(
+                {
+                    "title": title,
+                    "url": result_url,
+                    "authors": [a for a in authors if a][:6],
+                    "published": entry.findtext("atom:published", "", ns),
+                    "summary": summary[:800],
+                }
+            )
+    payload = {"query": query, "source": "arxiv", "results": results[:max_results]}
+    return json.dumps(payload), {
+        "tool": "arxiv_search",
+        "input": args,
+        "request": {"method": "GET", "url": url},
+        "response": {"status": status, "body": payload},
+    }
+
+
+def _tool_demo_calendar_create(args: dict) -> tuple[str, dict]:
+    title = str((args or {}).get("title") or "").strip()
+    if not title:
+        return "Error: demo_calendar_create requires `title`.", {
+            "tool": "demo_calendar_create",
+            "input": args,
+            "error": "missing title",
+        }
+
+    duration_raw = (args or {}).get("duration_minutes")
+    try:
+        duration_minutes = int(duration_raw) if duration_raw not in {None, ""} else 30
+    except (TypeError, ValueError):
+        duration_minutes = 30
+    duration_minutes = max(5, min(duration_minutes, 24 * 60))
+    event = {
+        "event_id": str(uuid.uuid4()),
+        "status": "simulated",
+        "title": title,
+        "date": str((args or {}).get("date") or "").strip() or "unspecified",
+        "time": str((args or {}).get("time") or "").strip() or "unspecified",
+        "duration_minutes": duration_minutes,
+        "location": str((args or {}).get("location") or "").strip(),
+        "notes": str((args or {}).get("notes") or "").strip(),
+        "side_effect": "none",
+        "message": "Demo event prepared only; no external calendar was modified.",
+    }
+    return json.dumps(event), {
+        "tool": "demo_calendar_create",
+        "input": args,
+        "response": event,
     }
 
 
@@ -983,6 +1335,14 @@ def run_tool(
         return _tool_web_fetch(tool_input)
     if tool == "brave_search":
         return _tool_brave_search(tool_input)
+    if tool == "duckduckgo_search":
+        return _tool_duckduckgo_search(tool_input)
+    if tool == "wikipedia_search":
+        return _tool_wikipedia_search(tool_input)
+    if tool == "arxiv_search":
+        return _tool_arxiv_search(tool_input)
+    if tool == "demo_calendar_create":
+        return _tool_demo_calendar_create(tool_input)
     if tool == "current_time":
         return _tool_current_time(tool_input)
     if tool == "dns_lookup":

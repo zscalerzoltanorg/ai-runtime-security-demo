@@ -4,6 +4,10 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.10`
+  - Added a Demo Wizard with guided recipes for baseline chat, AI Guard API/DAS, AI Guard Proxy, agentic tools, multi-agent research, and local workspace tasks.
+  - Expanded the bundled MCP demo toolset with no-key DuckDuckGo search, Wikipedia lookup, arXiv search, and simulated calendar creation, plus clearer agent role summaries.
+
 - `v1.5.9`
   - Fixed Docker deployment behavior so Local Settings persist through a mounted `.env.local` file and usage data is stored in a persistent Docker volume.
   - Clarified Docker upgrade behavior: in-app update is disabled in containers, and Docker users should update with `git pull` followed by `docker compose up -d --build`.
@@ -50,11 +54,18 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 - Multi-provider chat (local + cloud)
 - Zscaler AI Guard toggle and mode switch (API/DAS vs Proxy)
 - Single-turn and multi-turn behavior
-- Agentic and multi-agent execution
-- Tools/MCP behavior
+- Agentic execution with MCP/tool calls
+- Multi-agent execution with bounded specialist spawning, review, and finalization
+- Tools/MCP behavior using the bundled local MCP server or a custom MCP server command
 - HTTP trace + agent/tool trace + prompt/instruction inspector
 - Flow graph and code path viewer
+- Demo Wizard recipes for quickly explaining which toggles to use for baseline chat, AI Guard, agentic tools, multi-agent research, and local workspace tasks
 - Version awareness + one-click updater (local admin only)
+
+Agent role shorthand:
+- `Agentic`: one planner loop that may call MCP tools before answering.
+- `Multi-Agent`: an orchestrator selects bounded specialists such as Researcher, Tool Auditor, Security Reviewer, and Domain Analyst, then reviewer/finalizer steps produce the answer.
+- `Topology`: switches whether orchestration runs inline, in an isolated worker, or as per-role worker calls for multi-agent demos.
 
 ## In-App Update Notifier + One-Click Update
 
@@ -247,7 +258,7 @@ SSL_CERT_FILE=certs/combined-ca-bundle.pem
 REQUESTS_CA_BUNDLE=certs/combined-ca-bundle.pem
 ```
 
-When `MCP_SERVER_COMMAND` is empty, the app automatically uses the bundled local MCP server.
+When `MCP_SERVER_COMMAND` is empty, the app automatically uses the bundled local MCP server. To test an external MCP server, set `MCP_SERVER_COMMAND` to a stdio launch command for a server you trust. The bundled server includes safe demo tools for arithmetic, time, DNS/HTTP checks, text transforms, local workspace tasks, no-key DuckDuckGo search, Wikipedia lookup, arXiv paper search, and simulated calendar event creation. Multi-agent mode uses an orchestrator that can choose bounded specialist agents (for example researcher, tool auditor, security reviewer, or domain analyst), then runs reviewer/finalizer steps so the flow stays explainable in the graph.
 
 ---
 
