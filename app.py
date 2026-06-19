@@ -3014,6 +3014,14 @@ HTML = f"""<!doctype html>
         color: var(--muted);
         line-height: 1.45;
       }}
+      .wizard-section-title {{
+        margin: 14px 0 0;
+        color: var(--text);
+        font-size: 0.92rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }}
       .wizard-grid {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -4381,6 +4389,7 @@ HTML = f"""<!doctype html>
             <p class="wizard-intro">
               Pick the story you want to teach. The wizard updates the current page toggles and loads a sample prompt, but it does not save settings or send anything automatically.
             </p>
+            <h3 class="wizard-section-title">Core Security Paths</h3>
             <div class="wizard-grid">
               <div class="wizard-card">
                 <h3>Baseline Chat</h3>
@@ -4417,6 +4426,45 @@ HTML = f"""<!doctype html>
                 <p>Use this to show safe local-task tools scoped to the demo workspace, useful for explaining local file access controls.</p>
                 <div class="wizard-tags"><span class="wizard-tag">local tasks</span><span class="wizard-tag">tool permissions</span></div>
                 <button class="wizard-apply secondary" type="button" data-wizard-apply="local_workspace">Apply Local Task</button>
+              </div>
+            </div>
+            <h3 class="wizard-section-title">Realistic Agent Use Cases</h3>
+            <div class="wizard-grid">
+              <div class="wizard-card">
+                <h3>Enterprise Workflow Agent</h3>
+                <p>Use this to show a custom internal agent coordinating local files, MCP tools, and a simulated calendar action.</p>
+                <div class="wizard-tags"><span class="wizard-tag">workflow</span><span class="wizard-tag">tools + local</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="enterprise_workflow_agent">Apply Workflow Agent</button>
+              </div>
+              <div class="wizard-card">
+                <h3>Developer Assistant Agent</h3>
+                <p>Use this to show a repo-aware helper that inspects local project context without needing network access.</p>
+                <div class="wizard-tags"><span class="wizard-tag">developer</span><span class="wizard-tag">read-only local</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="developer_assistant_agent">Apply Developer Agent</button>
+              </div>
+              <div class="wizard-card">
+                <h3>Security Analyst Agent</h3>
+                <p>Use this to show an analyst-style agent combining public lookup tools with a structured risk summary.</p>
+                <div class="wizard-tags"><span class="wizard-tag">security</span><span class="wizard-tag">web tools</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="security_analyst_agent">Apply Security Agent</button>
+              </div>
+              <div class="wizard-card">
+                <h3>IT Helpdesk Agent</h3>
+                <p>Use this to show practical troubleshooting: current time, DNS/HTTP checks, and a simulated follow-up action.</p>
+                <div class="wizard-tags"><span class="wizard-tag">helpdesk</span><span class="wizard-tag">diagnostics</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="it_helpdesk_agent">Apply Helpdesk Agent</button>
+              </div>
+              <div class="wizard-card">
+                <h3>Research / Planning Agent</h3>
+                <p>Use this to show multi-agent orchestration where specialists research, review, and finalize a planning answer.</p>
+                <div class="wizard-tags"><span class="wizard-tag">multi-agent</span><span class="wizard-tag">role handoff</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="research_planning_agent">Apply Planning Agent</button>
+              </div>
+              <div class="wizard-card">
+                <h3>MCP-Enabled Chatbot</h3>
+                <p>Use this to show a normal chat experience that gains useful abilities through the bundled MCP tool server.</p>
+                <div class="wizard-tags"><span class="wizard-tag">MCP</span><span class="wizard-tag">tool-aware chat</span></div>
+                <button class="wizard-apply secondary" type="button" data-wizard-apply="mcp_enabled_chatbot">Apply MCP Chatbot</button>
               </div>
             </div>
             <div class="wizard-note">
@@ -4977,6 +5025,84 @@ HTML = f"""<!doctype html>
           proxy: false,
           dasMode: "resolve",
           prompt: "Find the largest files in the local demo workspace and summarize total size."
+        }},
+        enterprise_workflow_agent: {{
+          label: "Enterprise Workflow Agent",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: true,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "multi",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Act as an internal workflow agent. Review the local demo workspace for relevant project or policy notes, then create a simulated calendar follow-up for the most important next action."
+        }},
+        developer_assistant_agent: {{
+          label: "Developer Assistant Agent",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: true,
+          toolProfile: "read_only",
+          topology: "single_process",
+          chatMode: "single",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Act as a developer assistant. Inspect the local demo workspace structure and summarize what files or folders look most relevant for understanding the app. Do not modify anything."
+        }},
+        security_analyst_agent: {{
+          label: "Security Analyst Agent",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: false,
+          toolProfile: "network_open",
+          topology: "single_process",
+          chatMode: "multi",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Act as a security analyst. Use available search or knowledge tools to summarize common risks with AI agents using external tools, then give three practical controls."
+        }},
+        it_helpdesk_agent: {{
+          label: "IT Helpdesk Agent",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "multi",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Act as an IT helpdesk automation agent. Check current time, run a lightweight DNS or HTTP diagnostic for example.com, and create a simulated follow-up calendar item summarizing the next step."
+        }},
+        research_planning_agent: {{
+          label: "Research / Planning Agent",
+          agentMode: "multi",
+          tools: true,
+          localTasks: false,
+          toolProfile: "network_open",
+          topology: "isolated_per_role",
+          chatMode: "multi",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Plan a family-friendly weekend trip to San Francisco. Use available tools for public information, then explain what the researcher, reviewer, and finalizer contributed."
+        }},
+        mcp_enabled_chatbot: {{
+          label: "MCP-Enabled Chatbot",
+          agentMode: "agentic",
+          tools: true,
+          localTasks: false,
+          toolProfile: "standard",
+          topology: "single_process",
+          chatMode: "single",
+          guardrails: false,
+          proxy: false,
+          dasMode: "resolve",
+          prompt: "Use the bundled MCP tools to answer this: what time is it in America/Chicago, what is 144 * 27, and what are two reasons MCP tools are useful for chatbots?"
         }}
       }};
       const codeAutoBtn = document.getElementById("codeAutoBtn");

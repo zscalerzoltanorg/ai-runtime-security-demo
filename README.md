@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.11`
+  - Added six realistic agent demo recipes to the Demo Wizard: enterprise workflow, developer assistant, security analyst, IT helpdesk, research/planning, and MCP-enabled chatbot.
+
 - `v1.5.10`
   - Added a Demo Wizard with guided recipes for baseline chat, AI Guard API/DAS, AI Guard Proxy, agentic tools, multi-agent research, and local workspace tasks.
   - Expanded the bundled MCP demo toolset with no-key DuckDuckGo search, Wikipedia lookup, arXiv search, and simulated calendar creation, plus clearer agent role summaries.
@@ -59,7 +62,7 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 - Tools/MCP behavior using the bundled local MCP server or a custom MCP server command
 - HTTP trace + agent/tool trace + prompt/instruction inspector
 - Flow graph and code path viewer
-- Demo Wizard recipes for quickly explaining which toggles to use for baseline chat, AI Guard, agentic tools, multi-agent research, and local workspace tasks
+- Demo Wizard recipes for quickly explaining which toggles to use for baseline chat, AI Guard, agentic tools, multi-agent research, local workspace tasks, and realistic employee-created agent use cases
 - Version awareness + one-click updater (local admin only)
 
 Agent role shorthand:
