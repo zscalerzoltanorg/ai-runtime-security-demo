@@ -4,6 +4,11 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.12`
+  - Added a first-time Setup Wizard that explains common provider keys, Zscaler AI Guard modes, local Ollama setup, and MCP/tool configuration before users start demos.
+  - Added capability-aware response mode controls with visible JSON, NDJSON stream (`/chat/stream`), SSE (`/chat/sse`), WebSocket, protobuf/gRPC, and protocol-trace demos; unsupported modes are disabled by provider and active runtime settings.
+  - Fixed Stream/SSE browser parsing so streaming responses render incrementally without freezing the UI.
+
 - `v1.5.11`
   - Added six realistic agent demo recipes to the Demo Wizard: enterprise workflow, developer assistant, security analyst, IT helpdesk, research/planning, and MCP-enabled chatbot.
 

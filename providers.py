@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from hashlib import sha1
-from typing import Any
+from typing import Any, Callable
 from urllib import error, request
 
 from tooling import ToolDef
@@ -2071,6 +2071,442 @@ def _vertex_chat_messages(
             "details": str(exc),
             "trace_step": {"name": "Google Vertex", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
         }
+
+
+def _openai_compatible_chat_messages_stream(
+    *,
+    provider_name: str,
+    api_key_env: str,
+    model: str,
+    default_base_url: str,
+    base_url_env: str,
+    messages: list[dict],
+    on_delta: Callable[[str], None],
+    conversation_id: str | None = None,
+    demo_user: str | None = None,
+    proxy_mode: bool = False,
+    proxy_provider_family: str | None = None,
+) -> tuple[str | None, dict]:
+    api_key = os.getenv(api_key_env, "").strip()
+    base_url = os.getenv(base_url_env, "").strip() or default_base_url
+    proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, _proxy_key_source = _zscaler_proxy_sdk_config(
+        proxy_provider_family or provider_name,
+        conversation_id,
+        demo_user,
+    )
+    effective_api_key = proxy_key if proxy_mode else api_key
+    effective_base_url = _openai_proxy_base_url(proxy_base_url) if proxy_mode else base_url
+    normalized = _normalize_messages(messages)
+    request_payload = {
+        "model": model,
+        "messages": _openai_messages_with_attachments(normalized),
+        "temperature": 0.2,
+        "stream": True,
+    }
+    trace_request = {
+        "method": "SDK",
+        "url": (
+            f"{effective_base_url}/chat/completions (Zscaler Proxy -> {provider_name} via OpenAI-compatible SDK, stream=True)"
+            if proxy_mode
+            else f"{str(effective_base_url).rstrip('/')}/chat/completions ({provider_name} via OpenAI-compatible SDK, stream=True)"
+        ),
+        "headers": {
+            "Authorization": "Bearer ***redacted***" if effective_api_key else "***missing***",
+            **(
+                {
+                    k: ("***redacted***" if k.lower() == proxy_api_key_header_name.lower() else v)
+                    for k, v in proxy_headers.items()
+                }
+                if proxy_mode
+                else {}
+            ),
+            **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
+        },
+        "payload": request_payload,
+    }
+    if not str(model or "").strip():
+        return None, {
+            "error": f"{provider_name} model is not set.",
+            "status_code": 500,
+            "trace_step": {"name": provider_name, "request": trace_request, "response": {"status": 500, "body": {"error": "Missing model setting"}}},
+        }
+    if not effective_api_key:
+        return None, {
+            "error": (
+                f"{proxy_provider_family or provider_name} proxy key is not set. "
+                f"Set {(proxy_provider_family or provider_name).upper()}_ZS_PROXY_API_KEY "
+                f"(or {(proxy_provider_family or provider_name).upper()}_ZS_PROXY_KEY)."
+                if proxy_mode
+                else f"{api_key_env} is not set."
+            ),
+            "status_code": 500,
+            "trace_step": {"name": provider_name, "request": trace_request, "response": {"status": 500, "body": {"error": "Missing API key"}}},
+        }
+    try:
+        from openai import OpenAI
+    except Exception as exc:
+        return None, {
+            "error": "OpenAI-compatible SDK is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {"name": provider_name, "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install openai`", "details": str(exc)}}},
+        }
+
+    try:
+        client = OpenAI(
+            api_key=effective_api_key,
+            base_url=effective_base_url,
+            default_headers=(proxy_headers if proxy_mode else ({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None)),
+        )
+        chunks = 0
+        parts: list[str] = []
+        final_model = model
+        finish_reason = None
+        stream = client.chat.completions.create(**request_payload)
+        for chunk in stream:
+            final_model = getattr(chunk, "model", final_model) or final_model
+            choice0 = (getattr(chunk, "choices", None) or [None])[0]
+            if choice0 is not None:
+                finish_reason = getattr(choice0, "finish_reason", finish_reason) or finish_reason
+                delta_obj = getattr(choice0, "delta", None)
+                delta_text = str(getattr(delta_obj, "content", "") or "")
+                if delta_text:
+                    chunks += 1
+                    parts.append(delta_text)
+                    on_delta(delta_text)
+        text = "".join(parts).strip()
+        response_body = {
+            "model": final_model,
+            "object": "chat.completion.chunk_stream",
+            "streamed": True,
+            "chunks": chunks,
+            "finish_reason": finish_reason,
+            "text": text,
+        }
+        return text, {"trace_step": {"name": provider_name, "request": trace_request, "response": {"status": 200, "body": response_body}}}
+    except Exception as exc:
+        err_status = getattr(exc, "status_code", None)
+        err_response = getattr(exc, "response", None)
+        err_body: Any = None
+        if err_response is not None:
+            try:
+                if hasattr(err_response, "json"):
+                    err_body = err_response.json()
+            except Exception:
+                err_body = None
+            if err_body is None:
+                err_body = getattr(err_response, "text", None)
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=int(err_status or 0) if err_status else None,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
+        return None, {
+            "error": f"{provider_name} streaming request failed.",
+            "status_code": int(err_status or 502),
+            "details": str(exc),
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+            "trace_step": {
+                "name": provider_name,
+                "request": trace_request,
+                "response": {"status": int(err_status or 502), "body": {"error": str(exc), "status_code": err_status, "response_body": err_body}},
+            },
+        }
+
+
+def _ollama_chat_messages_stream(
+    messages: list[dict],
+    ollama_url: str,
+    ollama_model: str,
+    on_delta: Callable[[str], None],
+    demo_user: str | None = None,
+) -> tuple[str | None, dict]:
+    payload = {"model": ollama_model, "messages": _ollama_messages_with_attachments(_normalize_messages(messages)), "stream": True}
+    url = f"{ollama_url}/api/chat"
+    headers = {"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})}
+    trace_request = {"method": "POST", "url": url, "headers": headers, "payload": payload}
+    try:
+        req = request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+        parts: list[str] = []
+        chunks = 0
+        final_body: Any = None
+        with request.urlopen(req, timeout=120) as resp:
+            status = int(getattr(resp, "status", 200) or 200)
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                final_body = obj
+                msg = obj.get("message") if isinstance(obj, dict) else None
+                delta_text = ""
+                if isinstance(msg, dict):
+                    delta_text = str(msg.get("content") or "")
+                elif isinstance(obj, dict):
+                    delta_text = str(obj.get("response") or "")
+                if delta_text:
+                    chunks += 1
+                    parts.append(delta_text)
+                    on_delta(delta_text)
+        text = "".join(parts).strip()
+        body = {"streamed": True, "chunks": chunks, "text": text, "final": final_body}
+        return text, {"trace_step": {"name": "Ollama (Local)", "request": trace_request, "response": {"status": status, "body": body}}}
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return None, {
+            "error": "Ollama streaming request failed.",
+            "status_code": 502,
+            "details": detail,
+            "trace_step": {"name": "Ollama (Local)", "request": trace_request, "response": {"status": exc.code, "body": detail}},
+        }
+    except Exception as exc:
+        return None, {
+            "error": "Could not stream from local Ollama server.",
+            "status_code": 502,
+            "details": str(exc),
+            "trace_step": {"name": "Ollama (Local)", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
+        }
+
+
+def _anthropic_chat_messages_stream(
+    messages: list[dict],
+    anthropic_model: str,
+    on_delta: Callable[[str], None],
+    *,
+    proxy_mode: bool = False,
+    conversation_id: str | None = None,
+    demo_user: str | None = None,
+) -> tuple[str | None, dict]:
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, _proxy_key_source = _zscaler_proxy_sdk_config(
+        "ANTHROPIC",
+        conversation_id,
+        demo_user,
+    )
+    effective_api_key = proxy_key if proxy_mode else api_key
+    normalized = _normalize_messages(messages)
+    system_blocks = [m["content"] for m in normalized if m["role"] == "system" and m["content"].strip()]
+    adapter = AnthropicAdapter()
+    request_payload = adapter.build_request(
+        messages=_anthropic_messages_with_attachments([m for m in normalized if m["role"] in {"user", "assistant"}]),
+        model=anthropic_model,
+        tool_defs=None,
+        settings=_build_anthropic_tool_payload(None),
+    )
+    if system_blocks:
+        request_payload["system"] = "\n\n".join(system_blocks)
+    trace_headers: dict[str, str] = {"x-api-key": "***redacted***" if effective_api_key else "***missing***"}
+    if demo_user:
+        trace_headers[DEMO_USER_HEADER_NAME] = str(demo_user)
+    if proxy_mode:
+        trace_headers.update({k: ("***redacted***" if k.lower() == proxy_api_key_header_name.lower() else v) for k, v in proxy_headers.items()})
+    trace_request = {
+        "method": "SDK",
+        "url": f"{proxy_base_url} (Zscaler Proxy -> Anthropic SDK messages.stream)" if proxy_mode else "Anthropic SDK (messages.stream)",
+        "headers": trace_headers,
+        "payload": {**request_payload, "stream": True},
+    }
+    if not effective_api_key:
+        return None, {
+            "error": "Anthropic proxy key is not set." if proxy_mode else "ANTHROPIC_API_KEY is not set.",
+            "status_code": 500,
+            "trace_step": {"name": "Anthropic", "request": trace_request, "response": {"status": 500, "body": {"error": "Missing API key"}}},
+        }
+    try:
+        from anthropic import Anthropic
+    except Exception as exc:
+        return None, {
+            "error": "Anthropic SDK is not installed.",
+            "status_code": 500,
+            "details": str(exc),
+            "trace_step": {"name": "Anthropic", "request": trace_request, "response": {"status": 500, "body": {"error": "Install with `pip install anthropic`", "details": str(exc)}}},
+        }
+    try:
+        if proxy_mode:
+            client = Anthropic(api_key=effective_api_key, base_url=proxy_base_url, default_headers=proxy_headers)
+        else:
+            client = Anthropic(api_key=effective_api_key, default_headers=({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else None))
+        parts: list[str] = []
+        chunks = 0
+        final_message = None
+        with client.messages.stream(**request_payload) as stream:
+            for delta_text in stream.text_stream:
+                text_delta = str(delta_text or "")
+                if text_delta:
+                    chunks += 1
+                    parts.append(text_delta)
+                    on_delta(text_delta)
+            try:
+                final_message = stream.get_final_message()
+            except Exception:
+                final_message = None
+        text = "".join(parts).strip()
+        response_body: dict[str, Any] = {
+            "id": getattr(final_message, "id", None),
+            "model": getattr(final_message, "model", anthropic_model),
+            "role": getattr(final_message, "role", None),
+            "stop_reason": getattr(final_message, "stop_reason", None),
+            "usage": getattr(final_message, "usage", None).model_dump() if hasattr(getattr(final_message, "usage", None), "model_dump") else None,
+            "streamed": True,
+            "chunks": chunks,
+            "text": text,
+        }
+        return text, {"trace_step": {"name": "Anthropic", "request": trace_request, "response": {"status": 200, "body": response_body}}}
+    except Exception as exc:
+        err_status = getattr(exc, "status_code", None)
+        err_response = getattr(exc, "response", None)
+        err_body: Any = None
+        if err_response is not None:
+            try:
+                if hasattr(err_response, "json"):
+                    err_body = err_response.json()
+            except Exception:
+                err_body = None
+            if err_body is None:
+                err_body = getattr(err_response, "text", None)
+        proxy_block = (
+            _proxy_guardrails_block_from_error(
+                status_code=int(err_status or 0) if err_status else None,
+                response_body=err_body,
+                details_text=str(exc),
+            )
+            if proxy_mode
+            else None
+        )
+        return None, {
+            "error": "Anthropic streaming request failed.",
+            "status_code": int(err_status or 502),
+            "details": str(exc),
+            **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+            "trace_step": {"name": "Anthropic", "request": trace_request, "response": {"status": int(err_status or 502), "body": {"error": str(exc), "status_code": err_status, "response_body": err_body}}},
+        }
+
+
+def stream_provider_messages(
+    provider_id: str,
+    messages: list[dict],
+    *,
+    ollama_url: str,
+    ollama_model: str,
+    on_delta: Callable[[str], None],
+    anthropic_model: str | None = None,
+    openai_model: str | None = None,
+    zscaler_proxy_mode: bool = False,
+    conversation_id: str | None = None,
+    demo_user: str | None = None,
+) -> tuple[str | None, dict]:
+    provider = (provider_id or "ollama").strip().lower()
+    selected_anthropic_model = _normalize_model_alias(anthropic_model or DEFAULT_ANTHROPIC_MODEL, fallback=DEFAULT_ANTHROPIC_MODEL)
+    selected_openai_model = _normalize_model_alias(openai_model or DEFAULT_OPENAI_MODEL, fallback=DEFAULT_OPENAI_MODEL)
+    selected_perplexity_model = _normalize_model_alias(os.getenv("PERPLEXITY_MODEL", DEFAULT_PERPLEXITY_MODEL).strip() or DEFAULT_PERPLEXITY_MODEL, fallback=DEFAULT_PERPLEXITY_MODEL)
+    selected_xai_model = _normalize_model_alias(os.getenv("XAI_MODEL", DEFAULT_XAI_MODEL).strip() or DEFAULT_XAI_MODEL, fallback=DEFAULT_XAI_MODEL)
+    selected_litellm_model = _normalize_model_alias(os.getenv("LITELLM_MODEL", DEFAULT_LITELLM_MODEL).strip() or DEFAULT_LITELLM_MODEL, fallback=DEFAULT_LITELLM_MODEL)
+    selected_kong_model = _normalize_model_alias(os.getenv("KONG_MODEL", DEFAULT_KONG_MODEL).strip(), fallback=DEFAULT_KONG_MODEL)
+    selected_azure_foundry_model = _normalize_model_alias(os.getenv("AZURE_AI_FOUNDRY_MODEL", DEFAULT_AZURE_AI_FOUNDRY_MODEL).strip() or DEFAULT_AZURE_AI_FOUNDRY_MODEL, fallback=DEFAULT_AZURE_AI_FOUNDRY_MODEL)
+    if zscaler_proxy_mode and provider in {"ollama", "litellm"}:
+        return None, {
+            "error": "Zscaler Proxy Mode is disabled for Ollama and LiteLLM in this demo. Choose API/DAS mode or another provider.",
+            "status_code": 400,
+            "trace_step": {"name": "Provider Selection", "request": {"provider": provider_id, "zscaler_proxy_mode": True}, "response": {"status": 400, "body": {"error": "Unsupported provider for proxy mode"}}},
+        }
+    if provider == "ollama":
+        return _ollama_chat_messages_stream(messages, ollama_url=ollama_url, ollama_model=ollama_model, on_delta=on_delta, demo_user=demo_user)
+    if provider == "anthropic":
+        return _anthropic_chat_messages_stream(messages, selected_anthropic_model, on_delta, proxy_mode=zscaler_proxy_mode, conversation_id=conversation_id, demo_user=demo_user)
+    if provider == "openai":
+        return _openai_compatible_chat_messages_stream(
+            provider_name="OpenAI",
+            api_key_env="OPENAI_API_KEY",
+            model=selected_openai_model,
+            default_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip() or "https://api.openai.com/v1",
+            base_url_env="OPENAI_BASE_URL",
+            messages=messages,
+            on_delta=on_delta,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="OPENAI",
+        )
+    if provider == "perplexity":
+        return _openai_compatible_chat_messages_stream(
+            provider_name="Perplexity",
+            api_key_env="PERPLEXITY_API_KEY",
+            model=selected_perplexity_model,
+            default_base_url=os.getenv("PERPLEXITY_BASE_URL", "https://api.perplexity.ai").strip() or "https://api.perplexity.ai",
+            base_url_env="PERPLEXITY_BASE_URL",
+            messages=messages,
+            on_delta=on_delta,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="PERPLEXITY",
+        )
+    if provider == "xai":
+        return _openai_compatible_chat_messages_stream(
+            provider_name="xAI (Grok)",
+            api_key_env="XAI_API_KEY",
+            model=selected_xai_model,
+            default_base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").strip() or "https://api.x.ai/v1",
+            base_url_env="XAI_BASE_URL",
+            messages=messages,
+            on_delta=on_delta,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="XAI",
+        )
+    if provider == "litellm":
+        return _openai_compatible_chat_messages_stream(
+            provider_name="LiteLLM",
+            api_key_env="LITELLM_API_KEY",
+            model=selected_litellm_model,
+            default_base_url=os.getenv("LITELLM_BASE_URL", "http://127.0.0.1:4000/v1").strip() or "http://127.0.0.1:4000/v1",
+            base_url_env="LITELLM_BASE_URL",
+            messages=messages,
+            on_delta=on_delta,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+        )
+    if provider == "kong":
+        return _openai_compatible_chat_messages_stream(
+            provider_name="Kong Gateway",
+            api_key_env="KONG_API_KEY",
+            model=selected_kong_model,
+            default_base_url=os.getenv("KONG_BASE_URL", "").strip(),
+            base_url_env="KONG_BASE_URL",
+            messages=messages,
+            on_delta=on_delta,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="KONG",
+        )
+    if provider == "azure_foundry":
+        return _openai_compatible_chat_messages_stream(
+            provider_name="Azure AI Foundry",
+            api_key_env="AZURE_AI_FOUNDRY_API_KEY",
+            model=selected_azure_foundry_model,
+            default_base_url=os.getenv("AZURE_AI_FOUNDRY_BASE_URL", "").strip() or "https://example.inference.ai.azure.com/v1",
+            base_url_env="AZURE_AI_FOUNDRY_BASE_URL",
+            messages=messages,
+            on_delta=on_delta,
+            conversation_id=conversation_id,
+            demo_user=demo_user,
+            proxy_mode=zscaler_proxy_mode,
+            proxy_provider_family="AZURE_FOUNDRY",
+        )
+    return None, {
+        "error": f"Native streaming is not implemented for provider `{provider_id}` in this demo.",
+        "status_code": 400,
+        "trace_step": {"name": "Provider Selection", "request": {"provider": provider_id}, "response": {"status": 400, "body": {"error": "Streaming unsupported for provider"}}},
+    }
 
 
 def call_provider_messages(

@@ -2,6 +2,7 @@ import ast
 import base64
 import concurrent.futures
 import copy
+import hashlib
 import ipaddress
 import json
 import mimetypes
@@ -3075,6 +3076,126 @@ HTML = f"""<!doctype html>
         font-size: 0.84rem;
         line-height: 1.4;
       }}
+      .setup-hero {{
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+        gap: 12px;
+        align-items: stretch;
+      }}
+      .setup-panel {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        background: #fff;
+      }}
+      .setup-panel h3 {{
+        margin: 0 0 8px;
+        font-size: 0.95rem;
+      }}
+      .setup-panel p,
+      .setup-panel li {{
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.45;
+      }}
+      .setup-panel p {{
+        margin: 0 0 8px;
+      }}
+      .setup-panel ul {{
+        margin: 0;
+        padding-left: 18px;
+      }}
+      .setup-checklist {{
+        display: grid;
+        gap: 9px;
+      }}
+      .setup-item {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 11px;
+        background: #fff;
+      }}
+      .setup-item-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 6px;
+      }}
+      .setup-item-title {{
+        font-weight: 800;
+        color: var(--text);
+      }}
+      .setup-item-desc {{
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.4;
+      }}
+      .setup-status {{
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 0.72rem;
+        font-weight: 800;
+      }}
+      .setup-status.ok {{
+        color: #047857;
+        border-color: rgba(16, 185, 129, 0.45);
+        background: rgba(16, 185, 129, 0.10);
+      }}
+      .setup-status.warn {{
+        color: #b45309;
+        border-color: rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.12);
+      }}
+      .setup-status.info {{
+        color: #2563eb;
+        border-color: rgba(59, 130, 246, 0.35);
+        background: rgba(59, 130, 246, 0.10);
+      }}
+      .setup-keys {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }}
+      .setup-key {{
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 2px 7px;
+        background: color-mix(in srgb, var(--panel) 90%, var(--accent) 10%);
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.72rem;
+      }}
+      .setup-actions-row {{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }}
+      .setup-checkbox {{
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
+      .setup-checkbox input {{
+        width: 16px;
+        height: 16px;
+      }}
+      @media (max-width: 860px) {{
+        .setup-hero {{
+          grid-template-columns: 1fr;
+        }}
+      }}
       .latency-bench-summary {{
         margin: 0 0 10px;
         padding: 10px 12px;
@@ -3625,6 +3746,8 @@ HTML = f"""<!doctype html>
       body[data-theme="dark"] .explain-body,
       body[data-theme="dark"] .explain-foot,
       body[data-theme="dark"] .explain-card,
+      body[data-theme="dark"] .setup-panel,
+      body[data-theme="dark"] .setup-item,
       body[data-theme="dark"] .explain-step,
       body[data-theme="dark"] .explain-kv {{
         background: #0b1220;
@@ -3911,6 +4034,8 @@ HTML = f"""<!doctype html>
       body[data-theme="fun"] .explain-body,
       body[data-theme="fun"] .explain-foot,
       body[data-theme="fun"] .explain-card,
+      body[data-theme="fun"] .setup-panel,
+      body[data-theme="fun"] .setup-item,
       body[data-theme="fun"] .explain-step,
       body[data-theme="fun"] .explain-kv {{
         background: #110d1f;
@@ -3942,6 +4067,7 @@ HTML = f"""<!doctype html>
               <button id="updateNowBtn" class="header-action-btn" type="button" title="Check and apply update from configured git remote/branch" aria-label="Update app">Update ⤓</button>
             </div>
             <div class="app-title-actions">
+              <button id="setupWizardBtn" class="header-action-btn" type="button" title="First-time setup guide for provider keys, AI Guard, and MCP tools" aria-label="First-time setup wizard">Setup Wizard</button>
               <button id="demoWizardBtn" class="header-action-btn" type="button" title="Guided setup for common demo configurations" aria-label="Demo configuration wizard">Demo Wizard</button>
               <button id="usageBtn" class="header-action-btn" type="button" title="Usage dashboard: request counts, tokens, estimated cost, and usage over time" aria-label="Usage dashboard">Usage Dashboard</button>
               <button id="settingsBtn" class="icon-btn" type="button" title="Local Settings (.env.local)">⚙</button>
@@ -4054,6 +4180,18 @@ HTML = f"""<!doctype html>
                 <button id="chatModeMultiBtn" class="mode-toggle-btn" type="button">Multi Turn</button>
               </div>
               <input id="multiTurnToggle" type="checkbox" aria-label="Toggle multi-turn chat mode" style="display:none;" />
+            </div>
+            <div id="responseModeWrap" class="mode-toggle" title="Choose the browser-to-app response delivery style. Unsupported combinations are disabled for the selected provider and settings.">
+              <span class="mode-toggle-label">Response Mode</span>
+              <div class="mode-toggle-buttons">
+                <button id="responseModeJsonBtn" class="mode-toggle-btn active" type="button">JSON</button>
+                <button id="responseModeStreamBtn" class="mode-toggle-btn" type="button">Stream</button>
+                <button id="responseModeSseBtn" class="mode-toggle-btn" type="button">SSE</button>
+                <button id="responseModeWsBtn" class="mode-toggle-btn" type="button">WebSocket</button>
+                <button id="responseModeProtobufBtn" class="mode-toggle-btn" type="button">Protobuf</button>
+                <button id="responseModeTraceBtn" class="mode-toggle-btn" type="button">Trace</button>
+              </div>
+              <input id="responseModeInput" type="hidden" value="standard" />
             </div>
               </div>
             </div>
@@ -4376,6 +4514,56 @@ HTML = f"""<!doctype html>
           </div>
           <div class="explain-foot">
             <button id="flowExplainDoneBtn" class="secondary" type="button">Done</button>
+          </div>
+        </div>
+      </div>
+      <div id="setupWizardModal" class="explain-modal" aria-hidden="true">
+        <div class="explain-dialog" role="dialog" aria-modal="true" aria-labelledby="setupWizardTitle">
+          <div class="explain-head">
+            <h2 id="setupWizardTitle">First-Time Setup Wizard</h2>
+            <button id="setupWizardCloseBtn" class="icon-btn" type="button" title="Close Setup Wizard">✕</button>
+          </div>
+          <div class="explain-body">
+            <div class="setup-hero">
+              <div class="setup-panel">
+                <h3>Start with the path you want to demo</h3>
+                <p>This app can run fully local, call cloud LLMs directly, put Zscaler AI Guard in front of provider traffic, or add MCP tools and agent workflows. You do not need every key to start.</p>
+                <ul>
+                  <li><strong>Fast local demo:</strong> use Ollama. No cloud key required, but Ollama must be running with a pulled model.</li>
+                  <li><strong>Cloud LLM demo:</strong> add one provider key such as OpenAI or Anthropic.</li>
+                  <li><strong>Security demo:</strong> add AI Guard DAS/API or Proxy keys, then enable Zscaler AI Guard on the chat page.</li>
+                  <li><strong>Agent/tool demo:</strong> the bundled MCP server works immediately; only Brave Search needs an optional API key.</li>
+                </ul>
+              </div>
+              <div class="setup-panel">
+                <h3>Recommended first test</h3>
+                <p>Send <code>Say hello in one sentence.</code> with Ollama or any configured cloud provider. Then open the Demo Wizard to switch between baseline, AI Guard, and agentic flows.</p>
+                <div class="setup-actions-row">
+                  <button id="setupWizardOpenSettingsBtn" type="button">Open Local Settings</button>
+                  <button id="setupWizardOpenDemoBtn" class="secondary" type="button">Open Demo Wizard</button>
+                </div>
+              </div>
+            </div>
+            <h3 class="wizard-section-title">Configuration Checklist</h3>
+            <div id="setupWizardChecklist" class="setup-checklist">
+              <div class="setup-item">
+                <div class="setup-item-head">
+                  <div class="setup-item-title">Loading settings...</div>
+                  <span class="setup-status info">checking</span>
+                </div>
+                <p class="setup-item-desc">The wizard is reading your local settings state.</p>
+              </div>
+            </div>
+            <div class="wizard-note">
+              Settings are stored in local <code>.env.local</code>. Secrets are masked in the UI after saving, so a masked value means the app detected that the key is configured.
+            </div>
+          </div>
+          <div class="explain-foot">
+            <label class="setup-checkbox">
+              <input id="setupWizardDontShowCheckbox" type="checkbox" checked />
+              Do not auto-open this wizard again in this browser
+            </label>
+            <button id="setupWizardDoneBtn" class="secondary" type="button">Done</button>
           </div>
         </div>
       </div>
@@ -4875,6 +5063,14 @@ HTML = f"""<!doctype html>
       const providerSelectEl = document.getElementById("providerSelect");
       const providerTestPillEl = document.getElementById("providerTestPill");
       const currentModelTextEl = document.getElementById("currentModelText");
+      const setupWizardBtnEl = document.getElementById("setupWizardBtn");
+      const setupWizardModalEl = document.getElementById("setupWizardModal");
+      const setupWizardCloseBtnEl = document.getElementById("setupWizardCloseBtn");
+      const setupWizardDoneBtnEl = document.getElementById("setupWizardDoneBtn");
+      const setupWizardOpenSettingsBtnEl = document.getElementById("setupWizardOpenSettingsBtn");
+      const setupWizardOpenDemoBtnEl = document.getElementById("setupWizardOpenDemoBtn");
+      const setupWizardDontShowCheckboxEl = document.getElementById("setupWizardDontShowCheckbox");
+      const setupWizardChecklistEl = document.getElementById("setupWizardChecklist");
       const demoWizardBtnEl = document.getElementById("demoWizardBtn");
       const demoWizardModalEl = document.getElementById("demoWizardModal");
       const demoWizardCloseBtnEl = document.getElementById("demoWizardCloseBtn");
@@ -4905,6 +5101,14 @@ HTML = f"""<!doctype html>
       const chatModeSingleBtnEl = document.getElementById("chatModeSingleBtn");
       const chatModeMultiBtnEl = document.getElementById("chatModeMultiBtn");
       const multiTurnToggleEl = document.getElementById("multiTurnToggle");
+      const responseModeWrapEl = document.getElementById("responseModeWrap");
+      const responseModeJsonBtnEl = document.getElementById("responseModeJsonBtn");
+      const responseModeStreamBtnEl = document.getElementById("responseModeStreamBtn");
+      const responseModeSseBtnEl = document.getElementById("responseModeSseBtn");
+      const responseModeWsBtnEl = document.getElementById("responseModeWsBtn");
+      const responseModeProtobufBtnEl = document.getElementById("responseModeProtobufBtn");
+      const responseModeTraceBtnEl = document.getElementById("responseModeTraceBtn");
+      const responseModeInputEl = document.getElementById("responseModeInput");
       const toolsToggleWrapEl = document.getElementById("toolsToggleWrap");
       const toolsToggleEl = document.getElementById("toolsToggle");
       const localTasksToggleWrapEl = document.getElementById("localTasksToggleWrap");
@@ -5242,6 +5446,56 @@ HTML = f"""<!doctype html>
       let settingsGroupCollapsed = {{}};
       let settingsSecretMask = "********";
       let settingsSecretKeySet = new Set();
+      const SETUP_WIZARD_SEEN_LS_KEY = "ai_runtime_demo_setup_wizard_seen_v1";
+      const SETUP_WIZARD_ITEMS = [
+        {{
+          title: "Local Ollama",
+          description: "Best first smoke test. No cloud key is needed, but Ollama must be running and the selected model must be installed.",
+          keys: ["OLLAMA_URL", "OLLAMA_MODEL"],
+          status: "info",
+          configuredWhen: "always",
+          note: "Run: ollama pull <model>"
+        }},
+        {{
+          title: "OpenAI direct",
+          description: "Needed when LLM is set to OpenAI and AI Guard is off or API/DAS mode is used.",
+          keys: ["OPENAI_API_KEY", "OPENAI_MODEL"],
+          requiredAny: ["OPENAI_API_KEY"]
+        }},
+        {{
+          title: "Anthropic direct",
+          description: "Needed when LLM is set to Anthropic and AI Guard is off or API/DAS mode is used.",
+          keys: ["ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"],
+          requiredAny: ["ANTHROPIC_API_KEY"]
+        }},
+        {{
+          title: "Zscaler AI Guard API/DAS",
+          description: "Use this for prompt/response policy checks while the app still calls the selected provider directly.",
+          keys: ["ZS_GUARDRAILS_API_KEY", "ZS_GUARDRAILS_URL"],
+          requiredAny: ["ZS_GUARDRAILS_API_KEY"]
+        }},
+        {{
+          title: "Zscaler AI Guard Proxy",
+          description: "Use this for inline provider traffic through AI Guard Proxy. Add at least one provider-specific proxy key.",
+          keys: ["ZS_PROXY_BASE_URL", "OPENAI_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY"],
+          requiredAny: ["OPENAI_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY", "GEMINI_ZS_PROXY_API_KEY", "PERPLEXITY_ZS_PROXY_API_KEY", "XAI_ZS_PROXY_API_KEY", "BEDROCK_INVOKE_ZS_PROXY_API_KEY", "VERTEX_ZS_PROXY_API_KEY"]
+        }},
+        {{
+          title: "MCP and web tools",
+          description: "The bundled MCP server works without setup for local utilities, DuckDuckGo, Wikipedia, arXiv, and simulated calendar tools. Brave Search is optional.",
+          keys: ["BRAVE_SEARCH_API_KEY", "MCP_SERVER_COMMAND"],
+          status: "info",
+          configuredWhen: "always",
+          note: "Brave Search only needs BRAVE_SEARCH_API_KEY if you specifically use brave_search."
+        }},
+        {{
+          title: "Other cloud providers",
+          description: "Optional provider-specific keys for Gemini, Perplexity, xAI, Azure AI Foundry, AWS Bedrock, Kong, or LiteLLM.",
+          keys: ["GEMINI_API_KEY", "PERPLEXITY_API_KEY", "XAI_API_KEY", "AZURE_AI_FOUNDRY_API_KEY", "AWS_REGION"],
+          status: "info",
+          configuredWhen: "any"
+        }}
+      ];
       const SETTINGS_CUSTOM_MODELS_LS_KEY = "ai_runtime_demo_custom_models_v1";
       const SETTINGS_GROUP_COLLAPSE_LS_KEY = "ai_runtime_demo_settings_groups_collapsed_v1";
       const providerModelMap = {{
@@ -6275,6 +6529,183 @@ HTML = f"""<!doctype html>
         return _normalizeZscalerDasMode(zscalerDasModeInputEl?.value || "resolve");
       }}
 
+      const RESPONSE_MODE_META = {{
+        standard: {{
+          label: "JSON",
+          detail: "Standard request/response JSON. Supported by every provider path in this demo."
+        }},
+        stream: {{
+          label: "Stream",
+          detail: "Incremental response delivery demo. Enabled only for direct, non-agentic provider paths where full-response guardrail inspection is not required."
+        }},
+        sse: {{
+          label: "SSE",
+          detail: "Server-Sent Events style delivery demo. Enabled only for direct, non-agentic provider paths where full-response guardrail inspection is not required."
+        }},
+        websocket: {{
+          label: "WebSocket",
+          detail: "Real browser-to-app WebSocket request/response transport. Provider and guardrail calls still use the configured app-side path."
+        }},
+        protobuf: {{
+          label: "Protobuf",
+          detail: "Real binary protobuf envelope between browser and app. Provider and guardrail calls still use the configured app-side path."
+        }},
+        protocol_trace: {{
+          label: "Trace",
+          detail: "Educational trace mode. Uses the normal supported request path and annotates the trace with protocol assumptions."
+        }}
+      }};
+
+      const RESPONSE_STREAM_PROVIDER_SET = new Set([
+        "anthropic",
+        "azure_foundry",
+        "gemini",
+        "kong",
+        "litellm",
+        "ollama",
+        "openai",
+        "perplexity",
+        "vertex",
+        "xai"
+      ]);
+
+      const RESPONSE_MODEL_KEY_BY_PROVIDER = {{
+        anthropic: "ANTHROPIC_MODEL",
+        azure_foundry: "AZURE_AI_FOUNDRY_MODEL",
+        bedrock_invoke: "BEDROCK_INVOKE_MODEL",
+        gemini: "GEMINI_MODEL",
+        kong: "KONG_MODEL",
+        litellm: "LITELLM_MODEL",
+        ollama: "OLLAMA_MODEL",
+        openai: "OPENAI_MODEL",
+        perplexity: "PERPLEXITY_MODEL",
+        vertex: "VERTEX_MODEL",
+        xai: "XAI_MODEL"
+      }};
+
+      const RESPONSE_STREAM_MODEL_BLOCKLIST = {{
+        // These paths are provider/runtime disabled today; keeping them here makes future
+        // model-specific exceptions explicit instead of burying them in UI code.
+        bedrock_agent: [/./],
+        bedrock_invoke: [/./]
+      }};
+
+      function currentConfiguredModelForProvider(provider) {{
+        const providerId = String(provider || providerSelectEl.value || "ollama").toLowerCase();
+        const key = RESPONSE_MODEL_KEY_BY_PROVIDER[providerId];
+        const fromSettings = key ? String(settingsValues?.[key] || "").trim() : "";
+        const observed = String(lastObservedModelMap?.[providerId] || "").trim();
+        const fallback = String(providerModelMap?.[providerId] || "").trim();
+        return fromSettings || observed || fallback;
+      }}
+
+      function _responseModelSupport(provider, mode) {{
+        const providerId = String(provider || "ollama").toLowerCase();
+        const normalized = String(mode || "standard").toLowerCase();
+        if (!["stream", "sse"].includes(normalized)) return {{ ok: true, reason: "" }};
+        const selectedModel = currentConfiguredModelForProvider(providerId);
+        const blockedPatterns = RESPONSE_STREAM_MODEL_BLOCKLIST[providerId] || [];
+        const matched = blockedPatterns.some((pattern) => pattern.test(String(selectedModel || "")));
+        if (matched) {{
+          return {{
+            ok: false,
+            reason: `${{RESPONSE_MODE_META[normalized].label}} is not enabled for selected model "${{selectedModel || "(unset)"}}".`
+          }};
+        }}
+        return {{ ok: true, reason: "" }};
+      }}
+
+      function currentResponseMode() {{
+        const raw = String(responseModeInputEl?.value || "standard").trim().toLowerCase();
+        if (["standard", "stream", "sse", "websocket", "protobuf", "protocol_trace"].includes(raw)) return raw;
+        return "standard";
+      }}
+
+      function _responseModeSupport(mode) {{
+        const provider = String(providerSelectEl.value || "ollama").toLowerCase();
+        const agenticOn = !!agenticToggleEl.checked;
+        const multiAgentOn = !!multiAgentToggleEl.checked;
+        const guardOn = !!guardrailsToggleEl.checked;
+        const proxyOn = guardOn && !!zscalerProxyModeToggleEl.checked;
+        const normalized = String(mode || "standard").toLowerCase();
+        if (normalized === "standard") {{
+          return {{ ok: true, reason: RESPONSE_MODE_META.standard.detail }};
+        }}
+        if (normalized === "protocol_trace") {{
+          return {{ ok: true, reason: RESPONSE_MODE_META.protocol_trace.detail }};
+        }}
+        if (normalized === "websocket") {{
+          return {{ ok: true, reason: RESPONSE_MODE_META.websocket.detail }};
+        }}
+        if (normalized === "protobuf") {{
+          return {{ ok: true, reason: RESPONSE_MODE_META.protobuf.detail }};
+        }}
+        if (normalized === "stream" || normalized === "sse") {{
+          if (!RESPONSE_STREAM_PROVIDER_SET.has(provider)) {{
+            return {{ ok: false, reason: `${{RESPONSE_MODE_META[normalized].label}} is not enabled for ${{providerSelectEl.options[providerSelectEl.selectedIndex]?.text || provider}} in this demo.` }};
+          }}
+          if (agenticOn || multiAgentOn) {{
+            return {{ ok: false, reason: `${{RESPONSE_MODE_META[normalized].label}} is disabled for Agentic/Multi-Agent runs because agent handoffs and tool calls complete before the final answer is available.` }};
+          }}
+          if (guardOn && !proxyOn) {{
+            return {{ ok: false, reason: `${{RESPONSE_MODE_META[normalized].label}} is disabled with API/DAS mode because the app must scan the completed response before returning it.` }};
+          }}
+          if (provider === "bedrock_agent" || provider === "bedrock_invoke") {{
+            return {{ ok: false, reason: `${{RESPONSE_MODE_META[normalized].label}} is not enabled for this Bedrock path in the demo.` }};
+          }}
+          const modelSupport = _responseModelSupport(provider, normalized);
+          if (!modelSupport.ok) return modelSupport;
+          return {{ ok: true, reason: RESPONSE_MODE_META[normalized].detail }};
+        }}
+        return {{ ok: false, reason: "Unsupported response mode." }};
+      }}
+
+      function setResponseMode(mode) {{
+        const normalized = ["standard", "stream", "sse", "websocket", "protobuf", "protocol_trace"].includes(String(mode || "").toLowerCase())
+          ? String(mode || "").toLowerCase()
+          : "standard";
+        const support = _responseModeSupport(normalized);
+        const finalMode = support.ok ? normalized : "standard";
+        if (responseModeInputEl) responseModeInputEl.value = finalMode;
+        responseModeJsonBtnEl.classList.toggle("active", finalMode === "standard");
+        responseModeStreamBtnEl.classList.toggle("active", finalMode === "stream");
+        responseModeSseBtnEl.classList.toggle("active", finalMode === "sse");
+        responseModeWsBtnEl.classList.toggle("active", finalMode === "websocket");
+        responseModeProtobufBtnEl.classList.toggle("active", finalMode === "protobuf");
+        responseModeTraceBtnEl.classList.toggle("active", finalMode === "protocol_trace");
+        syncResponseModeState();
+      }}
+
+      function syncResponseModeState() {{
+        const buttons = [
+          ["standard", responseModeJsonBtnEl],
+          ["stream", responseModeStreamBtnEl],
+          ["sse", responseModeSseBtnEl],
+          ["websocket", responseModeWsBtnEl],
+          ["protobuf", responseModeProtobufBtnEl],
+          ["protocol_trace", responseModeTraceBtnEl]
+        ];
+        let activeMode = currentResponseMode();
+        for (const [mode, btn] of buttons) {{
+          const support = _responseModeSupport(mode);
+          btn.disabled = !support.ok;
+          btn.title = support.reason || RESPONSE_MODE_META[mode]?.detail || "";
+          btn.classList.toggle("disabled", !support.ok);
+          if (mode === activeMode && !support.ok) {{
+            activeMode = "standard";
+            if (responseModeInputEl) responseModeInputEl.value = activeMode;
+          }}
+        }}
+        responseModeJsonBtnEl.classList.toggle("active", activeMode === "standard");
+        responseModeStreamBtnEl.classList.toggle("active", activeMode === "stream");
+        responseModeSseBtnEl.classList.toggle("active", activeMode === "sse");
+        responseModeWsBtnEl.classList.toggle("active", activeMode === "websocket");
+        responseModeProtobufBtnEl.classList.toggle("active", activeMode === "protobuf");
+        responseModeTraceBtnEl.classList.toggle("active", activeMode === "protocol_trace");
+        const activeMeta = RESPONSE_MODE_META[activeMode] || RESPONSE_MODE_META.standard;
+        responseModeWrapEl.title = `${{activeMeta.label}}: ${{activeMeta.detail}} Unsupported options are disabled for the current provider/mode.`;
+      }}
+
       function setZscalerDasMode(mode) {{
         const normalized = _normalizeZscalerDasMode(mode);
         if (zscalerDasModeInputEl) zscalerDasModeInputEl.value = normalized;
@@ -6376,6 +6807,8 @@ HTML = f"""<!doctype html>
         }} else {{
           details.push("Guardrails are off");
         }}
+        const responseMeta = RESPONSE_MODE_META[currentResponseMode()] || RESPONSE_MODE_META.standard;
+        details.push(`Response mode: ${{responseMeta.label}}`);
         demoPathHintEl.innerHTML = `
           <span class="hint-icon">i</span>
           <span><strong>${{escapeHtml(title)}}.</strong> ${{escapeHtml(path.join(" -> "))}}. ${{escapeHtml(details.join(" · "))}}.</span>
@@ -7559,6 +7992,20 @@ HTML = f"""<!doctype html>
           }});
         }}
 
+        const protocolDetails = {{
+          selected_mode: entry?.responseMode || "standard",
+          browser_endpoint: entry?.requestUrl || "/chat",
+          response_content_type: entry?.responseContentType || "application/json",
+          provider_transport: "Provider SDK/API path remains the configured HTTP/JSON provider call unless provider-native streaming is added.",
+          compatibility: body?.protocol?.note || (RESPONSE_MODE_META[entry?.responseMode || "standard"] || RESPONSE_MODE_META.standard).detail,
+        }};
+        pushSection({{
+          title: "Protocol Details",
+          kind: "protocol",
+          source: "browser",
+          content: pretty(protocolDetails),
+        }});
+
         traceSteps.forEach((step, idx) => {{
           const stepName = String(step?.name || `Step ${{idx + 1}}`);
           const payload = (step?.request && typeof step.request === "object") ? step.request.payload : null;
@@ -7615,6 +8062,37 @@ HTML = f"""<!doctype html>
           }}
         }});
 
+        const finalResponse = String(body?.response || body?.error || body?.details || "").trim();
+        if (finalResponse) {{
+          pushSection({{
+            title: body?.error ? "App / Provider Error Response" : "Final Model Response",
+            kind: "assistant",
+            source: "app_response",
+            content: finalResponse,
+          }});
+        }}
+
+        traceSteps.forEach((step, idx) => {{
+          const stepName = String(step?.name || `Step ${{idx + 1}}`);
+          const resBody = step?.response?.body;
+          const candidate = _flattenTextBlocks(
+            resBody?.text ||
+            resBody?.response ||
+            resBody?.output ||
+            resBody?.message?.content ||
+            resBody?.choices?.[0]?.message?.content ||
+            resBody?.candidates?.[0]?.content?.parts
+          );
+          if (candidate.trim()) {{
+            pushSection({{
+              title: `${{stepName}}: Raw Response Text`,
+              kind: "assistant",
+              source: "provider_trace",
+              content: candidate.trim(),
+            }});
+          }}
+        }});
+
         return sections;
       }}
 
@@ -7630,6 +8108,7 @@ HTML = f"""<!doctype html>
           const kind = String(s.kind || "").toLowerCase();
           if (kind === "system") badge = '<span class="badge badge-ai">System</span>';
           else if (kind === "tool") badge = '<span class="badge badge-agent">Tool</span>';
+          else if (kind === "protocol") badge = '<span class="badge badge-ai">Protocol</span>';
           else if (kind === "assistant") badge = '<span class="badge badge-ollama">Output</span>';
           else if (kind === "agent") badge = '<span class="badge badge-agent">Agent</span>';
           return `
@@ -9610,6 +10089,105 @@ HTML = f"""<!doctype html>
         demoWizardModalEl.setAttribute("aria-hidden", "true");
       }}
 
+      function _setupValueConfigured(values, key) {{
+        const value = String((values || {{}})[key] || "").trim();
+        return value.length > 0;
+      }}
+
+      function _setupItemState(item, values) {{
+        if (item.configuredWhen === "always") {{
+          return {{ cls: item.status || "info", label: item.status === "ok" ? "configured" : "ready" }};
+        }}
+        if (item.configuredWhen === "any") {{
+          const anyConfigured = (item.keys || []).some((key) => _setupValueConfigured(values, key));
+          return anyConfigured
+            ? {{ cls: "ok", label: "some configured" }}
+            : {{ cls: "info", label: "optional" }};
+        }}
+        const required = item.requiredAny || [];
+        const configured = required.some((key) => _setupValueConfigured(values, key));
+        return configured
+          ? {{ cls: "ok", label: "configured" }}
+          : {{ cls: "warn", label: "missing key" }};
+      }}
+
+      function renderSetupWizardChecklist(data) {{
+        const values = (data && data.values && typeof data.values === "object") ? data.values : {{}};
+        setupWizardChecklistEl.innerHTML = SETUP_WIZARD_ITEMS.map((item) => {{
+          const state = _setupItemState(item, values);
+          const keyHtml = (item.keys || []).map((key) => `<span class="setup-key">${{escapeHtml(key)}}</span>`).join("");
+          const note = item.note ? `<div class="hint">${{escapeHtml(item.note)}}</div>` : "";
+          return `
+            <div class="setup-item">
+              <div class="setup-item-head">
+                <div class="setup-item-title">${{escapeHtml(item.title)}}</div>
+                <span class="setup-status ${{escapeHtml(state.cls)}}">${{escapeHtml(state.label)}}</span>
+              </div>
+              <p class="setup-item-desc">${{escapeHtml(item.description)}}</p>
+              <div class="setup-keys">${{keyHtml}}</div>
+              ${{note}}
+            </div>
+          `;
+        }}).join("");
+      }}
+
+      async function refreshSetupWizardChecklist() {{
+        setupWizardChecklistEl.innerHTML = `
+          <div class="setup-item">
+            <div class="setup-item-head">
+              <div class="setup-item-title">Loading settings...</div>
+              <span class="setup-status info">checking</span>
+            </div>
+            <p class="setup-item-desc">The wizard is reading your local settings state.</p>
+          </div>
+        `;
+        try {{
+          const res = await fetch("/settings");
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to load settings");
+          renderSetupWizardChecklist(data);
+        }} catch (err) {{
+          setupWizardChecklistEl.innerHTML = `
+            <div class="setup-item">
+              <div class="setup-item-head">
+                <div class="setup-item-title">Settings unavailable</div>
+                <span class="setup-status warn">check failed</span>
+              </div>
+              <p class="setup-item-desc">${{escapeHtml(err.message || String(err))}}</p>
+            </div>
+          `;
+        }}
+      }}
+
+      function openSetupWizardModal() {{
+        setupWizardModalEl.classList.add("open");
+        setupWizardModalEl.setAttribute("aria-hidden", "false");
+        refreshSetupWizardChecklist();
+      }}
+
+      function closeSetupWizardModal(markSeen = true) {{
+        setupWizardModalEl.classList.remove("open");
+        setupWizardModalEl.setAttribute("aria-hidden", "true");
+        if (markSeen && setupWizardDontShowCheckboxEl?.checked) {{
+          try {{ window.localStorage.setItem(SETUP_WIZARD_SEEN_LS_KEY, "1"); }} catch {{}}
+        }}
+      }}
+
+      function maybeAutoOpenSetupWizard() {{
+        try {{
+          if (window.localStorage.getItem(SETUP_WIZARD_SEEN_LS_KEY)) return;
+        }} catch {{}}
+        window.setTimeout(() => {{
+          if (
+            !setupWizardModalEl.classList.contains("open") &&
+            !settingsModalEl.classList.contains("open") &&
+            !demoWizardModalEl.classList.contains("open")
+          ) {{
+            openSetupWizardModal();
+          }}
+        }}, 700);
+      }}
+
       function _setProviderForWizard(providerId) {{
         if (!providerId || !providerSelectEl) return;
         const wanted = String(providerId || "").toLowerCase();
@@ -10561,6 +11139,7 @@ HTML = f"""<!doctype html>
             `local_tasks_enabled = ${{localTasksOn}}`,
             `tool_permission_profile = "${{currentToolPermissionProfile()}}"`,
             `execution_topology = "${{currentExecutionTopology()}}"`,
+            `response_mode = "${{currentResponseMode()}}"`,
           ].join("\\n")
         }});
 
@@ -10729,6 +11308,7 @@ HTML = f"""<!doctype html>
         const topologyState = topologyMode === "isolated_per_role"
           ? "Per-Role Workers"
           : (topologyMode === "isolated_workers" ? "Isolated Workers" : "Single Process");
+        const responseModeLabel = (RESPONSE_MODE_META[currentResponseMode()] || RESPONSE_MODE_META.standard).label;
 
         if (codeStatusEl) {{
           codeStatusEl.textContent = `Auto mode: showing ${{
@@ -10736,7 +11316,7 @@ HTML = f"""<!doctype html>
             }} for ${{providerLabel}} in ${{
               currentChatMode() === "multi" ? "Multi-turn Chat" : "Single-turn Chat"
             }} mode | Zscaler AI Guard: ${{zMode}} | Execution: ${{execMode}} | Tools/MCP: ${{toolsState}} | Local Tasks: ${{localTasksState}}`
-            + ` | Topology: ${{topologyState}}`;
+            + ` | Topology: ${{topologyState}} | Response: ${{responseModeLabel}}`;
         }}
 
         if (codeAutoBtn) codeAutoBtn.classList.toggle("secondary", codeViewMode !== "auto");
@@ -10764,9 +11344,10 @@ HTML = f"""<!doctype html>
         item.className = "log-item";
 
         const now = new Date().toLocaleTimeString();
+        const requestUrl = entry.requestUrl || `${{window.location.origin}}/chat`;
         const clientReq = {{
           method: "POST",
-          url: `${{window.location.origin}}/chat`,
+          url: requestUrl.startsWith("http") ? requestUrl : `${{window.location.origin}}${{requestUrl}}`,
           headers: {{
             "Content-Type": "application/json",
             ...(entry.demoUser ? {{ "X-Demo-User": entry.demoUser }} : {{}})
@@ -10775,6 +11356,7 @@ HTML = f"""<!doctype html>
             prompt: entry.prompt,
             provider: entry.provider || "ollama",
             chat_mode: entry.chatMode || "single",
+            response_mode: entry.responseMode || "standard",
             conversation_id: entry.conversationId || clientConversationId,
             guardrails_enabled: !!entry.guardrailsEnabled,
             agentic_enabled: !!entry.agenticEnabled,
@@ -10918,6 +11500,311 @@ HTML = f"""<!doctype html>
         renderCodeViewer();
       }}
 
+      function chatEndpointForResponseMode(mode) {{
+        const normalized = String(mode || "standard").toLowerCase();
+        if (normalized === "stream") return "/chat/stream";
+        if (normalized === "sse") return "/chat/sse";
+        if (normalized === "websocket") {{
+          const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+          return `${{scheme}}//${{window.location.host}}/chat/ws`;
+        }}
+        if (normalized === "protobuf") return "/chat/protobuf";
+        return "/chat";
+      }}
+
+      function _pbEncodeVarint(value) {{
+        let remaining = Math.max(0, Number(value) || 0);
+        const out = [];
+        while (remaining > 127) {{
+          out.push((remaining & 0x7f) | 0x80);
+          remaining = Math.floor(remaining / 128);
+        }}
+        out.push(remaining & 0x7f);
+        return out;
+      }}
+
+      function _pbDecodeVarint(bytes, start = 0) {{
+        let result = 0;
+        let shift = 0;
+        let offset = start;
+        while (offset < bytes.length) {{
+          const byte = bytes[offset++];
+          result += (byte & 0x7f) * Math.pow(2, shift);
+          if (!(byte & 0x80)) return [result, offset];
+          shift += 7;
+          if (shift > 63) throw new Error("protobuf varint is too large");
+        }}
+        throw new Error("truncated protobuf varint");
+      }}
+
+      function encodeProtobufJsonEnvelope(payload) {{
+        const jsonBytes = new TextEncoder().encode(JSON.stringify(payload || {{}}));
+        const lenBytes = _pbEncodeVarint(jsonBytes.length);
+        const out = new Uint8Array(1 + lenBytes.length + jsonBytes.length);
+        out[0] = 0x0a;
+        out.set(lenBytes, 1);
+        out.set(jsonBytes, 1 + lenBytes.length);
+        return out;
+      }}
+
+      function decodeProtobufJsonEnvelope(arrayBuffer) {{
+        const bytes = new Uint8Array(arrayBuffer || new ArrayBuffer(0));
+        let offset = 0;
+        while (offset < bytes.length) {{
+          const keyResult = _pbDecodeVarint(bytes, offset);
+          const key = keyResult[0];
+          offset = keyResult[1];
+          const fieldNumber = key >> 3;
+          const wireType = key & 0x07;
+          if (wireType !== 2) throw new Error("unsupported protobuf wire type");
+          const lenResult = _pbDecodeVarint(bytes, offset);
+          const size = lenResult[0];
+          offset = lenResult[1];
+          if (offset + size > bytes.length) throw new Error("truncated protobuf field");
+          const value = bytes.slice(offset, offset + size);
+          offset += size;
+          if (fieldNumber === 1) {{
+            return JSON.parse(new TextDecoder().decode(value) || "{{}}");
+          }}
+        }}
+        throw new Error("protobuf json field is missing");
+      }}
+
+      function _summarizeProtocolEvents(events) {{
+        return (Array.isArray(events) ? events : []).map((evt) => {{
+          const safe = {{ event: String(evt?.event || "message") }};
+          const source = evt?.data && typeof evt.data === "object" ? evt.data : evt;
+          if (evt?.data != null && typeof evt.data !== "object") safe.data = String(evt.data);
+          if (source?.mode != null) safe.mode = source.mode;
+          if (source?.transport != null) safe.transport = source.transport;
+          if (source?.delta != null) safe.delta = source.delta;
+          if (source?.error != null && typeof source.error !== "object") safe.error = String(source.error);
+          const eventPayload = source?.payload;
+          if (eventPayload && typeof eventPayload === "object") {{
+            safe.payload_summary = {{
+              has_response: eventPayload.response != null,
+              has_error: eventPayload.error != null,
+              trace_id: eventPayload.trace_id || "",
+              status: eventPayload.status || eventPayload.status_code || "",
+            }};
+          }}
+          return safe;
+        }});
+      }}
+
+      function _parseSsePayload(text) {{
+        const events = [];
+        let currentEvent = "message";
+        let dataLines = [];
+        const flush = () => {{
+          if (!dataLines.length) return;
+          const raw = dataLines.join("\\n");
+          let parsed = raw;
+          try {{ parsed = JSON.parse(raw); }} catch {{}}
+          events.push({{ event: currentEvent, data: parsed }});
+          currentEvent = "message";
+          dataLines = [];
+        }};
+        String(text || "").split(/\\r?\\n/).forEach((line) => {{
+          if (!line.trim()) {{
+            flush();
+            return;
+          }}
+          if (line.startsWith("event:")) {{
+            currentEvent = line.slice("event:".length).trim() || "message";
+          }} else if (line.startsWith("data:")) {{
+            dataLines.push(line.slice("data:".length).trimStart());
+          }}
+        }});
+        flush();
+        const done = [...events].reverse().find((evt) => evt.event === "done" && evt.data && typeof evt.data === "object");
+        const error = [...events].reverse().find((evt) => evt.event === "error" && evt.data && typeof evt.data === "object");
+        const payload = (done?.data?.payload && typeof done.data.payload === "object")
+          ? {{ ...done.data.payload }}
+          : (error?.data?.payload && typeof error.data.payload === "object")
+            ? {{ ...error.data.payload }}
+            : {{}};
+        payload.protocol_events = _summarizeProtocolEvents(events);
+        return payload;
+      }}
+
+      function _parseNdjsonPayload(text) {{
+        const events = [];
+        String(text || "").split(/\\r?\\n/).forEach((line) => {{
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          try {{
+            events.push(JSON.parse(trimmed));
+          }} catch {{
+            events.push({{ event: "raw", data: trimmed }});
+          }}
+        }});
+        const done = [...events].reverse().find((evt) => evt.event === "done" && evt.payload && typeof evt.payload === "object");
+        const error = [...events].reverse().find((evt) => evt.event === "error" && evt.payload && typeof evt.payload === "object");
+        const payload = done?.payload && typeof done.payload === "object"
+          ? {{ ...done.payload }}
+          : (error?.payload && typeof error.payload === "object")
+            ? {{ ...error.payload }}
+            : {{}};
+        payload.protocol_events = _summarizeProtocolEvents(events);
+        return payload;
+      }}
+
+      function _payloadFromTransportEvents(events) {{
+        const list = Array.isArray(events) ? events : [];
+        const findPayload = (eventName) => {{
+          const evt = [...list].reverse().find((item) => item?.event === eventName);
+          if (!evt || typeof evt !== "object") return null;
+          const source = evt.data && typeof evt.data === "object" ? evt.data : evt;
+          return source.payload && typeof source.payload === "object" ? {{ ...source.payload }} : null;
+        }};
+        const payload = findPayload("done") || findPayload("error") || {{}};
+        payload.protocol_events = _summarizeProtocolEvents(list);
+        return payload;
+      }}
+
+      function _parseSseBlock(block) {{
+        let currentEvent = "message";
+        const dataLines = [];
+        String(block || "").split(/\\r?\\n/).forEach((line) => {{
+          if (line.startsWith("event:")) {{
+            currentEvent = line.slice("event:".length).trim() || "message";
+          }} else if (line.startsWith("data:")) {{
+            dataLines.push(line.slice("data:".length).trimStart());
+          }}
+        }});
+        const raw = dataLines.join("\\n");
+        let parsed = raw;
+        try {{ parsed = JSON.parse(raw); }} catch {{}}
+        return {{ event: currentEvent, data: parsed }};
+      }}
+
+      async function _readStreamingTransport(res, mode, onProtocolEvent) {{
+        const normalized = String(mode || "standard").toLowerCase();
+        if (!res.body || !res.body.getReader) {{
+          return normalized === "sse"
+            ? _parseSsePayload(await res.text())
+            : _parseNdjsonPayload(await res.text());
+        }}
+        const events = [];
+        const decoder = new TextDecoder();
+        const reader = res.body.getReader();
+        let buffer = "";
+        const emit = (evt) => {{
+          if (!evt || typeof evt !== "object") return;
+          events.push(evt);
+          if (typeof onProtocolEvent === "function") {{
+            try {{ onProtocolEvent(evt); }} catch {{}}
+          }}
+        }};
+        const consumeNdjson = (final = false) => {{
+          const parts = buffer.split(/\\r?\\n/);
+          buffer = final ? "" : (parts.pop() || "");
+          for (const line of parts) {{
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {{
+              emit(JSON.parse(trimmed));
+            }} catch {{
+              emit({{ event: "raw", data: trimmed }});
+            }}
+          }}
+          if (final && buffer.trim()) {{
+            try {{ emit(JSON.parse(buffer.trim())); }} catch {{ emit({{ event: "raw", data: buffer.trim() }}); }}
+          }}
+        }};
+        const consumeSse = (final = false) => {{
+          buffer = buffer.replace(/\\r\\n/g, "\\n");
+          let idx = buffer.indexOf("\\n\\n");
+          while (idx >= 0) {{
+            const block = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            if (block.trim()) emit(_parseSseBlock(block));
+            idx = buffer.indexOf("\\n\\n");
+          }}
+          if (final && buffer.trim()) {{
+            emit(_parseSseBlock(buffer));
+            buffer = "";
+          }}
+        }};
+        while (true) {{
+          const {{ value, done }} = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, {{ stream: true }});
+          if (normalized === "sse") consumeSse(false);
+          else consumeNdjson(false);
+        }}
+        buffer += decoder.decode();
+        if (normalized === "sse") consumeSse(true);
+        else consumeNdjson(true);
+        return _payloadFromTransportEvents(events);
+      }}
+
+      async function parseChatTransportResponse(res, mode, onProtocolEvent) {{
+        const normalized = String(mode || "standard").toLowerCase();
+        const contentType = String(res.headers.get("Content-Type") || "");
+        if (normalized === "sse" || normalized === "stream") {{
+          return await _readStreamingTransport(res, normalized, onProtocolEvent);
+        }}
+        if (normalized === "protobuf") {{
+          const payload = decodeProtobufJsonEnvelope(await res.arrayBuffer());
+          if (payload && typeof payload === "object") {{
+            payload.protocol_events = [
+              {{ event: "protobuf_request", transport: "application/x-protobuf" }},
+              {{ event: "protobuf_response", transport: contentType || "application/x-protobuf" }}
+            ];
+          }}
+          return payload;
+        }}
+        if (contentType.includes("application/json")) {{
+          return await res.json();
+        }}
+        const text = await res.text();
+        try {{ return JSON.parse(text); }} catch {{
+          return {{ response: text, protocol_events: [{{ event: "raw", data: text }}] }};
+        }}
+      }}
+
+      function sendWebSocketChat(requestUrl, requestPayload) {{
+        return new Promise((resolve, reject) => {{
+          let settled = false;
+          let socket;
+          const finish = (fn, value) => {{
+            if (settled) return;
+            settled = true;
+            try {{ if (socket && socket.readyState === WebSocket.OPEN) socket.close(); }} catch {{}}
+            fn(value);
+          }};
+          try {{
+            socket = new WebSocket(requestUrl);
+          }} catch (err) {{
+            reject(err);
+            return;
+          }}
+          const timer = setTimeout(() => finish(reject, new Error("WebSocket request timed out")), CHAT_REQUEST_TIMEOUT_MS);
+          socket.addEventListener("open", () => {{
+            socket.send(JSON.stringify(requestPayload));
+          }});
+          socket.addEventListener("message", (event) => {{
+            clearTimeout(timer);
+            try {{
+              const payload = JSON.parse(String(event.data || "{{}}"));
+              payload.protocol_events = [
+                {{ event: "websocket_open", transport: "websocket" }},
+                {{ event: "websocket_message", payload_summary: {{ has_response: payload.response != null, has_error: payload.error != null, trace_id: payload.trace_id || "" }} }}
+              ];
+              finish(resolve, payload);
+            }} catch (err) {{
+              finish(reject, err);
+            }}
+          }});
+          socket.addEventListener("error", () => {{
+            clearTimeout(timer);
+            finish(reject, new Error("WebSocket request failed"));
+          }});
+        }});
+      }}
+
       async function sendPrompt() {{
         const prompt = promptEl.value.trim();
         if (!prompt) {{
@@ -10959,6 +11846,7 @@ HTML = f"""<!doctype html>
             prompt,
             provider: providerSelectEl.value,
             chat_mode: currentChatMode(),
+            response_mode: currentResponseMode(),
             messages: pendingMessages || undefined,
             conversation_id: clientConversationId,
             guardrails_enabled: guardrailsToggleEl.checked,
@@ -10973,19 +11861,59 @@ HTML = f"""<!doctype html>
             execution_topology: currentExecutionTopology(),
             attachments: outboundAttachments,
           }};
-          const requestController = new AbortController();
-          requestTimeout = setTimeout(() => requestController.abort(), CHAT_REQUEST_TIMEOUT_MS);
+          const selectedResponseMode = currentResponseMode();
+          const requestUrl = chatEndpointForResponseMode(selectedResponseMode);
           const requestStartedAt = Date.now();
-          const res = await fetch("/chat", {{
-            method: "POST",
-            headers: {{
-              "Content-Type": "application/json",
-              ...(currentDemoUser() ? {{ "X-Demo-User": currentDemoUser() }} : {{}})
-            }},
-            signal: requestController.signal,
-            body: JSON.stringify(requestPayload)
-          }});
-          const data = await res.json();
+          let streamedAssistantText = "";
+          let streamingAssistantStarted = false;
+          const handleStreamingEvent = (evt) => {{
+            const source = evt?.data && typeof evt.data === "object" ? evt.data : evt;
+            const delta = source && source.delta != null ? String(source.delta || "") : "";
+            if (!delta) return;
+            if (!streamingAssistantStarted) {{
+              streamingAssistantStarted = true;
+              stopThinkingUI(false);
+            }}
+            streamedAssistantText += delta;
+            pendingAssistantText = streamedAssistantText;
+            statusEl.textContent = `Streaming response... (${{streamedAssistantText.length}} chars)`;
+            renderConversation();
+          }};
+          let data;
+          let responseStatus = 200;
+          let responseContentType = "";
+          if (selectedResponseMode === "websocket") {{
+            data = await sendWebSocketChat(requestUrl, requestPayload);
+            responseStatus = Number(data.protocol_transport_status || (data.error ? 500 : 200)) || 200;
+            responseContentType = "application/json; transport=websocket";
+          }} else {{
+            const requestController = new AbortController();
+            requestTimeout = setTimeout(() => requestController.abort(), CHAT_REQUEST_TIMEOUT_MS);
+            const fetchOptions = selectedResponseMode === "protobuf"
+              ? {{
+                  method: "POST",
+                  headers: {{
+                    "Content-Type": "application/x-protobuf",
+                    "Accept": "application/x-protobuf",
+                    ...(currentDemoUser() ? {{ "X-Demo-User": currentDemoUser() }} : {{}})
+                  }},
+                  signal: requestController.signal,
+                  body: encodeProtobufJsonEnvelope(requestPayload)
+                }}
+              : {{
+                  method: "POST",
+                  headers: {{
+                    "Content-Type": "application/json",
+                    ...(currentDemoUser() ? {{ "X-Demo-User": currentDemoUser() }} : {{}})
+                  }},
+                  signal: requestController.signal,
+                  body: JSON.stringify(requestPayload)
+                }};
+            const res = await fetch(requestUrl, fetchOptions);
+            responseStatus = res.status;
+            responseContentType = String(res.headers.get("Content-Type") || "");
+            data = await parseChatTransportResponse(res, selectedResponseMode, handleStreamingEvent);
+          }}
           const combinedAgentTrace = [
             ...(Array.isArray(data.toolset_events) ? data.toolset_events : []),
             ...(Array.isArray(data.agent_trace) ? data.agent_trace : [])
@@ -10996,6 +11924,9 @@ HTML = f"""<!doctype html>
             provider: providerSelectEl.value,
             demoUser: currentDemoUser(),
             chatMode: currentChatMode(),
+            responseMode: selectedResponseMode,
+            requestUrl,
+            responseContentType,
             messages: pendingMessages,
             conversationId: clientConversationId,
             guardrailsEnabled: guardrailsToggleEl.checked,
@@ -11010,10 +11941,10 @@ HTML = f"""<!doctype html>
             executionTopology: currentExecutionTopology(),
             attachmentCount: outboundAttachments.length,
             clientLatencyMs: Math.max(0, Date.now() - requestStartedAt),
-            status: res.status,
+            status: responseStatus,
             body: data
           }});
-          if (!res.ok) {{
+          if (responseStatus < 200 || responseStatus >= 400) {{
             throw new Error(data.error || "Request failed");
           }}
           stopThinkingUI(false);
@@ -11337,6 +12268,20 @@ HTML = f"""<!doctype html>
       flowDeterminismBtn.addEventListener("click", openDeterminismModal);
       flowLatencyBenchBtn.addEventListener("click", openLatencyBenchModal);
       flowScenarioRunnerBtn.addEventListener("click", openScenarioRunnerModal);
+      setupWizardBtnEl.addEventListener("click", () => openSetupWizardModal());
+      setupWizardCloseBtnEl.addEventListener("click", () => closeSetupWizardModal(true));
+      setupWizardDoneBtnEl.addEventListener("click", () => closeSetupWizardModal(true));
+      setupWizardOpenSettingsBtnEl.addEventListener("click", () => {{
+        closeSetupWizardModal(true);
+        openSettingsModal();
+      }});
+      setupWizardOpenDemoBtnEl.addEventListener("click", () => {{
+        closeSetupWizardModal(true);
+        openDemoWizardModal();
+      }});
+      setupWizardModalEl.addEventListener("click", (e) => {{
+        if (e.target === setupWizardModalEl) closeSetupWizardModal(true);
+      }});
       demoWizardBtnEl.addEventListener("click", openDemoWizardModal);
       demoWizardCloseBtnEl.addEventListener("click", closeDemoWizardModal);
       demoWizardDoneBtnEl.addEventListener("click", closeDemoWizardModal);
@@ -11471,6 +12416,7 @@ HTML = f"""<!doctype html>
         syncToolPermissionProfileState();
         syncExecutionTopologyState();
         syncAttachmentSupportState();
+        syncResponseModeState();
         refreshCurrentModelText();
         refreshProviderValidationText();
         syncZscalerProxyModeState();
@@ -11488,6 +12434,7 @@ HTML = f"""<!doctype html>
           zscalerProxyModeToggleEl.checked = false;
         }}
         syncZscalerProxyModeState();
+        syncResponseModeState();
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }});
@@ -11495,12 +12442,14 @@ HTML = f"""<!doctype html>
         guardrailsToggleEl.checked = false;
         zscalerProxyModeToggleEl.checked = false;
         syncZscalerProxyModeState();
+        syncResponseModeState();
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }});
       zscalerGuardOnBtnEl.addEventListener("click", () => {{
         guardrailsToggleEl.checked = true;
         syncZscalerProxyModeState();
+        syncResponseModeState();
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }});
@@ -11508,12 +12457,14 @@ HTML = f"""<!doctype html>
         if (!guardrailsToggleEl.checked) return;
         zscalerProxyModeToggleEl.checked = false;
         syncZscalerProxyModeState();
+        syncResponseModeState();
         renderCodeViewer();
       }});
       zscalerModeProxyBtnEl.addEventListener("click", () => {{
         if (!guardrailsToggleEl.checked || zscalerModeProxyBtnEl.disabled) return;
         zscalerProxyModeToggleEl.checked = true;
         syncZscalerProxyModeState();
+        syncResponseModeState();
         renderCodeViewer();
       }});
       zscalerDasResolveBtnEl.addEventListener("click", () => {{
@@ -11541,6 +12492,7 @@ HTML = f"""<!doctype html>
         multiTurnToggleEl.checked = String(mode || "single").toLowerCase() === "multi";
         lastChatMode = currentChatMode();
         updateChatModeUI();
+        syncResponseModeState();
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }}
@@ -11550,6 +12502,42 @@ HTML = f"""<!doctype html>
         // Kept for compatibility with existing state flow, though UI now uses segmented buttons.
         lastChatMode = currentChatMode();
         updateChatModeUI();
+        syncResponseModeState();
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      responseModeJsonBtnEl.addEventListener("click", () => {{
+        setResponseMode("standard");
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      responseModeStreamBtnEl.addEventListener("click", () => {{
+        if (responseModeStreamBtnEl.disabled) return;
+        setResponseMode("stream");
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      responseModeSseBtnEl.addEventListener("click", () => {{
+        if (responseModeSseBtnEl.disabled) return;
+        setResponseMode("sse");
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      responseModeWsBtnEl.addEventListener("click", () => {{
+        if (responseModeWsBtnEl.disabled) return;
+        setResponseMode("websocket");
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      responseModeProtobufBtnEl.addEventListener("click", () => {{
+        if (responseModeProtobufBtnEl.disabled) return;
+        setResponseMode("protobuf");
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }});
+      responseModeTraceBtnEl.addEventListener("click", () => {{
+        if (responseModeTraceBtnEl.disabled) return;
+        setResponseMode("protocol_trace");
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }});
@@ -11557,6 +12545,7 @@ HTML = f"""<!doctype html>
         // Valid state: tools OFF while agentic ON (agent will avoid tool execution).
         syncLocalTasksToggleState();
         syncToolPermissionProfileState();
+        syncResponseModeState();
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }});
@@ -11584,6 +12573,7 @@ HTML = f"""<!doctype html>
         syncLocalTasksToggleState();
         syncToolPermissionProfileState();
         syncExecutionTopologyState();
+        syncResponseModeState();
         if (!agenticToggleEl.checked && !multiAgentToggleEl.checked) {{
           resetAgentTrace();
         }}
@@ -11700,6 +12690,10 @@ HTML = f"""<!doctype html>
           closeUpdateConfirmModal();
           return;
         }}
+        if (e.key === "Escape" && setupWizardModalEl.classList.contains("open")) {{
+          closeSetupWizardModal(true);
+          return;
+        }}
         if (e.key === "Escape" && settingsModalEl.classList.contains("open")) {{
           closeSettingsModal();
         }}
@@ -11719,6 +12713,7 @@ HTML = f"""<!doctype html>
       syncToolPermissionProfileState();
       syncExecutionTopologyState();
       syncAttachmentSupportState();
+      syncResponseModeState();
       try {{
         const savedDasMode = window.sessionStorage.getItem(SESSION_DAS_MODE_KEY);
         if (savedDasMode) setZscalerDasMode(savedDasMode);
@@ -11750,6 +12745,7 @@ HTML = f"""<!doctype html>
       resetAgentTrace();
       resetInspector();
       renderCodeViewer();
+      maybeAutoOpenSetupWizard();
     </script>
   </body>
 </html>"""
@@ -12497,6 +13493,110 @@ def _is_local_admin_request(handler: BaseHTTPRequestHandler) -> bool:
     return bool(ip_is_local)
 
 
+def _pb_encode_varint(value: int) -> bytes:
+    value = max(0, int(value or 0))
+    out = bytearray()
+    while True:
+        to_write = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(to_write | 0x80)
+        else:
+            out.append(to_write)
+            break
+    return bytes(out)
+
+
+def _pb_decode_varint(data: bytes, offset: int = 0) -> tuple[int, int]:
+    shift = 0
+    result = 0
+    while offset < len(data):
+        byte = data[offset]
+        offset += 1
+        result |= (byte & 0x7F) << shift
+        if not (byte & 0x80):
+            return result, offset
+        shift += 7
+        if shift > 63:
+            raise ValueError("protobuf varint is too large")
+    raise ValueError("truncated protobuf varint")
+
+
+def _pb_encode_json_envelope(payload: dict) -> bytes:
+    # Valid protobuf wire format for: message ChatEnvelope { string json = 1; }
+    raw_json = json.dumps(payload).encode("utf-8")
+    return b"\x0a" + _pb_encode_varint(len(raw_json)) + raw_json
+
+
+def _pb_decode_json_envelope(raw_body: bytes) -> dict:
+    offset = 0
+    while offset < len(raw_body):
+        key, offset = _pb_decode_varint(raw_body, offset)
+        field_number = key >> 3
+        wire_type = key & 0x07
+        if wire_type != 2:
+            raise ValueError("unsupported protobuf wire type")
+        size, offset = _pb_decode_varint(raw_body, offset)
+        if offset + size > len(raw_body):
+            raise ValueError("truncated protobuf field")
+        value = raw_body[offset : offset + size]
+        offset += size
+        if field_number == 1:
+            decoded = json.loads(value.decode("utf-8") or "{}")
+            if not isinstance(decoded, dict):
+                raise ValueError("protobuf json field must decode to an object")
+            return decoded
+    raise ValueError("protobuf json field is missing")
+
+
+def _ws_accept_key(client_key: str) -> str:
+    magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    digest = hashlib.sha1((client_key + magic).encode("ascii")).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _ws_encode_frame(payload: bytes, opcode: int = 0x1) -> bytes:
+    length = len(payload)
+    head = bytearray([0x80 | (opcode & 0x0F)])
+    if length < 126:
+        head.append(length)
+    elif length <= 0xFFFF:
+        head.extend([126, (length >> 8) & 0xFF, length & 0xFF])
+    else:
+        head.append(127)
+        head.extend(length.to_bytes(8, "big"))
+    return bytes(head) + payload
+
+
+def _ws_decode_frame(rfile) -> tuple[int, bytes]:
+    header = rfile.read(2)
+    if len(header) != 2:
+        raise ValueError("missing websocket frame header")
+    first, second = header
+    opcode = first & 0x0F
+    masked = bool(second & 0x80)
+    length = second & 0x7F
+    if length == 126:
+        ext = rfile.read(2)
+        if len(ext) != 2:
+            raise ValueError("truncated websocket length")
+        length = int.from_bytes(ext, "big")
+    elif length == 127:
+        ext = rfile.read(8)
+        if len(ext) != 8:
+            raise ValueError("truncated websocket length")
+        length = int.from_bytes(ext, "big")
+    if length > MAX_REQUEST_BYTES:
+        raise ValueError(f"websocket frame too large. Max {MAX_REQUEST_BYTES} bytes.")
+    mask_key = rfile.read(4) if masked else b""
+    payload = rfile.read(length)
+    if len(payload) != length:
+        raise ValueError("truncated websocket payload")
+    if masked:
+        payload = bytes(byte ^ mask_key[idx % 4] for idx, byte in enumerate(payload))
+    return opcode, payload
+
+
 SETTINGS_SCHEMA = [
     {"group": "App", "key": "APP_DEMO_NAME", "label": "App Demo Name", "secret": False, "hint": "Browser/page title and app card heading"},
     {"group": "App", "key": "UI_THEME", "label": "UI Theme", "secret": False, "hint": "Theme preset used by the UI (classic | zscaler_blue | dark | neon)", "hidden_in_form": True},
@@ -13043,6 +14143,73 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return data
 
+    def _read_raw_body_limited(self) -> bytes | None:
+        raw_len = str(self.headers.get("Content-Length", "0")).strip()
+        try:
+            content_length = int(raw_len or "0")
+        except ValueError:
+            self._send_json({"error": "Invalid Content-Length header."}, status=400)
+            return None
+        if content_length < 0:
+            self._send_json({"error": "Invalid Content-Length header."}, status=400)
+            return None
+        if content_length > MAX_REQUEST_BYTES:
+            self._send_json({"error": f"Request body too large. Max {MAX_REQUEST_BYTES} bytes."}, status=413)
+            return None
+        raw_body = self.rfile.read(content_length)
+        if len(raw_body) > MAX_REQUEST_BYTES:
+            self._send_json({"error": f"Request body too large. Max {MAX_REQUEST_BYTES} bytes."}, status=413)
+            return None
+        return raw_body
+
+    def _read_protobuf_json_body_limited(self) -> dict | None:
+        raw_body = self._read_raw_body_limited()
+        if raw_body is None:
+            return None
+        try:
+            return _pb_decode_json_envelope(raw_body)
+        except Exception as exc:
+            self._send_json({"error": "Invalid protobuf payload.", "details": str(exc)}, status=400)
+            return None
+
+    def _call_chat_json_internal(self, payload: dict, *, demo_user: str = "", response_mode: str = "standard") -> tuple[dict, int]:
+        forwarded = dict(payload or {})
+        forwarded["response_mode"] = "protocol_trace" if response_mode == "protocol_trace" else "standard"
+        raw = json.dumps(forwarded).encode("utf-8")
+        req = urlrequest.Request(
+            f"http://127.0.0.1:{PORT}/chat",
+            data=raw,
+            headers={
+                "Content-Type": "application/json",
+                **({"X-Demo-User": demo_user} if demo_user else {}),
+            },
+            method="POST",
+        )
+        try:
+            with urlrequest.urlopen(req, timeout=APP_CHAT_REQUEST_TIMEOUT_SECONDS) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                body = resp.read()
+        except urlerror.HTTPError as exc:
+            status = int(getattr(exc, "code", 500) or 500)
+            body = exc.read()
+        except Exception as exc:
+            return {"error": "Internal chat dispatch failed.", "details": str(exc)}, 502
+        try:
+            decoded = json.loads(body.decode("utf-8") or "{}")
+        except Exception:
+            decoded = {"response": body.decode("utf-8", errors="replace")}
+        if not isinstance(decoded, dict):
+            decoded = {"response": str(decoded)}
+        return decoded, status
+
+    def _send_protobuf_json(self, payload: dict, status: int = 200) -> None:
+        body = _pb_encode_json_envelope(payload if isinstance(payload, dict) else {"response": str(payload)})
+        self.send_response(status)
+        self.send_header("Content-Type", "application/x-protobuf")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send_json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -13059,7 +14226,109 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @staticmethod
+    def _response_chunks(payload: dict) -> list[str]:
+        text = ""
+        if isinstance(payload, dict):
+            text = str(payload.get("response") or payload.get("error") or payload.get("details") or "")
+        words = text.split()
+        if not words:
+            return []
+        chunks: list[str] = []
+        for idx in range(0, len(words), 8):
+            chunks.append(" ".join(words[idx : idx + 8]))
+        return chunks
+
+    def _send_ndjson_stream(self, payload: dict, status: int = 200) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        def write_event(event: dict) -> None:
+            self.wfile.write((json.dumps(event) + "\n").encode("utf-8"))
+            try:
+                self.wfile.flush()
+            except Exception:
+                pass
+
+        write_event({"event": "protocol", "mode": "stream", "transport": "application/x-ndjson"})
+        for chunk in self._response_chunks(payload):
+            write_event({"event": "delta", "delta": chunk})
+        write_event({"event": "done" if 200 <= int(status or 200) < 400 else "error", "payload": payload})
+
+    def _send_sse_stream(self, payload: dict, status: int = 200) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def write_event(event_name: str, data: dict) -> None:
+            self.wfile.write(f"event: {event_name}\n".encode("utf-8"))
+            self.wfile.write(("data: " + json.dumps(data) + "\n\n").encode("utf-8"))
+            try:
+                self.wfile.flush()
+            except Exception:
+                pass
+
+        write_event("protocol", {"mode": "sse", "transport": "text/event-stream"})
+        for chunk in self._response_chunks(payload):
+            write_event("delta", {"delta": chunk})
+        write_event("done" if 200 <= int(status or 200) < 400 else "error", {"payload": payload})
+
+    def _handle_chat_websocket(self) -> None:
+        if not self._enforce_rate_limit("chat"):
+            return
+        client_key = str(self.headers.get("Sec-WebSocket-Key") or "").strip()
+        upgrade = str(self.headers.get("Upgrade") or "").strip().lower()
+        if upgrade != "websocket" or not client_key:
+            self._send_json({"error": "WebSocket upgrade required."}, status=400)
+            return
+        self.send_response(101, "Switching Protocols")
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", _ws_accept_key(client_key))
+        self.end_headers()
+        try:
+            opcode, raw_payload = _ws_decode_frame(self.rfile)
+            if opcode == 0x8:
+                return
+            if opcode not in {0x1, 0x2}:
+                raise ValueError("unsupported websocket opcode")
+            request_payload = json.loads(raw_payload.decode("utf-8") or "{}")
+            if not isinstance(request_payload, dict):
+                raise ValueError("websocket payload must be a JSON object")
+            response_payload, status = self._call_chat_json_internal(
+                request_payload,
+                demo_user=str(self.headers.get("X-Demo-User") or "").strip(),
+                response_mode="standard",
+            )
+            response_payload = dict(response_payload)
+            response_payload.setdefault(
+                "protocol",
+                {
+                    "mode": "websocket",
+                    "label": "WebSocket",
+                    "provider": str(request_payload.get("provider") or "unknown"),
+                    "note": "Browser-to-app chat request and response used a real WebSocket connection. Provider and guardrail calls still use the configured app-side path.",
+                },
+            )
+            response_payload["protocol_transport_status"] = status
+        except Exception as exc:
+            response_payload = {"error": "WebSocket chat failed.", "details": str(exc)}
+        self.wfile.write(_ws_encode_frame(json.dumps(response_payload).encode("utf-8"), opcode=0x1))
+        try:
+            self.wfile.write(_ws_encode_frame(b"", opcode=0x8))
+            self.wfile.flush()
+        except Exception:
+            pass
+
     def do_GET(self) -> None:  # noqa: N802
+        parsed_get_path = urlparse.urlsplit(self.path).path
+        if parsed_get_path == "/chat/ws":
+            self._handle_chat_websocket()
+            return
         if self.path == "/preset-config":
             if not self._require_local_admin():
                 return
@@ -13550,7 +14819,32 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        if self.path != "/chat":
+        if self.path == "/chat/protobuf":
+            if not self._enforce_rate_limit("chat"):
+                return
+            data = self._read_protobuf_json_body_limited()
+            if data is None:
+                return
+            payload, status = self._call_chat_json_internal(
+                data,
+                demo_user=str(self.headers.get("X-Demo-User") or "").strip(),
+                response_mode="standard",
+            )
+            payload = dict(payload)
+            payload.setdefault(
+                "protocol",
+                {
+                    "mode": "protobuf",
+                    "label": "Protobuf",
+                    "provider": str(data.get("provider") or "unknown"),
+                    "note": "Browser-to-app chat request and response used a real binary protobuf envelope. Provider and guardrail calls still use the configured app-side path.",
+                },
+            )
+            payload["protocol_transport_status"] = status
+            self._send_protobuf_json(payload, status=status)
+            return
+
+        if self.path not in {"/chat", "/chat/stream", "/chat/sse"}:
             self._send_json({"error": "Not found"}, status=404)
             return
 
@@ -13567,7 +14861,13 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        raw_send_json = self._send_json
+        chat_transport_path = self.path
+        if chat_transport_path == "/chat/stream":
+            raw_send_json = self._send_ndjson_stream
+        elif chat_transport_path == "/chat/sse":
+            raw_send_json = self._send_sse_stream
+        else:
+            raw_send_json = self._send_json
         chat_trace_id = ""
         toolset_events: list[dict] = []
         chat_slot_released = False
@@ -13575,12 +14875,33 @@ class Handler(BaseHTTPRequestHandler):
         chat_started_ms = int(time.monotonic() * 1000)
         chat_provider_id = "unknown"
         chat_prompt = ""
+        chat_response_mode = "standard"
 
         def _send_json_with_toolset(payload, status=200):
             nonlocal chat_slot_released, chat_usage_logged
             if isinstance(payload, dict):
                 if chat_trace_id:
                     payload.setdefault("trace_id", chat_trace_id)
+                if chat_response_mode and chat_response_mode != "standard":
+                    protocol_labels = {
+                        "stream": "Token Stream",
+                        "sse": "Server-Sent Events",
+                        "websocket": "WebSocket",
+                        "protobuf": "Protobuf/gRPC",
+                        "protocol_trace": "Protocol Trace",
+                    }
+                    payload.setdefault(
+                        "protocol",
+                        {
+                            "mode": chat_response_mode,
+                            "label": protocol_labels.get(chat_response_mode, chat_response_mode),
+                            "provider": chat_provider_id,
+                            "note": (
+                                "This demo changes browser-to-app delivery for alternate response modes and enforces compatibility. "
+                                "Provider calls still complete through the app's guarded request path unless provider-native streaming is added."
+                            ),
+                        },
+                    )
                 if toolset_events:
                     existing_events = payload.get("toolset_events")
                     if isinstance(existing_events, list):
@@ -13616,6 +14937,14 @@ class Handler(BaseHTTPRequestHandler):
         chat_provider_id = provider_id
         chat_prompt = prompt
         chat_mode = "multi" if str(data.get("chat_mode") or "").lower() == "multi" else "single"
+        response_mode = str(data.get("response_mode") or "standard").strip().lower().replace("-", "_")
+        if response_mode not in {"standard", "stream", "sse", "websocket", "protobuf", "protocol_trace"}:
+            response_mode = "standard"
+        if self.path == "/chat/stream":
+            response_mode = "stream"
+        elif self.path == "/chat/sse":
+            response_mode = "sse"
+        chat_response_mode = response_mode
         request_attachments = _normalize_attachments(data.get("attachments"))
         conversation_id = str(data.get("conversation_id") or "").strip()
         demo_user = str(self.headers.get("X-Demo-User") or "").strip()
@@ -13647,6 +14976,74 @@ class Handler(BaseHTTPRequestHandler):
             tool_permission_profile = "standard"
         chat_trace_id = str(data.get("trace_id") or "").strip() or uuid4().hex
 
+        def _configured_model_for_provider(pid: str) -> str:
+            return {
+                "anthropic": ANTHROPIC_MODEL,
+                "azure_foundry": providers.DEFAULT_AZURE_AI_FOUNDRY_MODEL,
+                "bedrock_invoke": providers.DEFAULT_BEDROCK_INVOKE_MODEL,
+                "gemini": providers.DEFAULT_GEMINI_MODEL,
+                "kong": providers.DEFAULT_KONG_MODEL,
+                "litellm": providers.DEFAULT_LITELLM_MODEL,
+                "ollama": OLLAMA_MODEL,
+                "openai": OPENAI_MODEL,
+                "perplexity": providers.DEFAULT_PERPLEXITY_MODEL,
+                "vertex": providers.DEFAULT_VERTEX_MODEL,
+                "xai": providers.DEFAULT_XAI_MODEL,
+            }.get(pid, "")
+
+        def _response_model_support_reason(pid: str) -> str:
+            # Today the demo has provider/runtime protocol limitations more than model-specific
+            # protocol limitations. Keep this hook explicit so future model exceptions are
+            # centralized and mirrored by the UI.
+            model_value = _configured_model_for_provider(pid)
+            if pid in {"bedrock_agent", "bedrock_invoke"}:
+                return f"{response_mode.upper()} response mode is not enabled for selected model {model_value or '(provider-managed)'}."
+            return ""
+
+        def _response_mode_supported() -> tuple[bool, str]:
+            if response_mode in {"standard", "protocol_trace"}:
+                return True, ""
+            if response_mode == "websocket":
+                return False, "WebSocket chat is not implemented by this demo app yet."
+            if response_mode == "protobuf":
+                return False, "Protobuf/gRPC chat is not implemented by this demo app yet."
+            stream_providers = {
+                "anthropic",
+                "azure_foundry",
+                "kong",
+                "litellm",
+                "ollama",
+                "openai",
+                "perplexity",
+                "xai",
+            }
+            if response_mode in {"stream", "sse"}:
+                if provider_id not in stream_providers:
+                    return False, f"{response_mode.upper()} response mode is not enabled for provider {provider_id}."
+                if agentic_enabled or multi_agent_enabled:
+                    return False, f"{response_mode.upper()} response mode is disabled for Agentic/Multi-Agent runs."
+                if guardrails_enabled and not zscaler_proxy_mode:
+                    return False, f"{response_mode.upper()} response mode is disabled with API/DAS because completed responses must be scanned before returning."
+                if provider_id in {"bedrock_agent", "bedrock_invoke"}:
+                    return False, f"{response_mode.upper()} response mode is not enabled for this Bedrock path."
+                model_reason = _response_model_support_reason(provider_id)
+                if model_reason:
+                    return False, model_reason
+                return True, ""
+            return False, "Unsupported response mode."
+
+        response_mode_ok, response_mode_reason = _response_mode_supported()
+        if not response_mode_ok:
+            self._send_json(
+                {
+                    "error": "Response mode is not supported for the selected provider/settings.",
+                    "details": response_mode_reason,
+                    "response_mode": response_mode,
+                },
+                status=400,
+            )
+            return
+
         mcp_tool_defs: list[tooling.ToolDef] = []
         mcp_servers: list[dict] = []
         if tools_enabled:
@@ -13675,6 +15072,163 @@ class Handler(BaseHTTPRequestHandler):
                 item["attachments"] = request_attachments
             messages_for_provider = [item]
 
+        def _send_provider_native_stream_turn() -> None:
+            nonlocal chat_slot_released, chat_usage_logged, llm_call_index
+            if chat_transport_path == "/chat/sse":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+
+                def write_event(event_name: str, data_obj: dict) -> None:
+                    self.wfile.write(f"event: {event_name}\n".encode("utf-8"))
+                    self.wfile.write(("data: " + json.dumps(data_obj) + "\n\n").encode("utf-8"))
+                    try:
+                        self.wfile.flush()
+                    except Exception:
+                        pass
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+
+                def write_event(event_name: str, data_obj: dict) -> None:
+                    event_payload = {"event": event_name, **(data_obj if isinstance(data_obj, dict) else {"data": data_obj})}
+                    self.wfile.write((json.dumps(event_payload) + "\n").encode("utf-8"))
+                    try:
+                        self.wfile.flush()
+                    except Exception:
+                        pass
+
+            protocol_label = "Server-Sent Events" if chat_transport_path == "/chat/sse" else "Token Stream"
+            protocol_mode = "sse" if chat_transport_path == "/chat/sse" else "stream"
+            streamed_chars = 0
+            streamed_chunks = 0
+
+            def on_delta(delta: str) -> None:
+                nonlocal streamed_chars, streamed_chunks
+                delta_text = str(delta or "")
+                if not delta_text:
+                    return
+                streamed_chunks += 1
+                streamed_chars += len(delta_text)
+                write_event("delta", {"delta": delta_text})
+
+            write_event(
+                "protocol",
+                {
+                    "mode": protocol_mode,
+                    "label": protocol_label,
+                    "transport": "text/event-stream" if protocol_mode == "sse" else "application/x-ndjson",
+                    "provider_transport": "native_provider_stream",
+                    "provider": chat_provider_id,
+                    "note": "Provider response is streamed upstream to the app, then forwarded to the browser as deltas.",
+                },
+            )
+            try:
+                llm_call_index += 1
+                if tools_enabled:
+                    pre_call_snapshot = tooling.make_toolset_snapshot_event(
+                        trace_id=chat_trace_id,
+                        servers=mcp_servers,
+                        tools=mcp_tool_defs,
+                        stage=f"before_llm_call_{llm_call_index}",
+                    )
+                    toolset_events.append(pre_call_snapshot)
+                text, meta = providers.stream_provider_messages(
+                    provider_id,
+                    messages_for_provider,
+                    ollama_url=OLLAMA_URL,
+                    ollama_model=OLLAMA_MODEL,
+                    anthropic_model=ANTHROPIC_MODEL,
+                    openai_model=OPENAI_MODEL,
+                    zscaler_proxy_mode=zscaler_proxy_mode,
+                    conversation_id=conversation_id,
+                    demo_user=demo_user,
+                    on_delta=on_delta,
+                )
+                status = int(meta.get("status_code", 200) if text is None else 200)
+                if text is None:
+                    proxy_block = _extract_proxy_block_info_from_meta(meta) if zscaler_proxy_mode else None
+                    if proxy_block:
+                        block_stage = str(proxy_block.get("stage") or "IN").upper()
+                        response_text = ai_guard.proxy_block_message("Prompt" if block_stage == "IN" else "Response", proxy_block)
+                        payload = {
+                            "response": response_text,
+                            "guardrails": {
+                                "enabled": True,
+                                "mode": "proxy",
+                                "blocked": True,
+                                "stage": block_stage,
+                                "proxy_base_url": ZS_PROXY_BASE_URL,
+                            },
+                            "trace": {"steps": [meta.get("trace_step", {})]},
+                        }
+                        status = 200
+                    else:
+                        payload = {
+                            "error": meta.get("error", "Provider streaming request failed."),
+                            "details": meta.get("details"),
+                            "trace": {"steps": [meta.get("trace_step", {})]},
+                        }
+                else:
+                    payload = {"response": text, "trace": {"steps": [meta.get("trace_step", {})]}}
+                    if zscaler_proxy_mode:
+                        payload["guardrails"] = {
+                            "enabled": True,
+                            "mode": "proxy",
+                            "blocked": False,
+                            "proxy_base_url": ZS_PROXY_BASE_URL,
+                        }
+                    if chat_mode == "multi":
+                        payload["conversation"] = messages_for_provider + [
+                            {"role": "assistant", "content": str(text or ""), "ts": _hhmmss_now()}
+                        ]
+                payload.setdefault(
+                    "protocol",
+                    {
+                        "mode": protocol_mode,
+                        "label": protocol_label,
+                        "provider": chat_provider_id,
+                        "provider_transport": "native_provider_stream",
+                        "chunks": streamed_chunks,
+                        "streamed_chars": streamed_chars,
+                        "note": "End-to-end streaming is active: provider deltas are forwarded by the app to the browser.",
+                    },
+                )
+                if chat_trace_id:
+                    payload.setdefault("trace_id", chat_trace_id)
+                if toolset_events:
+                    payload["toolset_events"] = list(toolset_events) + list(payload.get("toolset_events") or [])
+                if not chat_usage_logged:
+                    try:
+                        _record_usage_event(
+                            provider_id=chat_provider_id,
+                            trace_id=chat_trace_id or "",
+                            prompt=chat_prompt,
+                            payload=payload,
+                            status_code=status,
+                            duration_ms=max(0, int(time.monotonic() * 1000) - chat_started_ms),
+                        )
+                    except Exception:
+                        pass
+                    chat_usage_logged = True
+                write_event("done" if 200 <= status < 400 else "error", {"payload": payload})
+            except Exception as exc:
+                payload = {
+                    "error": "Provider native streaming failed.",
+                    "details": str(exc),
+                    "trace": {"steps": []},
+                    "trace_id": chat_trace_id,
+                }
+                write_event("error", {"payload": payload})
+            finally:
+                if chat_slot_acquired and not chat_slot_released:
+                    _release_chat_slot()
+                    chat_slot_released = True
+
         def _provider_messages_call(msgs: list[dict]):
             nonlocal llm_call_index
             llm_call_index += 1
@@ -13698,6 +15252,10 @@ class Handler(BaseHTTPRequestHandler):
                 demo_user=demo_user,
                 tool_defs=mcp_tool_defs,
             )
+
+        if response_mode in {"stream", "sse"}:
+            _send_provider_native_stream_turn()
+            return
 
         use_isolated_workers = (
             execution_topology in {"isolated_workers", "isolated_per_role"}
