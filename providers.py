@@ -426,6 +426,64 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[
             return resp.status, text
 
 
+def _proxy_request_url(base_url: str, path: str) -> str:
+    base = str(base_url or DEFAULT_ZS_PROXY_BASE_URL).rstrip("/")
+    suffix = "/" + str(path or "").lstrip("/")
+    return f"{base}{suffix}"
+
+
+def _redacted_proxy_headers(
+    headers: dict[str, str],
+    proxy_api_key_header_name: str,
+    *,
+    extra_secret_headers: set[str] | None = None,
+) -> dict[str, str]:
+    secrets = {proxy_api_key_header_name.lower(), *(h.lower() for h in (extra_secret_headers or set()))}
+    return {k: ("***redacted***" if k.lower() in secrets else v) for k, v in headers.items()}
+
+
+def _extract_openai_chat_text(body: object) -> str:
+    if not isinstance(body, dict):
+        return ""
+    parts: list[str] = []
+    for choice in body.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+        content = message.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+    return "".join(parts).strip()
+
+
+def _extract_anthropic_text(body: object) -> str:
+    if not isinstance(body, dict):
+        return ""
+    parts: list[str] = []
+    for item in body.get("content") or []:
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+    return "".join(parts).strip()
+
+
+def _extract_gemini_text(body: object) -> str:
+    if not isinstance(body, dict):
+        return ""
+    parts: list[str] = []
+    for cand in body.get("candidates") or []:
+        if not isinstance(cand, dict):
+            continue
+        content = cand.get("content") if isinstance(cand.get("content"), dict) else {}
+        for part in content.get("parts") or []:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                parts.append(part["text"])
+    return "".join(parts).strip()
+
+
 def _normalize_messages(messages: list[dict] | None) -> list[dict]:
     normalized: list[dict] = []
     for msg in messages or []:
@@ -484,7 +542,9 @@ def _zscaler_proxy_sdk_config(
             proxy_key_source = env_name
             break
     base_url = os.getenv("ZS_PROXY_BASE_URL", DEFAULT_ZS_PROXY_BASE_URL).strip() or DEFAULT_ZS_PROXY_BASE_URL
-    api_key_header_name = DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME
+    api_key_header_name = os.getenv("ZS_PROXY_API_KEY_HEADER_NAME", DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME).strip()
+    if not api_key_header_name:
+        api_key_header_name = DEFAULT_ZS_PROXY_API_KEY_HEADER_NAME
     headers: dict[str, str] = {}
     if proxy_key:
         headers[api_key_header_name] = proxy_key
@@ -1136,6 +1196,61 @@ def _anthropic_generate(
             },
         }
 
+    if proxy_mode:
+        proxy_url = _proxy_request_url(proxy_base_url, "/v1/messages")
+        headers = {
+            **proxy_headers,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        trace_request["method"] = "POST"
+        trace_request["url"] = f"{proxy_url} (Zscaler Proxy -> Anthropic /v1/messages)"
+        trace_request["headers"] = _redacted_proxy_headers(headers, proxy_api_key_header_name)
+        try:
+            status, body = _post_json(proxy_url, payload=request_payload, headers=headers, timeout=120)
+            text = _extract_anthropic_text(body)
+            return text, {
+                "trace_step": {
+                    "name": "Anthropic",
+                    "request": trace_request,
+                    "response": {"status": status, "body": body},
+                }
+            }
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            parsed: Any = None
+            try:
+                parsed = json.loads(detail)
+            except Exception:
+                parsed = detail
+            proxy_block = _proxy_guardrails_block_from_error(
+                status_code=int(exc.code or 0),
+                response_body=parsed,
+                details_text=detail,
+            )
+            return None, {
+                "error": "Anthropic proxy request failed.",
+                "status_code": int(exc.code or 502),
+                "details": detail,
+                **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+                "trace_step": {
+                    "name": "Anthropic",
+                    "request": trace_request,
+                    "response": {"status": int(exc.code or 502), "body": parsed},
+                },
+            }
+        except Exception as exc:
+            return None, {
+                "error": "Anthropic proxy request failed.",
+                "status_code": 502,
+                "details": str(exc),
+                "trace_step": {
+                    "name": "Anthropic",
+                    "request": trace_request,
+                    "response": {"status": 502, "body": {"error": str(exc)}},
+                },
+            }
+
     try:
         from anthropic import Anthropic
     except Exception as exc:
@@ -1317,6 +1432,61 @@ def _anthropic_chat_messages(
             },
         }
 
+    if proxy_mode:
+        proxy_url = _proxy_request_url(proxy_base_url, "/v1/messages")
+        headers = {
+            **proxy_headers,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        trace_request["method"] = "POST"
+        trace_request["url"] = f"{proxy_url} (Zscaler Proxy -> Anthropic /v1/messages)"
+        trace_request["headers"] = _redacted_proxy_headers(headers, proxy_api_key_header_name)
+        try:
+            status, body = _post_json(proxy_url, payload=request_payload, headers=headers, timeout=120)
+            text = _extract_anthropic_text(body)
+            return text, {
+                "trace_step": {
+                    "name": "Anthropic",
+                    "request": trace_request,
+                    "response": {"status": status, "body": body},
+                }
+            }
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            parsed: Any = None
+            try:
+                parsed = json.loads(detail)
+            except Exception:
+                parsed = detail
+            proxy_block = _proxy_guardrails_block_from_error(
+                status_code=int(exc.code or 0),
+                response_body=parsed,
+                details_text=detail,
+            )
+            return None, {
+                "error": "Anthropic proxy request failed.",
+                "status_code": int(exc.code or 502),
+                "details": detail,
+                **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+                "trace_step": {
+                    "name": "Anthropic",
+                    "request": trace_request,
+                    "response": {"status": int(exc.code or 502), "body": parsed},
+                },
+            }
+        except Exception as exc:
+            return None, {
+                "error": "Anthropic proxy request failed.",
+                "status_code": 502,
+                "details": str(exc),
+                "trace_step": {
+                    "name": "Anthropic",
+                    "request": trace_request,
+                    "response": {"status": 502, "body": {"error": str(exc)}},
+                },
+            }
+
     try:
         from anthropic import Anthropic
     except Exception as exc:
@@ -1475,6 +1645,60 @@ def _openai_chat_messages(
                 },
             },
         }
+
+    if proxy_mode:
+        proxy_url = _proxy_request_url(proxy_base_url, "/v1/chat/completions")
+        headers = {
+            **proxy_headers,
+            "Content-Type": "application/json",
+        }
+        trace_request["method"] = "POST"
+        trace_request["url"] = f"{proxy_url} (Zscaler Proxy -> OpenAI /v1/chat/completions)"
+        trace_request["headers"] = _redacted_proxy_headers(headers, proxy_api_key_header_name)
+        try:
+            status, body = _post_json(proxy_url, payload=request_payload, headers=headers, timeout=120)
+            text = _extract_openai_chat_text(body)
+            return text, {
+                "trace_step": {
+                    "name": "OpenAI",
+                    "request": trace_request,
+                    "response": {"status": status, "body": body},
+                }
+            }
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            parsed: Any = None
+            try:
+                parsed = json.loads(detail)
+            except Exception:
+                parsed = detail
+            proxy_block = _proxy_guardrails_block_from_error(
+                status_code=int(exc.code or 0),
+                response_body=parsed,
+                details_text=detail,
+            )
+            return None, {
+                "error": "OpenAI proxy request failed.",
+                "status_code": int(exc.code or 502),
+                "details": detail,
+                **({"proxy_guardrails_block": proxy_block} if proxy_block else {}),
+                "trace_step": {
+                    "name": "OpenAI",
+                    "request": trace_request,
+                    "response": {"status": int(exc.code or 502), "body": parsed},
+                },
+            }
+        except Exception as exc:
+            return None, {
+                "error": "OpenAI proxy request failed.",
+                "status_code": 502,
+                "details": str(exc),
+                "trace_step": {
+                    "name": "OpenAI",
+                    "request": trace_request,
+                    "response": {"status": 502, "body": {"error": str(exc)}},
+                },
+            }
 
     try:
         from openai import OpenAI
@@ -1899,10 +2123,19 @@ def _bedrock_agent_chat_messages(
 def _gemini_chat_messages(
     messages: list[dict],
     model: str,
+    *,
+    proxy_mode: bool = False,
+    conversation_id: str | None = None,
     demo_user: str | None = None,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
+    proxy_key, proxy_base_url, proxy_api_key_header_name, proxy_headers, _proxy_key_source = _zscaler_proxy_sdk_config(
+        "GEMINI",
+        conversation_id,
+        demo_user,
+    )
+    effective_api_key = proxy_key if proxy_mode else api_key
     normalized = _normalize_messages(messages)
     contents = []
     system_parts = []
@@ -1918,37 +2151,57 @@ def _gemini_chat_messages(
     payload: dict[str, Any] = {"contents": contents}
     if system_parts:
         payload["system_instruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
-    url = f"{base_url}/v1beta/models/{model}:generateContent?key={api_key if api_key else '***missing***'}"
-    trace_request = {
-        "method": "POST",
-        "url": f"{base_url}/v1beta/models/{model}:generateContent",
-        "headers": {
+    request_url = (
+        _proxy_request_url(proxy_base_url, f"/v1beta/models/{model}:generateContent")
+        if proxy_mode
+        else f"{base_url}/v1beta/models/{model}:generateContent?key={api_key if api_key else '***missing***'}"
+    )
+    trace_headers = (
+        _redacted_proxy_headers({**proxy_headers, "Content-Type": "application/json"}, proxy_api_key_header_name)
+        if proxy_mode
+        else {
             "x-goog-api-key": "***redacted***" if api_key else "***missing***",
             "Content-Type": "application/json",
             **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
-        },
+        }
+    )
+    trace_request = {
+        "method": "POST",
+        "url": (
+            f"{request_url} (Zscaler Proxy -> Gemini generateContent)"
+            if proxy_mode
+            else f"{base_url}/v1beta/models/{model}:generateContent"
+        ),
+        "headers": trace_headers,
         "payload": payload,
     }
-    if not api_key:
+    if not effective_api_key:
         return None, {
-            "error": "GEMINI_API_KEY is not set.",
+            "error": "Gemini proxy key is not set. Set GEMINI_ZS_PROXY_API_KEY (or GEMINI_ZS_PROXY_KEY)." if proxy_mode else "GEMINI_API_KEY is not set.",
             "status_code": 500,
-            "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": 500, "body": {"error": "Missing GEMINI_API_KEY"}}},
+            "trace_step": {
+                "name": "Google Gemini",
+                "request": trace_request,
+                "response": {
+                    "status": 500,
+                    "body": {"error": "Missing provider-specific ZS proxy key" if proxy_mode else "Missing GEMINI_API_KEY"},
+                },
+            },
         }
     try:
+        url = request_url if proxy_mode else f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}"
+        headers = (
+            {**proxy_headers, "Content-Type": "application/json"}
+            if proxy_mode
+            else {"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})}
+        )
         status, body = _post_json(
-            f"{base_url}/v1beta/models/{model}:generateContent?key={api_key}",
+            url,
             payload=payload,
-            headers={"Content-Type": "application/json", **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {})},
+            headers=headers,
             timeout=120,
         )
-        text = ""
-        if isinstance(body, dict):
-            for cand in body.get("candidates") or []:
-                content = cand.get("content") or {}
-                for part in content.get("parts") or []:
-                    if isinstance(part, dict) and "text" in part:
-                        text += str(part.get("text") or "")
+        text = _extract_gemini_text(body)
         return text.strip(), {
             "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": status, "body": body}}
         }
@@ -1960,14 +2213,28 @@ def _gemini_chat_messages(
         except Exception:
             parsed = detail
         return None, {
-            "error": "Gemini request failed.",
+            "error": "Gemini proxy request failed." if proxy_mode else "Gemini request failed.",
             "status_code": 502,
             "details": detail,
+            **(
+                {
+                    "proxy_guardrails_block": block
+                }
+                if proxy_mode
+                and (
+                    block := _proxy_guardrails_block_from_error(
+                        status_code=int(exc.code or 0),
+                        response_body=parsed,
+                        details_text=detail,
+                    )
+                )
+                else {}
+            ),
             "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": exc.code, "body": parsed}},
         }
     except Exception as exc:
         return None, {
-            "error": "Gemini request failed.",
+            "error": "Gemini proxy request failed." if proxy_mode else "Gemini request failed.",
             "status_code": 502,
             "details": str(exc),
             "trace_step": {"name": "Google Gemini", "request": trace_request, "response": {"status": 502, "body": {"error": str(exc)}}},
@@ -2583,6 +2850,7 @@ def call_provider_messages(
             "bedrock_agent",
             "perplexity",
             "xai",
+            "gemini",
             "azure_foundry",
             "kong",
         }
@@ -2660,6 +2928,8 @@ def call_provider_messages(
         return _gemini_chat_messages(
             messages,
             selected_gemini_model,
+            proxy_mode=zscaler_proxy_mode,
+            conversation_id=conversation_id,
             demo_user=demo_user,
         )
     if provider == "vertex":

@@ -40,6 +40,15 @@ def _parse_policy_id(raw: object) -> int | None:
     return value if value > 0 else None
 
 
+def _api_direction(stage: str) -> str:
+    normalized = str(stage or "").strip().lower()
+    if normalized in {"in", "input", "prompt", "request"}:
+        return "request"
+    if normalized in {"out", "output", "completion", "response"}:
+        return "response"
+    return normalized or "request"
+
+
 def _block_contact_text() -> str:
     text = str(os.getenv("AI_GUARD_BLOCK_CONTACT_TEXT", DEFAULT_AI_GUARD_BLOCK_CONTACT_TEXT) or "").strip()
     return text or DEFAULT_AI_GUARD_BLOCK_CONTACT_TEXT
@@ -266,6 +275,7 @@ def _zag_check(
     das_mode = _normalize_das_mode(zscaler_das_mode or cfg_das_mode)
     policy_id = _parse_policy_id(zscaler_policy_id) if zscaler_policy_id is not None else cfg_policy_id
     zag_url = _resolve_guardrails_url(zag_base_url, das_mode)
+    api_direction = _api_direction(direction)
 
     if not zag_key:
         return False, {
@@ -287,7 +297,7 @@ def _zag_check(
                         **({DEMO_USER_HEADER_NAME: str(demo_user)} if demo_user else {}),
                     },
                     "payload": {
-                        "direction": direction,
+                        "direction": api_direction,
                         "content": content or "",
                         **({"policyId": policy_id} if das_mode == "execute" and policy_id else {}),
                     },
@@ -301,7 +311,7 @@ def _zag_check(
 
     if das_mode == "execute" and not policy_id:
         payload = {
-            "direction": direction,
+            "direction": api_direction,
             "content": content or "",
         }
         return False, {
@@ -324,7 +334,7 @@ def _zag_check(
             "policy_id": None,
         }
 
-    payload = {"direction": direction, "content": content or ""}
+    payload = {"direction": api_direction, "content": content or ""}
     if das_mode == "execute" and policy_id:
         payload["policyId"] = policy_id
     headers = {
@@ -353,10 +363,20 @@ def _zag_check(
         )
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
+        hint = ""
+        if int(getattr(exc, "code", 0) or 0) == 401:
+            hint = (
+                "DAS/API mode expects a Zscaler AI Guard DAS/API key in "
+                "ZS_GUARDRAILS_API_KEY and sends it as Authorization: Bearer "
+                "to api.zseclipse.net. A 401 usually means the key is missing, "
+                "expired, disabled, or is a proxy-mode application key instead "
+                "of a DAS/API key."
+            )
         return False, {
             "error": f"Zscaler AI Guard HTTP error on {direction} check.",
             "status_code": 502,
             "details": detail,
+            **({"hint": hint} if hint else {}),
             "trace_step": {
                 "name": f"Zscaler AI Guard ({direction})",
                 "request": {
@@ -438,6 +458,7 @@ def guarded_chat(
             {
                 "error": in_meta["error"],
                 "details": in_meta.get("details"),
+                **({"hint": in_meta.get("hint")} if in_meta.get("hint") else {}),
                 "trace": {"steps": trace_steps},
             },
             int(in_meta.get("status_code", 502)),
@@ -491,6 +512,7 @@ def guarded_chat(
             {
                 "error": out_meta["error"],
                 "details": out_meta.get("details"),
+                **({"hint": out_meta.get("hint")} if out_meta.get("hint") else {}),
                 "trace": {"steps": trace_steps},
             },
             int(out_meta.get("status_code", 502)),

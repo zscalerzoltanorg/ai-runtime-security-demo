@@ -4,6 +4,10 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.14`
+  - Aligned Zscaler AI Guard DAS/API direction payloads with current docs and added clearer 401 guidance for DAS/API key mismatches.
+  - Updated proxy-mode OpenAI, Anthropic, and Gemini calls to use documented direct AI Guard proxy HTTP endpoints so prompt/response content is visible to AI Guard inspection.
+
 - `v1.5.13`
   - Marked Google Gemini as validated end-to-end in this demo environment after successful testing.
 
