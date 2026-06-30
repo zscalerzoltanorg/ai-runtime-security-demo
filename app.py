@@ -5519,6 +5519,7 @@ HTML = f"""<!doctype html>
         "litellm",
         "perplexity",
         "xai",
+        "gemini",
         "bedrock_invoke",
         "bedrock_agent"
       ]);

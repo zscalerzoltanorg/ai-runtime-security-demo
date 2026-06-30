@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.13`
+  - Marked Google Gemini as validated end-to-end in this demo environment after successful testing.
+
 - `v1.5.12`
   - Added a first-time Setup Wizard that explains common provider keys, Zscaler AI Guard modes, local Ollama setup, and MCP/tool configuration before users start demos.
   - Added capability-aware response mode controls with visible JSON, NDJSON stream (`/chat/stream`), SSE (`/chat/sse`), WebSocket, protobuf/gRPC, and protocol-trace demos; unsupported modes are disabled by provider and active runtime settings.
@@ -160,12 +163,12 @@ Tested end-to-end in this demo environment:
 - Anthropic
 - OpenAI
 - LiteLLM
+- Google Gemini
 
 Present in UI but not yet fully validated end-to-end in this environment:
 
 - AWS Bedrock
 - AWS Bedrock Agent
-- Google Gemini
 - Google Vertex
 - Perplexity
 - xAI (Grok)
