@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.16`
+  - Added a standalone background traffic generator for randomized AI Guard demo traffic across providers, DAS/API vs proxy, response modes, agentic/tool settings, and multi-turn prompts.
+
 - `v1.5.15`
   - Fixed Zscaler AI Guard DAS/API request payloads to send the live API's accepted direction values (`IN`/`OUT`) for both Resolve and Execute modes.
 
@@ -141,6 +144,32 @@ Defaults:
   - `Zscaler AI Guard: On`
   - For inline blocking tests: `Mode: Proxy`
   - For out-of-band detector observations: `Mode: API/DAS`
+
+## Background Demo Traffic
+
+Use the traffic generator when you want the local web app to produce varied AI Guard traffic without clicking through the UI:
+
+```bash
+python3 scripts/traffic_generator.py --base-url http://127.0.0.1:5050 --count 25
+```
+
+Defaults keep AI Guard on, favor Ollama/OpenAI/Bedrock, skip Anthropic unless `--include-anthropic` is passed, and randomize API/DAS vs proxy, Resolve vs Execute, single-turn vs multi-turn, response modes, agentic mode, MCP tools, and prompt categories.
+
+Useful controls:
+
+```bash
+# Continuous run until Ctrl-C or stop file.
+python3 scripts/traffic_generator.py --forever --min-delay 10 --max-delay 45 --jsonl traffic.jsonl
+
+# Stop a continuous run from another terminal.
+touch /tmp/ai-runtime-security-demo-traffic.stop
+
+# Cheap/local-heavy run.
+python3 scripts/traffic_generator.py --provider-weights ollama=10,openai=2,bedrock_invoke=1 --count 50
+
+# Preview randomized plans without sending requests.
+python3 scripts/traffic_generator.py --dry-run --count 10
+```
 
 ## Learning Labs (Branch Preview)
 
