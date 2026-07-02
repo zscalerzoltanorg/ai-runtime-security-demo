@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.21`
+  - Added a high-volume `scripts/traffic_burst.py` wrapper for the tested AI Guard log-filler traffic mix, while still allowing extra command-line overrides.
+
 - `v1.5.20`
   - Improved background traffic generation with balanced detector-family coverage, response-detector prompts that can pass IN checks but trip OUT checks, duration-based runs, and randomized longer pauses for more natural traffic waves.
 
@@ -170,6 +173,12 @@ Defaults keep AI Guard on, read the running app settings from `/settings`, infer
 Useful controls:
 
 ```bash
+# High-volume tested log-filler run.
+python3 scripts/traffic_burst.py
+
+# Preview the burst recipe without sending requests.
+python3 scripts/traffic_burst.py --dry-run --count 10
+
 # Continuous run until Ctrl-C or stop file.
 python3 scripts/traffic_generator.py --forever --min-delay 10 --max-delay 45 --jsonl traffic.jsonl
 
