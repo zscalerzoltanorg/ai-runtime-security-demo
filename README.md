@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.20`
+  - Improved background traffic generation with balanced detector-family coverage, response-detector prompts that can pass IN checks but trip OUT checks, duration-based runs, and randomized longer pauses for more natural traffic waves.
+
 - `v1.5.19`
   - Expanded background traffic prompts across AI Guard detector families and added optional parallel conversation execution with unique conversation IDs.
 
@@ -183,7 +186,10 @@ python3 scripts/traffic_generator.py --provider-weights auto --count 25
 python3 scripts/traffic_generator.py --count 30 --parallel 3 --min-delay 5 --max-delay 15
 
 # Heavier detector-category coverage.
-python3 scripts/traffic_generator.py --count 40 --detector-rate 0.9
+python3 scripts/traffic_generator.py --count 40 --detector-rate 0.9 --response-detector-rate 0.55
+
+# Run for about an hour with random bursts and longer pauses.
+python3 scripts/traffic_generator.py --duration-hours 1 --parallel 2 --min-delay 20 --max-delay 90 --pause-every 15 --pause-min 120 --pause-max 300 --detector-rate 0.9 --response-detector-rate 0.6 --coverage-mode balanced --jsonl traffic-$(date +%Y%m%d-%H%M%S).jsonl
 
 # Force proxy-only traffic for providers with configured proxy keys.
 python3 scripts/traffic_generator.py --guard-modes proxy --provider-weights openai=1 --count 10
