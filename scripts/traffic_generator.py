@@ -24,7 +24,7 @@ from uuid import uuid4
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:5050"
-DEFAULT_PROVIDER_WEIGHTS = "ollama=7,openai=4,bedrock_invoke=2"
+DEFAULT_PROVIDER_WEIGHTS = "auto"
 DEFAULT_STOP_FILE = "/tmp/ai-runtime-security-demo-traffic.stop"
 EXECUTE_POLICY_ID_DEFAULT = "2247"
 
@@ -39,14 +39,37 @@ PROVIDER_LABELS = {
     "gemini": "Google Gemini",
     "perplexity": "Perplexity",
     "xai": "xAI",
+    "vertex": "Google Vertex",
+    "azure_foundry": "Azure AI Foundry",
+    "kong": "Kong",
+    "litellm": "LiteLLM",
 }
 
-DIRECT_KEY_BY_PROVIDER = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "perplexity": "PERPLEXITY_API_KEY",
-    "xai": "XAI_API_KEY",
+AUTO_PROVIDER_WEIGHTS = {
+    "ollama": 7,
+    "openai": 4,
+    "bedrock_invoke": 2,
+    "gemini": 2,
+    "perplexity": 1,
+    "xai": 1,
+    "vertex": 1,
+    "azure_foundry": 1,
+    "kong": 1,
+    "litellm": 1,
+    "bedrock_agent": 1,
+}
+
+DIRECT_REQUIRED_KEYS_BY_PROVIDER = {
+    "openai": ["OPENAI_API_KEY"],
+    "anthropic": ["ANTHROPIC_API_KEY"],
+    "gemini": ["GEMINI_API_KEY"],
+    "perplexity": ["PERPLEXITY_API_KEY"],
+    "xai": ["XAI_API_KEY"],
+    "vertex": ["VERTEX_PROJECT_ID"],
+    "azure_foundry": ["AZURE_AI_FOUNDRY_API_KEY"],
+    "kong": ["KONG_API_KEY", "KONG_BASE_URL"],
+    "litellm": ["LITELLM_API_KEY"],
+    "bedrock_agent": ["BEDROCK_AGENT_ID", "BEDROCK_AGENT_ALIAS_ID"],
 }
 
 PROXY_KEY_BY_PROVIDER = {
@@ -57,6 +80,10 @@ PROXY_KEY_BY_PROVIDER = {
     "gemini": "GEMINI_ZS_PROXY_API_KEY",
     "perplexity": "PERPLEXITY_ZS_PROXY_API_KEY",
     "xai": "XAI_ZS_PROXY_API_KEY",
+    "vertex": "VERTEX_ZS_PROXY_API_KEY",
+    "azure_foundry": "AZURE_FOUNDRY_ZS_PROXY_API_KEY",
+    "kong": "KONG_ZS_PROXY_API_KEY",
+    "litellm": "LITELLM_ZS_PROXY_API_KEY",
 }
 
 PROXY_UNSUPPORTED = {"ollama", "litellm"}
@@ -262,6 +289,22 @@ def parse_weights(raw: str) -> dict[str, int]:
     return weights
 
 
+def configured_provider_weights(settings: dict[str, str], raw: str, *, include_anthropic: bool) -> tuple[dict[str, int], str]:
+    raw_text = str(raw or "").strip()
+    if raw_text.lower() not in {"", "auto"}:
+        weights = parse_weights(raw_text)
+        if include_anthropic and "anthropic" not in weights:
+            weights["anthropic"] = 1
+        return weights, "manual"
+
+    weights = dict(AUTO_PROVIDER_WEIGHTS)
+    if include_anthropic:
+        weights["anthropic"] = 1
+    else:
+        weights.pop("anthropic", None)
+    return weights, "auto"
+
+
 def weighted_choice(weights: dict[str, int]) -> str:
     total = sum(max(0, v) for v in weights.values())
     if total <= 0:
@@ -293,10 +336,10 @@ def configured_for_provider(settings: dict[str, str], provider: str, guard_mode:
     if guard_mode == "proxy":
         key_name = PROXY_KEY_BY_PROVIDER.get(provider)
         return bool(key_name and settings.get(key_name))
-    if provider in {"bedrock_invoke", "bedrock_agent"}:
+    if provider == "bedrock_invoke":
         return True
-    key_name = DIRECT_KEY_BY_PROVIDER.get(provider)
-    return bool(key_name and settings.get(key_name))
+    required_keys = DIRECT_REQUIRED_KEYS_BY_PROVIDER.get(provider, [])
+    return bool(required_keys) and all(bool(settings.get(key_name)) for key_name in required_keys)
 
 
 def available_provider_modes(settings: dict[str, str], provider_weights: dict[str, int], guard_modes: set[str]) -> dict[str, list[str]]:
@@ -459,7 +502,7 @@ def main() -> int:
     parser.add_argument("--min-delay", type=float, default=4.0, help="Minimum delay between conversations.")
     parser.add_argument("--max-delay", type=float, default=14.0, help="Maximum delay between conversations.")
     parser.add_argument("--timeout", type=float, default=150.0, help="HTTP timeout for each chat request.")
-    parser.add_argument("--provider-weights", default=DEFAULT_PROVIDER_WEIGHTS, help="Comma list like ollama=7,openai=4,bedrock_invoke=2.")
+    parser.add_argument("--provider-weights", default=DEFAULT_PROVIDER_WEIGHTS, help="Use 'auto' to infer configured providers, or pass a comma list like ollama=7,openai=4,bedrock_invoke=2.")
     parser.add_argument("--include-anthropic", action="store_true", help="Add Anthropic with low weight if configured. Off by default to avoid personal subscription spend.")
     parser.add_argument("--guard-modes", default="api_das,proxy", help="Comma list: api_das,proxy.")
     parser.add_argument("--das-modes", default="execute,resolve", help="Comma list for API/DAS: execute,resolve.")
@@ -486,9 +529,6 @@ def main() -> int:
     signal.signal(signal.SIGINT, _request_stop)
     signal.signal(signal.SIGTERM, _request_stop)
 
-    provider_weights = parse_weights(args.provider_weights)
-    if args.include_anthropic and "anthropic" not in provider_weights:
-        provider_weights["anthropic"] = 1
     guard_modes = {m.strip().lower().replace("-", "_") for m in args.guard_modes.split(",") if m.strip()}
     das_modes = {m.strip().lower().replace("-", "_") for m in args.das_modes.split(",") if m.strip()}
     guard_modes = {m for m in guard_modes if m in {"api_das", "proxy"}}
@@ -505,6 +545,12 @@ def main() -> int:
     anonymous_user_rate = max(0.0, min(1.0, args.anonymous_user_rate))
 
     settings = fetch_settings(args.base_url)
+    provider_weights, provider_weight_source = configured_provider_weights(
+        settings,
+        args.provider_weights,
+        include_anthropic=bool(args.include_anthropic),
+    )
+    print(f"Provider selection: {provider_weight_source}")
     print_plan_preview(settings, provider_weights, guard_modes)
 
     stop_path = Path(args.stop_file).expanduser()

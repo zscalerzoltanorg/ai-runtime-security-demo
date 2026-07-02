@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.18`
+  - Made the background traffic generator infer configured providers from the running app settings by default, including direct and proxy keys, while keeping Anthropic opt-in.
+
 - `v1.5.17`
   - Improved the background traffic generator with clearer proxy/API-DAS labels, balanced Resolve/Execute defaults, tunable guard-mode weights, named demo-user rotation, and an end-of-run mix summary.
 
@@ -156,7 +159,7 @@ Use the traffic generator when you want the local web app to produce varied AI G
 python3 scripts/traffic_generator.py --base-url http://127.0.0.1:5050 --count 25
 ```
 
-Defaults keep AI Guard on, favor Ollama/OpenAI/Bedrock, skip Anthropic unless `--include-anthropic` is passed, and randomize API/DAS vs proxy, Resolve vs Execute, single-turn vs multi-turn, response modes, agentic mode, MCP tools, and prompt categories.
+Defaults keep AI Guard on, read the running app settings from `/settings`, infer configured providers/direct keys/proxy keys, skip Anthropic unless `--include-anthropic` is passed, and randomize API/DAS vs proxy, Resolve vs Execute, single-turn vs multi-turn, response modes, agentic mode, MCP tools, and prompt categories.
 
 Useful controls:
 
@@ -169,6 +172,9 @@ touch /tmp/ai-runtime-security-demo-traffic.stop
 
 # Cheap/local-heavy run.
 python3 scripts/traffic_generator.py --provider-weights ollama=10,openai=2,bedrock_invoke=1 --count 50
+
+# Auto-discover configured providers from the web app settings.
+python3 scripts/traffic_generator.py --provider-weights auto --count 25
 
 # Force proxy-only traffic for providers with configured proxy keys.
 python3 scripts/traffic_generator.py --guard-modes proxy --provider-weights openai=1 --count 10
