@@ -43,10 +43,10 @@ def _parse_policy_id(raw: object) -> int | None:
 def _api_direction(stage: str) -> str:
     normalized = str(stage or "").strip().lower()
     if normalized in {"in", "input", "prompt", "request"}:
-        return "request"
+        return "IN"
     if normalized in {"out", "output", "completion", "response"}:
-        return "response"
-    return normalized or "request"
+        return "OUT"
+    return normalized.upper() or "IN"
 
 
 def _block_contact_text() -> str:
