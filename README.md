@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.17`
+  - Improved the background traffic generator with clearer proxy/API-DAS labels, balanced Resolve/Execute defaults, tunable guard-mode weights, named demo-user rotation, and an end-of-run mix summary.
+
 - `v1.5.16`
   - Added a standalone background traffic generator for randomized AI Guard demo traffic across providers, DAS/API vs proxy, response modes, agentic/tool settings, and multi-turn prompts.
 
@@ -166,6 +169,15 @@ touch /tmp/ai-runtime-security-demo-traffic.stop
 
 # Cheap/local-heavy run.
 python3 scripts/traffic_generator.py --provider-weights ollama=10,openai=2,bedrock_invoke=1 --count 50
+
+# Force proxy-only traffic for providers with configured proxy keys.
+python3 scripts/traffic_generator.py --guard-modes proxy --provider-weights openai=1 --count 10
+
+# Force API/DAS Resolve traffic.
+python3 scripts/traffic_generator.py --guard-modes api_das --das-modes resolve --count 10
+
+# Use your own demo users in X-Demo-User.
+python3 scripts/traffic_generator.py --demo-users alex@example.com,sam@example.com --count 20
 
 # Preview randomized plans without sending requests.
 python3 scripts/traffic_generator.py --dry-run --count 10

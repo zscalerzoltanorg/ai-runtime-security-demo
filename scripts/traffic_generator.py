@@ -28,13 +28,7 @@ DEFAULT_PROVIDER_WEIGHTS = "ollama=7,openai=4,bedrock_invoke=2"
 DEFAULT_STOP_FILE = "/tmp/ai-runtime-security-demo-traffic.stop"
 EXECUTE_POLICY_ID_DEFAULT = "2247"
 
-DEMO_USERS = [
-    "",
-    "alex.rivera@acme-demo.com",
-    "sam.chen@acme-demo.com",
-    "priya.patel@acme-demo.com",
-    "morgan.lee@acme-demo.com",
-]
+DEFAULT_DEMO_USERS = "alex.rivera@acme-demo.com,sam.chen@acme-demo.com,priya.patel@acme-demo.com,morgan.lee@acme-demo.com"
 
 PROVIDER_LABELS = {
     "ollama": "Ollama",
@@ -281,6 +275,18 @@ def weighted_choice(weights: dict[str, int]) -> str:
     return next(iter(weights))
 
 
+def weighted_choice_from_options(options: list[str], weights: dict[str, int]) -> str:
+    usable = {option: max(0, int(weights.get(option, 0))) for option in options}
+    if sum(usable.values()) <= 0:
+        usable = {option: 1 for option in options}
+    return weighted_choice(usable)
+
+
+def parse_demo_users(raw: str) -> list[str]:
+    users = [part.strip() for part in str(raw or "").split(",") if part.strip()]
+    return users or [part.strip() for part in DEFAULT_DEMO_USERS.split(",") if part.strip()]
+
+
 def configured_for_provider(settings: dict[str, str], provider: str, guard_mode: str) -> bool:
     if provider == "ollama":
         return guard_mode == "api_das"
@@ -328,6 +334,10 @@ def choose_plan(
     provider_weights: dict[str, int],
     guard_modes: set[str],
     das_modes: set[str],
+    guard_mode_weights: dict[str, int],
+    das_mode_weights: dict[str, int],
+    demo_users: list[str],
+    anonymous_user_rate: float,
     execute_policy_id: str,
     multi_turn_rate: float,
     agentic_rate: float,
@@ -340,10 +350,11 @@ def choose_plan(
         raise SystemExit("No valid provider/security-mode combinations are configured for the requested weights.")
     filtered_weights = {p: w for p, w in provider_weights.items() if p in available}
     provider = weighted_choice(filtered_weights)
-    guard_mode = random.choice(available[provider])
-    das_mode = "execute" if "execute" in das_modes else "resolve"
-    if guard_mode == "api_das" and len(das_modes) > 1:
-        das_mode = random.choices(["execute", "resolve"], weights=[3, 1], k=1)[0]
+    guard_mode = weighted_choice_from_options(available[provider], guard_mode_weights)
+    das_mode = ""
+    if guard_mode == "api_das":
+        ordered_das_modes = [mode for mode in ("execute", "resolve") if mode in das_modes]
+        das_mode = weighted_choice_from_options(ordered_das_modes or ["execute"], das_mode_weights)
 
     paid_provider = provider not in {"ollama"}
     multi_agent = (not paid_provider or random.random() < 0.5) and random.random() < multi_agent_rate
@@ -365,7 +376,7 @@ def choose_plan(
         local_tasks=local_tasks,
         tool_profile=random.choice(["standard", "read_only", "local_only", "network_open"] if tools else ["standard"]),
         topology=random.choice(["single_process", "isolated_workers", "isolated_per_role"] if (agentic or multi_agent) else ["single_process"]),
-        demo_user=random.choice(DEMO_USERS),
+        demo_user="" if random.random() < anonymous_user_rate else random.choice(demo_users),
         prompts=prompts,
     )
 
@@ -386,8 +397,8 @@ def make_payload(plan: Plan, prompt: str, conversation_id: str, messages: list[d
         "tool_permission_profile": plan.tool_profile,
         "execution_topology": plan.topology,
         "zscaler_proxy_mode": plan.guard_mode == "proxy",
-        "zscaler_das_mode": plan.das_mode,
-        "zscaler_policy_id": execute_policy_id if plan.das_mode == "execute" else "",
+        "zscaler_das_mode": plan.das_mode or "execute",
+        "zscaler_policy_id": execute_policy_id if plan.guard_mode == "api_das" and plan.das_mode == "execute" else "",
     }
 
 
@@ -433,6 +444,12 @@ def print_plan_preview(settings: dict[str, str], provider_weights: dict[str, int
     print("")
 
 
+def plan_guard_label(plan: Plan) -> str:
+    if plan.guard_mode == "api_das":
+        return f"api_das/{plan.das_mode}"
+    return "proxy"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Randomized traffic generator for the local AI Runtime Security Demo app.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help=f"Local app URL. Default: {DEFAULT_BASE_URL}")
@@ -446,7 +463,13 @@ def main() -> int:
     parser.add_argument("--include-anthropic", action="store_true", help="Add Anthropic with low weight if configured. Off by default to avoid personal subscription spend.")
     parser.add_argument("--guard-modes", default="api_das,proxy", help="Comma list: api_das,proxy.")
     parser.add_argument("--das-modes", default="execute,resolve", help="Comma list for API/DAS: execute,resolve.")
+    parser.add_argument("--api-das-weight", type=int, default=2, help="Relative weight for API/DAS when a provider supports multiple guard modes.")
+    parser.add_argument("--proxy-weight", type=int, default=2, help="Relative weight for proxy mode when a provider supports it.")
+    parser.add_argument("--execute-weight", type=int, default=1, help="Relative weight for API/DAS Execute mode.")
+    parser.add_argument("--resolve-weight", type=int, default=1, help="Relative weight for API/DAS Resolve mode.")
     parser.add_argument("--execute-policy-id", default=EXECUTE_POLICY_ID_DEFAULT, help="Policy ID for Execute Policy mode.")
+    parser.add_argument("--demo-users", default=DEFAULT_DEMO_USERS, help="Comma-separated demo users rotated into X-Demo-User.")
+    parser.add_argument("--anonymous-user-rate", type=float, default=0.0, help="Probability of omitting X-Demo-User for a conversation.")
     parser.add_argument("--multi-turn-rate", type=float, default=0.25, help="Probability a conversation uses multi-turn context.")
     parser.add_argument("--agentic-rate", type=float, default=0.22, help="Probability Agentic Mode is enabled.")
     parser.add_argument("--multi-agent-rate", type=float, default=0.06, help="Probability Multi-Agent Mode is enabled. Kept low because it can multiply LLM calls.")
@@ -470,6 +493,16 @@ def main() -> int:
     das_modes = {m.strip().lower().replace("-", "_") for m in args.das_modes.split(",") if m.strip()}
     guard_modes = {m for m in guard_modes if m in {"api_das", "proxy"}}
     das_modes = {m for m in das_modes if m in {"execute", "resolve"}} or {"execute"}
+    guard_mode_weights = {
+        "api_das": max(0, args.api_das_weight),
+        "proxy": max(0, args.proxy_weight),
+    }
+    das_mode_weights = {
+        "execute": max(0, args.execute_weight),
+        "resolve": max(0, args.resolve_weight),
+    }
+    demo_users = parse_demo_users(args.demo_users)
+    anonymous_user_rate = max(0.0, min(1.0, args.anonymous_user_rate))
 
     settings = fetch_settings(args.base_url)
     print_plan_preview(settings, provider_weights, guard_modes)
@@ -483,6 +516,7 @@ def main() -> int:
     started = time.monotonic()
     sent_conversations = 0
     sent_turns = 0
+    stats: dict[str, int] = {}
     target_count = None if args.forever else max(0, args.count)
 
     try:
@@ -502,6 +536,10 @@ def main() -> int:
                 provider_weights=provider_weights,
                 guard_modes=guard_modes,
                 das_modes=das_modes,
+                guard_mode_weights=guard_mode_weights,
+                das_mode_weights=das_mode_weights,
+                demo_users=demo_users,
+                anonymous_user_rate=anonymous_user_rate,
                 execute_policy_id=args.execute_policy_id,
                 multi_turn_rate=max(0.0, min(1.0, args.multi_turn_rate)),
                 agentic_rate=max(0.0, min(1.0, args.agentic_rate)),
@@ -511,11 +549,16 @@ def main() -> int:
             )
             conversation_id = uuid4().hex
             messages: list[dict[str, Any]] = []
+            guard_label = plan_guard_label(plan)
+            stats[f"provider:{plan.provider}"] = stats.get(f"provider:{plan.provider}", 0) + 1
+            stats[f"guard:{guard_label}"] = stats.get(f"guard:{guard_label}", 0) + 1
+            stats[f"user:{plan.demo_user or '(anonymous)'}"] = stats.get(f"user:{plan.demo_user or '(anonymous)'}", 0) + 1
 
             print(
-                f"[{sent_conversations}] provider={plan.provider} guard={plan.guard_mode}/{plan.das_mode} "
+                f"[{sent_conversations}] provider={plan.provider} guard={guard_label} "
                 f"chat={plan.chat_mode} response={plan.response_mode} "
-                f"agentic={plan.agentic} multi_agent={plan.multi_agent} tools={plan.tools}"
+                f"agentic={plan.agentic} multi_agent={plan.multi_agent} tools={plan.tools} "
+                f"user={plan.demo_user or '(anonymous)'}"
             )
 
             for turn_index, prompt in enumerate(plan.prompts, start=1):
@@ -528,6 +571,7 @@ def main() -> int:
                         "provider": plan.provider,
                         "guard_mode": plan.guard_mode,
                         "das_mode": plan.das_mode,
+                        "guard_label": guard_label,
                         "response_mode": plan.response_mode,
                         "chat_mode": plan.chat_mode,
                         "agentic": plan.agentic,
@@ -574,6 +618,10 @@ def main() -> int:
 
     elapsed = max(0.001, time.monotonic() - started)
     print(f"Done. conversations={sent_conversations} turns={sent_turns} elapsed={elapsed:.1f}s")
+    if stats:
+        print("Mix summary:")
+        for key in sorted(stats):
+            print(f"  {key}={stats[key]}")
     return 0
 
 
