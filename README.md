@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.22`
+  - Added low-weight Anthropic traffic to the high-volume burst wrapper.
+
 - `v1.5.21`
   - Added a high-volume `scripts/traffic_burst.py` wrapper for the tested AI Guard log-filler traffic mix, while still allowing extra command-line overrides.
 

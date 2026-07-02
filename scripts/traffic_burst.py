@@ -53,7 +53,7 @@ def main() -> int:
         "--tools-rate",
         "0.6",
         "--provider-weights",
-        "ollama=10,openai=5,bedrock_invoke=3,gemini=2",
+        "ollama=10,openai=5,bedrock_invoke=3,gemini=2,anthropic=1",
         "--jsonl",
         f"traffic-burst-{timestamp}.jsonl",
     ]
