@@ -237,13 +237,23 @@ def _build_badge_text() -> str:
 
         tag_exact = ""
         try:
-            tag_exact = subprocess.check_output(
-                ["git", "describe", "--tags", "--exact-match", "HEAD"],
+            exact_tags_raw = subprocess.check_output(
+                ["git", "tag", "--points-at", "HEAD"],
                 cwd=repo_root,
                 text=True,
                 stderr=subprocess.DEVNULL,
                 timeout=1.0,
             ).strip()
+            exact_tags = [t.strip() for t in exact_tags_raw.splitlines() if t.strip()]
+
+            def _tag_sort_key(tag: str) -> tuple[int, int, int, str]:
+                match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$", str(tag or "").strip())
+                if not match:
+                    return (-1, -1, -1, str(tag or ""))
+                return (int(match.group(1)), int(match.group(2)), int(match.group(3)), str(tag or ""))
+
+            if exact_tags:
+                tag_exact = sorted(exact_tags, key=_tag_sort_key)[-1]
         except Exception:
             tag_exact = ""
 
