@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.23`
+  - Added local web UI controls to start, stop, and configure the background traffic automation, defaulting to the high-volume burst recipe.
+
 - `v1.5.22`
   - Added low-weight Anthropic traffic to the high-volume burst wrapper.
 

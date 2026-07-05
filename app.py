@@ -150,6 +150,11 @@ _USAGE_DB_LOCK = threading.Lock()
 _UPDATE_LOCK = threading.Lock()
 _UPDATE_RUNNING = False
 _MODEL_CATALOG_LOCK = threading.Lock()
+_TRAFFIC_LOCK = threading.Lock()
+_TRAFFIC_PROCESS: subprocess.Popen | None = None
+_TRAFFIC_META: dict[str, object] = {}
+TRAFFIC_STOP_FILE = Path("/tmp/ai-runtime-security-demo-traffic.stop")
+TRAFFIC_LOG_DIR = Path(__file__).with_name("logs")
 
 MODEL_CATALOG_TTL_SECONDS = max(300, _int_env("MODEL_CATALOG_TTL_SECONDS", 86400))
 MODEL_CATALOG_DYNAMIC_FETCH = _str_env("MODEL_CATALOG_DYNAMIC_FETCH", "true").strip().lower() not in {
@@ -697,6 +702,227 @@ def _schedule_self_restart(delay_seconds: float = 0.8) -> bool:
     t = threading.Thread(target=_do_restart, daemon=True)
     t.start()
     return True
+
+
+def _traffic_default_config() -> dict[str, object]:
+    return {
+        "duration_hours": 1.0,
+        "parallel": 5,
+        "min_delay": 3.0,
+        "max_delay": 12.0,
+        "pause_every": 40,
+        "pause_min": 20.0,
+        "pause_max": 60.0,
+        "detector_rate": 0.95,
+        "response_detector_rate": 0.6,
+        "coverage_mode": "balanced",
+        "multi_turn_rate": 0.15,
+        "agentic_rate": 0.15,
+        "multi_agent_rate": 0.03,
+        "tools_rate": 0.6,
+        "provider_weights": "ollama=10,openai=5,bedrock_invoke=3,gemini=2,anthropic=1",
+    }
+
+
+def _coerce_float(value: object, default: float, *, min_value: float, max_value: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed < min_value:
+        return min_value
+    if parsed > max_value:
+        return max_value
+    return parsed
+
+
+def _coerce_int(value: object, default: int, *, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed < min_value:
+        return min_value
+    if parsed > max_value:
+        return max_value
+    return parsed
+
+
+def _sanitize_provider_weights(raw: object, default: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return default
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_=,-")
+    cleaned = "".join(ch for ch in value if ch in allowed).strip(",-")
+    return cleaned or default
+
+
+def _traffic_config_from_payload(payload: dict | None) -> dict[str, object]:
+    defaults = _traffic_default_config()
+    payload = payload if isinstance(payload, dict) else {}
+    return {
+        "duration_hours": _coerce_float(payload.get("duration_hours"), float(defaults["duration_hours"]), min_value=0.02, max_value=12.0),
+        "parallel": _coerce_int(payload.get("parallel"), int(defaults["parallel"]), min_value=1, max_value=10),
+        "min_delay": _coerce_float(payload.get("min_delay"), float(defaults["min_delay"]), min_value=0.0, max_value=600.0),
+        "max_delay": _coerce_float(payload.get("max_delay"), float(defaults["max_delay"]), min_value=0.0, max_value=600.0),
+        "pause_every": _coerce_int(payload.get("pause_every"), int(defaults["pause_every"]), min_value=0, max_value=500),
+        "pause_min": _coerce_float(payload.get("pause_min"), float(defaults["pause_min"]), min_value=0.0, max_value=3600.0),
+        "pause_max": _coerce_float(payload.get("pause_max"), float(defaults["pause_max"]), min_value=0.0, max_value=3600.0),
+        "detector_rate": _coerce_float(payload.get("detector_rate"), float(defaults["detector_rate"]), min_value=0.0, max_value=1.0),
+        "response_detector_rate": _coerce_float(payload.get("response_detector_rate"), float(defaults["response_detector_rate"]), min_value=0.0, max_value=1.0),
+        "coverage_mode": "random" if str(payload.get("coverage_mode") or defaults["coverage_mode"]).strip().lower() == "random" else "balanced",
+        "multi_turn_rate": _coerce_float(payload.get("multi_turn_rate"), float(defaults["multi_turn_rate"]), min_value=0.0, max_value=1.0),
+        "agentic_rate": _coerce_float(payload.get("agentic_rate"), float(defaults["agentic_rate"]), min_value=0.0, max_value=1.0),
+        "multi_agent_rate": _coerce_float(payload.get("multi_agent_rate"), float(defaults["multi_agent_rate"]), min_value=0.0, max_value=1.0),
+        "tools_rate": _coerce_float(payload.get("tools_rate"), float(defaults["tools_rate"]), min_value=0.0, max_value=1.0),
+        "provider_weights": _sanitize_provider_weights(payload.get("provider_weights"), str(defaults["provider_weights"])),
+    }
+
+
+def _traffic_tail(path: str | Path, max_chars: int = 3000) -> str:
+    try:
+        p = Path(path)
+        if not p.exists():
+            return ""
+        with p.open("rb") as fh:
+            size = fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, size - max_chars))
+            return fh.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _traffic_status_locked() -> dict[str, object]:
+    process = _TRAFFIC_PROCESS
+    running = bool(process and process.poll() is None)
+    meta = dict(_TRAFFIC_META or {})
+    if process:
+        meta["pid"] = process.pid
+        meta["returncode"] = process.poll()
+    started_at = float(meta.get("started_monotonic") or 0.0)
+    if started_at:
+        meta["elapsed_seconds"] = round(max(0.0, time.monotonic() - started_at), 1)
+    return {
+        "ok": True,
+        "running": running,
+        "stop_file": str(TRAFFIC_STOP_FILE),
+        "defaults": _traffic_default_config(),
+        **meta,
+        "stdout_tail": _traffic_tail(str(meta.get("stdout_log") or "")),
+        "stderr_tail": _traffic_tail(str(meta.get("stderr_log") or "")),
+    }
+
+
+def _traffic_status_payload() -> dict[str, object]:
+    with _TRAFFIC_LOCK:
+        return _traffic_status_locked()
+
+
+def _traffic_start(payload: dict | None) -> tuple[dict[str, object], int]:
+    global _TRAFFIC_PROCESS, _TRAFFIC_META
+    config = _traffic_config_from_payload(payload)
+    with _TRAFFIC_LOCK:
+        if _TRAFFIC_PROCESS and _TRAFFIC_PROCESS.poll() is None:
+            return _traffic_status_locked() | {"error": "Traffic automation is already running."}, 409
+
+        TRAFFIC_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stdout_log = TRAFFIC_LOG_DIR / "traffic-ui.out.log"
+        stderr_log = TRAFFIC_LOG_DIR / "traffic-ui.err.log"
+        jsonl_path = TRAFFIC_LOG_DIR / f"traffic-ui-{timestamp}.jsonl"
+        try:
+            TRAFFIC_STOP_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        generator = _repo_root() / "scripts" / "traffic_generator.py"
+        cmd = [
+            sys.executable,
+            str(generator),
+            "--base-url",
+            f"http://127.0.0.1:{PORT}",
+            "--duration-hours",
+            str(config["duration_hours"]),
+            "--parallel",
+            str(config["parallel"]),
+            "--min-delay",
+            str(config["min_delay"]),
+            "--max-delay",
+            str(config["max_delay"]),
+            "--pause-every",
+            str(config["pause_every"]),
+            "--pause-min",
+            str(config["pause_min"]),
+            "--pause-max",
+            str(config["pause_max"]),
+            "--detector-rate",
+            str(config["detector_rate"]),
+            "--response-detector-rate",
+            str(config["response_detector_rate"]),
+            "--coverage-mode",
+            str(config["coverage_mode"]),
+            "--multi-turn-rate",
+            str(config["multi_turn_rate"]),
+            "--agentic-rate",
+            str(config["agentic_rate"]),
+            "--multi-agent-rate",
+            str(config["multi_agent_rate"]),
+            "--tools-rate",
+            str(config["tools_rate"]),
+            "--provider-weights",
+            str(config["provider_weights"]),
+            "--jsonl",
+            str(jsonl_path),
+        ]
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
+        try:
+            stdout_fh = stdout_log.open("a", encoding="utf-8")
+            stderr_fh = stderr_log.open("a", encoding="utf-8")
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=_repo_root(),
+                    env=env,
+                    stdout=stdout_fh,
+                    stderr=stderr_fh,
+                    text=True,
+                )
+            finally:
+                stdout_fh.close()
+                stderr_fh.close()
+        except Exception as exc:
+            return {"ok": False, "error": "Failed to start traffic automation.", "details": str(exc)}, 500
+
+        _TRAFFIC_PROCESS = process
+        _TRAFFIC_META = {
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "started_monotonic": time.monotonic(),
+            "pid": process.pid,
+            "cmd": cmd,
+            "config": config,
+            "jsonl": str(jsonl_path),
+            "stdout_log": str(stdout_log),
+            "stderr_log": str(stderr_log),
+        }
+        return _traffic_status_locked(), 200
+
+
+def _traffic_stop() -> tuple[dict[str, object], int]:
+    global _TRAFFIC_PROCESS
+    with _TRAFFIC_LOCK:
+        process = _TRAFFIC_PROCESS
+        try:
+            TRAFFIC_STOP_FILE.write_text(str(time.time()), encoding="utf-8")
+        except Exception:
+            pass
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3.0)
+        return _traffic_status_locked() | {"stopped": True}, 200
 
 
 def _client_ip(handler: BaseHTTPRequestHandler) -> str:
@@ -2373,6 +2599,83 @@ HTML = f"""<!doctype html>
       .flow-dot.provider {{ background: #0f766e; }}
       .flow-dot.agent {{ background: #3b82f6; }}
       .flow-dot.tool {{ background: #facc15; }}
+      .traffic-panel {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--panel-soft);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }}
+      .traffic-panel-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }}
+      .traffic-title {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }}
+      .traffic-title strong {{
+        color: var(--text);
+      }}
+      .traffic-dot {{
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #94a3b8;
+        box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+        flex: 0 0 auto;
+      }}
+      .traffic-dot.running {{
+        background: #16a34a;
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
+      }}
+      .traffic-actions {{
+        display: inline-flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }}
+      .traffic-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 8px;
+      }}
+      .traffic-field {{
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }}
+      .traffic-field label {{
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-weight: 800;
+      }}
+      .traffic-field input {{
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        color: var(--text);
+        background: #fff;
+        font-size: 0.9rem;
+      }}
+      .traffic-field-wide {{
+        grid-column: 1 / -1;
+      }}
+      .traffic-message {{
+        color: var(--muted);
+        font-size: 0.82rem;
+        overflow-wrap: anywhere;
+      }}
+      .traffic-message.error {{
+        color: #b91c1c;
+      }}
       .collapsible-content {{
         display: none;
       }}
@@ -4235,6 +4538,51 @@ HTML = f"""<!doctype html>
               <span class="hint-icon">i</span>
               <span><strong>Direct chat.</strong> Browser sends a prompt to the app, then the selected provider answers. Change toggles to preview the planned flow.</span>
             </div>
+            <div id="trafficAutomationPanel" class="traffic-panel">
+              <div class="traffic-panel-head">
+                <div class="traffic-title">
+                  <span id="trafficStatusDot" class="traffic-dot" aria-hidden="true"></span>
+                  <strong>Traffic Automation</strong>
+                  <span id="trafficStatusText" class="status">Stopped</span>
+                </div>
+                <div class="traffic-actions">
+                  <button id="trafficStartBtn" type="button" title="Start background traffic using these settings">Start</button>
+                  <button id="trafficStopBtn" class="secondary" type="button" title="Stop background traffic">Stop</button>
+                  <button id="trafficRefreshBtn" class="secondary" type="button" title="Refresh automation status">Refresh</button>
+                </div>
+              </div>
+              <div class="traffic-grid">
+                <div class="traffic-field">
+                  <label for="trafficDurationHoursInput">Hours</label>
+                  <input id="trafficDurationHoursInput" type="number" min="0.02" max="12" step="0.25" value="1" />
+                </div>
+                <div class="traffic-field">
+                  <label for="trafficParallelInput">Parallel</label>
+                  <input id="trafficParallelInput" type="number" min="1" max="10" step="1" value="5" />
+                </div>
+                <div class="traffic-field">
+                  <label for="trafficMinDelayInput">Min Delay</label>
+                  <input id="trafficMinDelayInput" type="number" min="0" max="600" step="1" value="3" />
+                </div>
+                <div class="traffic-field">
+                  <label for="trafficMaxDelayInput">Max Delay</label>
+                  <input id="trafficMaxDelayInput" type="number" min="0" max="600" step="1" value="12" />
+                </div>
+                <div class="traffic-field">
+                  <label for="trafficDetectorRateInput">Detector Rate</label>
+                  <input id="trafficDetectorRateInput" type="number" min="0" max="1" step="0.05" value="0.95" />
+                </div>
+                <div class="traffic-field">
+                  <label for="trafficResponseDetectorRateInput">Response Rate</label>
+                  <input id="trafficResponseDetectorRateInput" type="number" min="0" max="1" step="0.05" value="0.6" />
+                </div>
+                <div class="traffic-field traffic-field-wide">
+                  <label for="trafficProviderWeightsInput">Provider Weights</label>
+                  <input id="trafficProviderWeightsInput" type="text" value="ollama=10,openai=5,bedrock_invoke=3,gemini=2,anthropic=1" />
+                </div>
+              </div>
+              <div id="trafficMessage" class="traffic-message">Ready to run the burst recipe.</div>
+            </div>
           </div>
 
           <div id="conversationView" class="conversation chat-transcript"></div>
@@ -5076,6 +5424,19 @@ HTML = f"""<!doctype html>
       const demoWizardCloseBtnEl = document.getElementById("demoWizardCloseBtn");
       const demoWizardDoneBtnEl = document.getElementById("demoWizardDoneBtn");
       const usageBtnEl = document.getElementById("usageBtn");
+      const trafficStatusDotEl = document.getElementById("trafficStatusDot");
+      const trafficStatusTextEl = document.getElementById("trafficStatusText");
+      const trafficStartBtnEl = document.getElementById("trafficStartBtn");
+      const trafficStopBtnEl = document.getElementById("trafficStopBtn");
+      const trafficRefreshBtnEl = document.getElementById("trafficRefreshBtn");
+      const trafficDurationHoursInputEl = document.getElementById("trafficDurationHoursInput");
+      const trafficParallelInputEl = document.getElementById("trafficParallelInput");
+      const trafficMinDelayInputEl = document.getElementById("trafficMinDelayInput");
+      const trafficMaxDelayInputEl = document.getElementById("trafficMaxDelayInput");
+      const trafficDetectorRateInputEl = document.getElementById("trafficDetectorRateInput");
+      const trafficResponseDetectorRateInputEl = document.getElementById("trafficResponseDetectorRateInput");
+      const trafficProviderWeightsInputEl = document.getElementById("trafficProviderWeightsInput");
+      const trafficMessageEl = document.getElementById("trafficMessage");
       const settingsBtnEl = document.getElementById("settingsBtn");
       const settingsModalEl = document.getElementById("settingsModal");
       const restartConfirmModalEl = document.getElementById("restartConfirmModal");
@@ -5420,6 +5781,7 @@ HTML = f"""<!doctype html>
       let ollamaStatusTimer = null;
       let liteLlmStatusTimer = null;
       let updateStatusTimer = null;
+      let trafficStatusTimer = null;
       let updateCheckIntervalSeconds = 3600;
       let lastUpdateStatusData = null;
       let updateApplyInFlight = false;
@@ -7055,6 +7417,116 @@ HTML = f"""<!doctype html>
           if (!updateConfirmCancelBtnEl.disabled) {{
             // no-op
           }}
+        }}
+      }}
+
+      function trafficNumberValue(inputEl, fallback) {{
+        const n = Number(inputEl?.value);
+        return Number.isFinite(n) ? n : fallback;
+      }}
+
+      function trafficSetMessage(text, isError = false) {{
+        trafficMessageEl.textContent = String(text || "");
+        trafficMessageEl.classList.toggle("error", !!isError);
+      }}
+
+      function trafficPayloadFromForm() {{
+        return {{
+          duration_hours: trafficNumberValue(trafficDurationHoursInputEl, 1),
+          parallel: trafficNumberValue(trafficParallelInputEl, 5),
+          min_delay: trafficNumberValue(trafficMinDelayInputEl, 3),
+          max_delay: trafficNumberValue(trafficMaxDelayInputEl, 12),
+          detector_rate: trafficNumberValue(trafficDetectorRateInputEl, 0.95),
+          response_detector_rate: trafficNumberValue(trafficResponseDetectorRateInputEl, 0.6),
+          provider_weights: String(trafficProviderWeightsInputEl?.value || "ollama=10,openai=5,bedrock_invoke=3,gemini=2,anthropic=1"),
+        }};
+      }}
+
+      function applyTrafficDefaults(defaults) {{
+        if (!defaults || trafficStatusTextEl.dataset.defaultsLoaded === "1") return;
+        trafficDurationHoursInputEl.value = String(defaults.duration_hours ?? trafficDurationHoursInputEl.value);
+        trafficParallelInputEl.value = String(defaults.parallel ?? trafficParallelInputEl.value);
+        trafficMinDelayInputEl.value = String(defaults.min_delay ?? trafficMinDelayInputEl.value);
+        trafficMaxDelayInputEl.value = String(defaults.max_delay ?? trafficMaxDelayInputEl.value);
+        trafficDetectorRateInputEl.value = String(defaults.detector_rate ?? trafficDetectorRateInputEl.value);
+        trafficResponseDetectorRateInputEl.value = String(defaults.response_detector_rate ?? trafficResponseDetectorRateInputEl.value);
+        trafficProviderWeightsInputEl.value = String(defaults.provider_weights ?? trafficProviderWeightsInputEl.value);
+        trafficStatusTextEl.dataset.defaultsLoaded = "1";
+      }}
+
+      function renderTrafficStatus(data) {{
+        const running = !!data?.running;
+        applyTrafficDefaults(data?.defaults);
+        trafficStatusDotEl.classList.toggle("running", running);
+        trafficStatusTextEl.textContent = running ? "Running" : "Stopped";
+        trafficStartBtnEl.disabled = running;
+        trafficStopBtnEl.disabled = !running;
+        const elapsed = Number(data?.elapsed_seconds || 0);
+        const pid = data?.pid ? `pid ${{data.pid}}` : "no pid";
+        const jsonl = data?.jsonl ? `JSONL: ${{data.jsonl}}` : "";
+        const returnCode = (data?.returncode === null || typeof data?.returncode === "undefined") ? "" : `return ${{data.returncode}}`;
+        if (running) {{
+          trafficSetMessage(`Running ${{pid}} · elapsed ${{elapsed.toFixed(1)}}s${{jsonl ? " · " + jsonl : ""}}`);
+        }} else {{
+          trafficSetMessage(`Stopped${{returnCode ? " · " + returnCode : ""}}${{jsonl ? " · " + jsonl : ""}}`);
+        }}
+      }}
+
+      async function refreshTrafficStatus() {{
+        try {{
+          const res = await fetch("/traffic/status");
+          const data = await res.json();
+          if (!res.ok || data?.ok === false) {{
+            trafficSetMessage(String(data?.error || "Traffic status unavailable."), true);
+            return;
+          }}
+          renderTrafficStatus(data);
+        }} catch (err) {{
+          trafficSetMessage(`Traffic status error: ${{err?.message || err}}`, true);
+        }}
+      }}
+
+      async function startTrafficAutomation() {{
+        trafficStartBtnEl.disabled = true;
+        trafficSetMessage("Starting traffic automation...");
+        try {{
+          const res = await fetch("/traffic/start", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify(trafficPayloadFromForm()),
+          }});
+          const data = await res.json();
+          if (!res.ok || data?.ok === false) {{
+            trafficSetMessage(String(data?.error || data?.details || "Traffic automation failed to start."), true);
+            trafficStartBtnEl.disabled = false;
+            return;
+          }}
+          renderTrafficStatus(data);
+        }} catch (err) {{
+          trafficSetMessage(`Traffic start error: ${{err?.message || err}}`, true);
+          trafficStartBtnEl.disabled = false;
+        }}
+      }}
+
+      async function stopTrafficAutomation() {{
+        trafficStopBtnEl.disabled = true;
+        trafficSetMessage("Stopping traffic automation...");
+        try {{
+          const res = await fetch("/traffic/stop", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{}}),
+          }});
+          const data = await res.json();
+          if (!res.ok || data?.ok === false) {{
+            trafficSetMessage(String(data?.error || data?.details || "Traffic automation stop failed."), true);
+            trafficStopBtnEl.disabled = false;
+            return;
+          }}
+          renderTrafficStatus(data);
+        }} catch (err) {{
+          trafficSetMessage(`Traffic stop error: ${{err?.message || err}}`, true);
+          trafficStopBtnEl.disabled = false;
         }}
       }}
 
@@ -12296,6 +12768,9 @@ HTML = f"""<!doctype html>
         applyDemoWizardRecipe(btn.dataset.wizardApply || "");
       }});
       usageBtnEl.addEventListener("click", openUsageModal);
+      trafficStartBtnEl.addEventListener("click", startTrafficAutomation);
+      trafficStopBtnEl.addEventListener("click", stopTrafficAutomation);
+      trafficRefreshBtnEl.addEventListener("click", refreshTrafficStatus);
       flowGraphWrapEl.addEventListener("mouseleave", () => _hideFlowTooltip());
       flowExplainCloseBtnEl.addEventListener("click", closeFlowExplainModal);
       flowExplainDoneBtnEl.addEventListener("click", closeFlowExplainModal);
@@ -12741,6 +13216,8 @@ HTML = f"""<!doctype html>
       liteLlmStatusTimer = setInterval(refreshLiteLlmStatus, 60000);
       refreshUpdateStatus();
       _scheduleUpdateStatusPolling(updateCheckIntervalSeconds);
+      refreshTrafficStatus();
+      trafficStatusTimer = setInterval(refreshTrafficStatus, 5000);
       syncAwsAuthStatusVisibility();
       refreshAwsAuthStatus();
       resetAgentTrace();
@@ -14406,6 +14883,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(_update_status_payload(), status=200)
             return
+        if self.path == "/traffic/status":
+            if not self._require_local_admin():
+                return
+            self._send_json(_traffic_status_payload(), status=200)
+            return
         if self.path == "/mcp-status":
             if not self._require_local_admin():
                 return
@@ -14692,6 +15174,23 @@ class Handler(BaseHTTPRequestHandler):
             install_deps = bool(data.get("install_deps", True))
             result = _perform_app_update(install_deps=install_deps)
             self._send_json(result, status=200 if result.get("ok") else 400)
+            return
+
+        if self.path == "/traffic/start":
+            if not self._require_local_admin():
+                return
+            data = self._read_json_body_limited()
+            if data is None:
+                return
+            result, status_code = _traffic_start(data)
+            self._send_json(result, status=status_code)
+            return
+
+        if self.path == "/traffic/stop":
+            if not self._require_local_admin():
+                return
+            result, status_code = _traffic_stop()
+            self._send_json(result, status=status_code)
             return
 
         if self.path == "/policy-replay":
