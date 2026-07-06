@@ -2613,9 +2613,8 @@ HTML = f"""<!doctype html>
         border: 1px solid var(--border);
         border-radius: 10px;
         background: var(--panel-soft);
-        padding: 12px;
-        display: grid;
-        gap: 10px;
+        margin-top: 12px;
+        overflow: hidden;
       }}
       .traffic-panel-head {{
         display: flex;
@@ -2623,6 +2622,29 @@ HTML = f"""<!doctype html>
         justify-content: space-between;
         gap: 12px;
         flex-wrap: wrap;
+        cursor: pointer;
+        list-style: none;
+        padding: 10px 12px;
+      }}
+      .traffic-panel-head::-webkit-details-marker {{
+        display: none;
+      }}
+      .traffic-panel-head::after {{
+        content: "Expand";
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+      }}
+      .traffic-panel[open] .traffic-panel-head {{
+        border-bottom: 1px solid var(--border);
+      }}
+      .traffic-panel[open] .traffic-panel-head::after {{
+        content: "Collapse";
+      }}
+      .traffic-panel-body {{
+        display: grid;
+        gap: 10px;
+        padding: 12px;
       }}
       .traffic-title {{
         display: flex;
@@ -4548,18 +4570,41 @@ HTML = f"""<!doctype html>
               <span class="hint-icon">i</span>
               <span><strong>Direct chat.</strong> Browser sends a prompt to the app, then the selected provider answers. Change toggles to preview the planned flow.</span>
             </div>
-            <div id="trafficAutomationPanel" class="traffic-panel">
-              <div class="traffic-panel-head">
-                <div class="traffic-title">
-                  <span id="trafficStatusDot" class="traffic-dot" aria-hidden="true"></span>
-                  <strong>Traffic Automation</strong>
-                  <span id="trafficStatusText" class="status">Stopped</span>
-                </div>
-                <div class="traffic-actions">
-                  <button id="trafficStartBtn" type="button" title="Start background traffic using these settings">Start</button>
-                  <button id="trafficStopBtn" class="secondary" type="button" title="Stop background traffic">Stop</button>
-                  <button id="trafficRefreshBtn" class="secondary" type="button" title="Refresh automation status">Refresh</button>
-                </div>
+          </div>
+
+          <div id="conversationView" class="conversation chat-transcript"></div>
+
+          <div id="response" class="response" style="display:none;">Response will appear here.</div>
+
+          <div class="composer-shell">
+            <textarea id="prompt" placeholder="Type a prompt... (Enter to send, Shift+Enter for a new line)"></textarea>
+            <div id="attachmentBar" class="attachment-bar" style="display:none;"></div>
+            <input id="attachmentInput" type="file" multiple accept="image/*,.txt,.md,.json,.csv,.log,.py,.js,.ts,.yaml,.yml" style="display:none;" />
+            <div class="composer-actions">
+              <div class="composer-actions-left">
+                <button id="sendBtn" type="button">Send</button>
+                <button id="clearBtn" type="button">Clear</button>
+                <button id="attachBtn" class="outline-accent attach-icon-btn" type="button" title="Attach images or text files for multimodal prompts" aria-label="Attach files">📎</button>
+                <button id="presetToggleBtn" class="secondary" type="button" title="Open curated demo prompts for guardrails, agentic mode, and tools">Prompt Presets</button>
+              </div>
+              <div class="composer-actions-right">
+                <span class="composer-hint">Enter to send · Shift+Enter for newline</span>
+              </div>
+            </div>
+          </div>
+          <details id="trafficAutomationPanel" class="traffic-panel">
+            <summary class="traffic-panel-head">
+              <span class="traffic-title">
+                <span id="trafficStatusDot" class="traffic-dot" aria-hidden="true"></span>
+                <strong>Traffic Automation</strong>
+                <span id="trafficStatusText" class="status">Stopped</span>
+              </span>
+            </summary>
+            <div class="traffic-panel-body">
+              <div class="traffic-actions">
+                <button id="trafficStartBtn" type="button" title="Start background traffic using these settings">Start</button>
+                <button id="trafficStopBtn" class="secondary" type="button" title="Stop background traffic">Stop</button>
+                <button id="trafficRefreshBtn" class="secondary" type="button" title="Refresh automation status">Refresh</button>
               </div>
               <div class="traffic-grid">
                 <div class="traffic-field">
@@ -4593,28 +4638,7 @@ HTML = f"""<!doctype html>
               </div>
               <div id="trafficMessage" class="traffic-message">Ready to run the burst recipe.</div>
             </div>
-          </div>
-
-          <div id="conversationView" class="conversation chat-transcript"></div>
-
-          <div id="response" class="response" style="display:none;">Response will appear here.</div>
-
-          <div class="composer-shell">
-            <textarea id="prompt" placeholder="Type a prompt... (Enter to send, Shift+Enter for a new line)"></textarea>
-            <div id="attachmentBar" class="attachment-bar" style="display:none;"></div>
-            <input id="attachmentInput" type="file" multiple accept="image/*,.txt,.md,.json,.csv,.log,.py,.js,.ts,.yaml,.yml" style="display:none;" />
-            <div class="composer-actions">
-              <div class="composer-actions-left">
-                <button id="sendBtn" type="button">Send</button>
-                <button id="clearBtn" type="button">Clear</button>
-                <button id="attachBtn" class="outline-accent attach-icon-btn" type="button" title="Attach images or text files for multimodal prompts" aria-label="Attach files">📎</button>
-                <button id="presetToggleBtn" class="secondary" type="button" title="Open curated demo prompts for guardrails, agentic mode, and tools">Prompt Presets</button>
-              </div>
-              <div class="composer-actions-right">
-                <span class="composer-hint">Enter to send · Shift+Enter for newline</span>
-              </div>
-            </div>
-          </div>
+          </details>
         </section>
 
         <div class="right-stack">

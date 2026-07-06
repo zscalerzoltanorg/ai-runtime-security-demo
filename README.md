@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.25`
+  - Moved Traffic Automation out of the main chat path into a collapsed section below the composer so it stays available without being front and center.
+
 - `v1.5.23`
   - Added local web UI controls to start, stop, and configure the background traffic automation, defaulting to the high-volume burst recipe.
 
