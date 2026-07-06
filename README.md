@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.26`
+  - Clarified Traffic Automation in the UI and release notes. Traffic Automation is the local background smoke-test/log-filler that sends synthetic `/chat` conversations through configured providers, users, AI Guard Proxy/API-DAS modes, agent/MCP/tool options, and detector-oriented prompts so demos can generate realistic AI Guard activity on demand.
+
 - `v1.5.25`
   - Moved Traffic Automation out of the main chat path into a collapsed section below the composer so it stays available without being front and center.
 

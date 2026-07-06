@@ -2655,6 +2655,19 @@ HTML = f"""<!doctype html>
       .traffic-title strong {{
         color: var(--text);
       }}
+      .traffic-info-icon {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 900;
+        line-height: 1;
+      }}
       .traffic-dot {{
         width: 10px;
         height: 10px;
@@ -4597,6 +4610,7 @@ HTML = f"""<!doctype html>
               <span class="traffic-title">
                 <span id="trafficStatusDot" class="traffic-dot" aria-hidden="true"></span>
                 <strong>Traffic Automation</strong>
+                <span class="traffic-info-icon" role="img" aria-label="Traffic Automation info" title="Traffic Automation runs synthetic background /chat conversations against this local demo app to generate AI Guard, provider, agent, MCP/tool, single-turn, multi-turn, proxy, and API/DAS test traffic. It uses only the app settings and keys configured on this machine, and can be started or stopped here.">i</span>
                 <span id="trafficStatusText" class="status">Stopped</span>
               </span>
             </summary>
