@@ -42,6 +42,8 @@ def main() -> int:
         "0.95",
         "--response-detector-rate",
         "0.6",
+        "--attachment-rate",
+        "0.35",
         "--coverage-mode",
         "balanced",
         "--multi-turn-rate",
