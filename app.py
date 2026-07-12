@@ -5949,8 +5949,6 @@ HTML = f"""<!doctype html>
         "gemini",
         "vertex",
       ]);
-      const TEXT_ATTACHMENT_EXT_RE = /\.(txt|md|markdown|json|jsonl|ndjson|csv|tsv|log|py|js|jsx|ts|tsx|yaml|yml|xml|html|htm|css|sql|sh|bash|zsh|ps1|toml|ini|conf|cfg|env|properties|pem|crt|cer|key|tf|tfvars|dockerfile|graphql|gql|proto|rst)$/i;
-      const TEXT_ATTACHMENT_MIME_RE = /^(text\/|application\/(json|xml|yaml|x-yaml|javascript|x-javascript|typescript|x-ndjson|sql|graphql))/i;
       const SCENARIO_SUITE = [
         {{ key: "hello", prompt: "Say hello in one sentence." }},
         {{ key: "secret_block", prompt: "This message contains a generic secret marker: DEMO-SECRET-REDACTED" }},
@@ -7971,9 +7969,7 @@ HTML = f"""<!doctype html>
 
       const MAX_ATTACHMENTS = 4;
       const MAX_IMAGE_DATA_URL_CHARS = 2_500_000;
-      const MAX_TEXT_ATTACHMENT_CHARS = 16_000;
       const MAX_FILE_DATA_URL_CHARS = 750_000;
-      const TEXT_SNIFF_BYTES = 8_192;
 
       function clearPendingAttachments() {{
         pendingAttachments = [];
@@ -8019,52 +8015,6 @@ HTML = f"""<!doctype html>
           reader.onerror = () => reject(new Error("Failed to read file as data URL"));
           reader.readAsDataURL(file);
         }});
-      }}
-
-      function _readFileAsText(file) {{
-        return new Promise((resolve, reject) => {{
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result || ""));
-          reader.onerror = () => reject(new Error("Failed to read file as text"));
-          reader.readAsText(file);
-        }});
-      }}
-
-      function _readBlobAsArrayBuffer(blob) {{
-        return new Promise((resolve, reject) => {{
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error("Failed to read file bytes"));
-          reader.readAsArrayBuffer(blob);
-        }});
-      }}
-
-      function _isKnownTextLikeFile(file) {{
-        const mime = String(file?.type || "");
-        const name = String(file?.name || "");
-        return TEXT_ATTACHMENT_MIME_RE.test(mime) || TEXT_ATTACHMENT_EXT_RE.test(name);
-      }}
-
-      function _looksMostlyText(buffer) {{
-        if (!(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) return false;
-        const bytes = new Uint8Array(buffer);
-        let control = 0;
-        let printable = 0;
-        for (const byte of bytes) {{
-          if (byte === 0) return false;
-          if (byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte !== 127)) {{
-            printable += 1;
-          }} else {{
-            control += 1;
-          }}
-        }}
-        return printable > 0 && control / Math.max(1, bytes.length) < 0.08;
-      }}
-
-      async function _shouldReadAsText(file) {{
-        if (_isKnownTextLikeFile(file)) return true;
-        const sample = await _readBlobAsArrayBuffer(file.slice(0, Math.min(TEXT_SNIFF_BYTES, file.size || TEXT_SNIFF_BYTES)));
-        return _looksMostlyText(sample);
       }}
 
       async function handleAttachmentFiles(files) {{
@@ -8119,18 +8069,6 @@ HTML = f"""<!doctype html>
             }});
             continue;
           }}
-          if (await _shouldReadAsText(file)) {{
-            const text = await _readFileAsText(file);
-            pendingAttachments.push({{
-              kind: "text",
-              name,
-              mime: mime || "text/plain",
-              size: file.size || 0,
-              text: text.slice(0, MAX_TEXT_ATTACHMENT_CHARS),
-              truncated: text.length > MAX_TEXT_ATTACHMENT_CHARS,
-            }});
-            continue;
-          }}
           let dataUrl = "";
           if ((file.size || 0) > 0 && (file.size || 0) <= MAX_FILE_DATA_URL_CHARS) {{
             dataUrl = await _readFileAsDataUrl(file);
@@ -8143,8 +8081,8 @@ HTML = f"""<!doctype html>
             ...(dataUrl ? {{ data_url: dataUrl }} : {{}}),
             truncated: !dataUrl,
             note: dataUrl
-              ? "Binary or unsupported file type included as a bounded data URL preview; providers may ignore it."
-              : "Binary or unsupported file type was too large for inline preview and was included as metadata only.",
+              ? "File bytes are preserved for providers that support native file inputs; other providers may ignore it."
+              : "File was too large for inline native file payload and was included as metadata only.",
           }});
         }}
         renderAttachmentBar();
@@ -13790,13 +13728,15 @@ def _build_preset_attachment_payload(rel_path: str) -> dict[str, object]:
         truncated = len(raw) > _PRESET_ATTACHMENT_MAX_TEXT_BYTES
         if truncated:
             raw = raw[:_PRESET_ATTACHMENT_MAX_TEXT_BYTES]
-        text = raw.decode("utf-8", errors="replace")
+        encoded = base64.b64encode(raw).decode("ascii")
         return {
-            "kind": "text",
+            "kind": "file",
             "name": sample_path.name,
             "mime": mime if mime.startswith("text/") else "text/plain",
-            "text": text,
+            "size": sample_path.stat().st_size,
+            "data_url": f"data:{mime if mime.startswith('text/') else 'text/plain'};base64,{encoded}",
             "truncated": truncated,
+            "note": "Sample file bytes are preserved for providers that support native file inputs.",
         }
 
     raise ValueError("Unsupported sample attachment type.")

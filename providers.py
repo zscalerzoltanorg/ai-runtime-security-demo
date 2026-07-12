@@ -610,7 +610,19 @@ def _parse_image_data_url(data_url: str) -> tuple[str | None, str | None]:
     return m.group(1), m.group(2)
 
 
-def _openai_messages_with_attachments(normalized: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _parse_data_url(data_url: str) -> tuple[str | None, str | None]:
+    raw = str(data_url or "")
+    m = re.match(r"^data:([^;,]+);base64,(.+)$", raw, re.DOTALL)
+    if not m:
+        return None, None
+    return m.group(1), m.group(2)
+
+
+def _openai_messages_with_attachments(
+    normalized: list[dict[str, Any]],
+    *,
+    include_native_files: bool = False,
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for msg in normalized:
         role = str(msg.get("role") or "user")
@@ -619,19 +631,33 @@ def _openai_messages_with_attachments(normalized: list[dict[str, Any]]) -> list[
         if role == "system" or not isinstance(attachments, list):
             out.append({"role": role, "content": text})
             continue
-        image_parts = []
+        content_parts = []
         for att in attachments:
             if not isinstance(att, dict):
                 continue
-            if str(att.get("kind") or "").strip().lower() != "image":
-                continue
+            kind = str(att.get("kind") or "").strip().lower()
             data_url = str(att.get("data_url") or "")
-            media_type, data_b64 = _parse_image_data_url(data_url)
-            if not media_type or not data_b64:
+            if kind == "image":
+                media_type, data_b64 = _parse_image_data_url(data_url)
+                if not media_type or not data_b64:
+                    continue
+                content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
                 continue
-            image_parts.append({"type": "image_url", "image_url": {"url": data_url}})
-        if image_parts:
-            parts = [{"type": "text", "text": text or "(image attachment)"}] + image_parts
+            if include_native_files and kind == "file":
+                media_type, data_b64 = _parse_data_url(data_url)
+                if not media_type or not data_b64:
+                    continue
+                content_parts.append(
+                    {
+                        "type": "file",
+                        "file": {
+                            "filename": str(att.get("name") or "attachment"),
+                            "file_data": data_url,
+                        },
+                    }
+                )
+        if content_parts:
+            parts = [{"type": "text", "text": text or "(attachment)"}] + content_parts
             out.append({"role": role, "content": parts})
         else:
             out.append({"role": role, "content": text})
@@ -1622,7 +1648,7 @@ def _openai_chat_messages(
     normalized = _normalize_messages(messages)
     request_payload = {
         "model": openai_model,
-        "messages": _openai_messages_with_attachments(normalized),
+        "messages": _openai_messages_with_attachments(normalized, include_native_files=True),
         "temperature": 0.2,
     }
     trace_headers: dict[str, str] = {

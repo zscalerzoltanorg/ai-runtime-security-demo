@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.28`
+  - Removed OAuth-token-shaped demo strings from Traffic Automation and prompt presets, replacing them with defanged placeholders that still exercise secret-detector flows without resembling live bearer tokens.
+
 - `v1.5.27`
   - Expanded Traffic Automation prompt breadth beyond code-heavy tests, with more legal, finance, prompt-injection/jailbreak, PII, secrets, brand, multilingual, off-topic, URL, and response-detector scenarios. Added synthetic text-file attachment attempts so generated traffic can exercise prompts plus uploaded support tickets, contracts, CSVs, logs, and policy snippets.
 
