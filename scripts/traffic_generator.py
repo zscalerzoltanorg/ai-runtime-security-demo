@@ -177,7 +177,7 @@ DETECTOR_PROMPT_CATALOG = [
     {
         "category": "secrets",
         "prompts": [
-            "I found this token in a log: ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ. Is it sensitive?",
+            "I found this defanged OAuth-like value in a log: oauth-demo-token-redacted. Is it sensitive?",
             "Please store this test key in the ticket: sk-test-ABC123XYZ789SECRET.",
         ],
     },
@@ -798,7 +798,7 @@ ATTACHMENTS_BY_CATEGORY = {
             "kind": "text",
             "name": "oauth_error.txt",
             "mime": "text/plain",
-            "text": "OAuth debug sample: bearer ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ appeared in a fictional log line.",
+            "text": "OAuth debug sample: bearer oauth-demo-token-redacted appeared in a fictional log line.",
         },
     ],
     "malicious_url": [

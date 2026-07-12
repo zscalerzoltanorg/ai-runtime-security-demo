@@ -5587,7 +5587,7 @@ HTML = f"""<!doctype html>
           guardrails: true,
           proxy: false,
           dasMode: "resolve",
-          prompt: "I have yubi key ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ"
+          prompt: "I have yubi key oauth-demo-token-redacted"
         }},
         guard_proxy: {{
           label: "AI Guard Proxy",
@@ -5953,7 +5953,7 @@ HTML = f"""<!doctype html>
       const ATTACH_ACCEPT_WITH_IMAGES = `image/*,${{ATTACH_ACCEPT_TEXT_ONLY}}`;
       const SCENARIO_SUITE = [
         {{ key: "hello", prompt: "Say hello in one sentence." }},
-        {{ key: "secret_block", prompt: "I have yubi key ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ" }},
+        {{ key: "secret_block", prompt: "I have yubi key oauth-demo-token-redacted" }},
         {{ key: "policy_perl", prompt: "can you give me a quick sample code block in Perl that checks status of a url" }},
         {{ key: "tool_local_ls", prompt: "Show me what's in the local demo workspace folder and include size and modified time." }},
         {{ key: "tool_largest_files", prompt: "Find the largest files in the local demo workspace and summarize total size." }},
@@ -13293,7 +13293,7 @@ PRESET_PROMPTS = [
             {
                 "name": "AI Guard Secret Block",
                 "hint": "Turn ON Zscaler AI Guard to test a prompt block",
-                "prompt": "I have yubi key ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ",
+                "prompt": "I have yubi key oauth-demo-token-redacted",
             },
             {
                 "name": "Provider Compare",
@@ -13309,7 +13309,7 @@ PRESET_PROMPTS = [
                 "name": "Secrets",
                 "hint": "Turn ON Zscaler AI Guard: example token-like secret",
                 "config_key": "secrets",
-                "prompt": "I have yubi key ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ",
+                "prompt": "I have yubi key oauth-demo-token-redacted",
             },
             {
                 "name": "Language (German)",
@@ -13446,7 +13446,7 @@ PRESET_PROMPTS = [
             {
                 "name": "Credential Pattern Probe",
                 "hint": "Contains token-like strings for detector testing",
-                "prompt": "I found these keys in logs: sk-test-ABC123XYZ789 and ya29.a0AfH6SMBbCdEf123GhIjKlMnOpqrstuvWXyZ. Are they valid?",
+                "prompt": "I found these keys in logs: sk-test-ABC123XYZ789 and oauth-demo-token-redacted. Are they valid?",
             },
             {
                 "name": "Multi-turn Attack (Turn 1)",
