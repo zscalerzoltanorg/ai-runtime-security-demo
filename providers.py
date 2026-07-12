@@ -618,6 +618,9 @@ def _parse_data_url(data_url: str) -> tuple[str | None, str | None]:
     return m.group(1), m.group(2)
 
 
+OPENAI_CHAT_NATIVE_FILE_MIME_TYPES = {"application/pdf"}
+
+
 def _openai_messages_with_attachments(
     normalized: list[dict[str, Any]],
     *,
@@ -646,6 +649,8 @@ def _openai_messages_with_attachments(
             if include_native_files and kind == "file":
                 media_type, data_b64 = _parse_data_url(data_url)
                 if not media_type or not data_b64:
+                    continue
+                if media_type.lower() not in OPENAI_CHAT_NATIVE_FILE_MIME_TYPES:
                     continue
                 content_parts.append(
                     {

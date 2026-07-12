@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.29`
+  - Removed the OAuth/bearer-token demo scenario entirely from Traffic Automation and prompt presets. Secret-detector examples now use generic non-provider-shaped markers only.
+
 - `v1.5.28`
   - Removed OAuth-token-shaped demo strings from Traffic Automation and prompt presets, replacing them with defanged placeholders that still exercise secret-detector flows without resembling live bearer tokens.
 

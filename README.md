@@ -4,14 +4,14 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.32`
+  - Fixed OpenAI attachment handling so non-PDF files no longer fail Chat Completions requests. PDF attachments continue to use native OpenAI file parts; other file types remain metadata-only unless a provider path supports them natively.
+
 - `v1.5.31`
   - Changed browser uploads and preset samples to preserve file bytes instead of extracting text locally. OpenAI requests now send supported attachments as native `type: file` content parts, so file visibility demos exercise the provider/proxy file path rather than a locally expanded prompt.
 
 - `v1.5.30`
   - Broadened attachment handling so the UI accepts any file type. Text-like files are included in prompt content and API/DAS AI Guard IN checks, images remain native for vision-capable provider/model combinations, and other file types are carried as bounded metadata/preview for traces and demos.
-
-- `v1.5.29`
-  - Removed the OAuth/bearer-token demo scenario entirely from Traffic Automation and prompt presets. Secret-detector examples now use generic non-provider-shaped markers only.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
@@ -67,13 +67,13 @@ Defaults:
 
 - The demo UI allows selecting any file type.
 - Browser uploads are preserved as native file payloads where the selected provider supports them; the app no longer extracts uploaded text-file contents into the prompt by default.
-- For OpenAI, attached files are sent as native Chat Completions `type: file` content parts with base64 file data when they fit under `MAX_FILE_DATA_URL_CHARS`.
+- For OpenAI Chat Completions, PDF attachments are sent as native `type: file` content parts with base64 file data when they fit under `MAX_FILE_DATA_URL_CHARS`.
 - Images are sent as native image payloads only when the selected provider/model supports vision. Otherwise, they are attached as file metadata.
 - Other binary/unknown file types are accepted as bounded metadata, with a small data URL preview when they fit under `MAX_FILE_DATA_URL_CHARS`. Providers may ignore those contents unless they support native file inputs.
 - API/DAS guard checks receive the typed prompt plus attachment metadata. For end-to-end file-content visibility in AI Guard, use Proxy mode with a provider path that supports native file payloads.
 - Provider/model notes:
   - Ollama is model-dependent for native image support.
-  - Non-OpenAI provider file support is provider-specific; unsupported providers receive attachment metadata rather than locally extracted contents.
+  - Non-PDF OpenAI files and unsupported provider file types receive attachment metadata rather than locally extracted contents.
 
 ## Adversarial Presets (How To Use)
 
