@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.31`
+  - Changed browser uploads and preset samples to preserve file bytes instead of extracting text locally. OpenAI requests now send supported attachments as native `type: file` content parts, so file visibility demos exercise the provider/proxy file path rather than a locally expanded prompt.
+
 - `v1.5.30`
   - Broadened attachment handling so the UI accepts any file type. Text-like files are included in prompt content and API/DAS AI Guard IN checks, images remain native for vision-capable provider/model combinations, and other file types are carried as bounded metadata/preview for traces and demos.
 

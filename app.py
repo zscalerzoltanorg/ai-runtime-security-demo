@@ -118,7 +118,7 @@ def _model_env(name: str, default: str) -> str:
 
 
 HOST = _str_env("HOST", "127.0.0.1")
-PORT = _int_env("PORT", 5000)
+PORT = _int_env("PORT", 5050)
 MAX_REQUEST_BYTES = _int_env("MAX_REQUEST_BYTES", 1_000_000)
 APP_RATE_LIMIT_CHAT_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_CHAT_PER_MIN", 30))
 APP_RATE_LIMIT_ADMIN_PER_MIN = max(1, _int_env("APP_RATE_LIMIT_ADMIN_PER_MIN", 20))
@@ -2140,6 +2140,30 @@ HTML = f"""<!doctype html>
         color: var(--muted);
         font-size: 0.9rem;
       }}
+      .code-replay-toolbar {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 0 0 8px;
+      }}
+      .code-replay-toolbar button {{
+        padding: 8px 12px;
+      }}
+      .code-replay-status {{
+        color: var(--muted);
+        font-size: 0.88rem;
+      }}
+      .code-replay-hint {{
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 10px;
+        margin-bottom: 12px;
+        color: var(--muted);
+        background: color-mix(in srgb, var(--panel) 86%, var(--accent) 14%);
+        font-size: 0.84rem;
+        line-height: 1.35;
+      }}
       .code-panels {{
         display: grid;
         gap: 12px;
@@ -2149,6 +2173,10 @@ HTML = f"""<!doctype html>
         border-radius: 12px;
         background: #fff;
         overflow: hidden;
+      }}
+      .code-panel.code-active {{
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
       }}
       .code-panel-head {{
         display: flex;
@@ -2162,6 +2190,18 @@ HTML = f"""<!doctype html>
       .code-panel-title {{
         font-weight: 700;
         font-size: 0.9rem;
+      }}
+      .code-panel-replay-chip {{
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border));
+        border-radius: 999px;
+        padding: 2px 8px;
+        color: var(--accent-2);
+        background: color-mix(in srgb, var(--panel) 72%, var(--accent) 28%);
+        font-size: 0.72rem;
+        font-weight: 800;
+        white-space: nowrap;
       }}
       .code-panel-file {{
         color: var(--muted);
@@ -2198,6 +2238,14 @@ HTML = f"""<!doctype html>
       }}
       .code-line:hover {{
         background: rgba(255, 255, 255, 0.04);
+      }}
+      .code-line.code-line-muted {{
+        opacity: 0.48;
+      }}
+      .code-line.code-line-active {{
+        opacity: 1;
+        background: rgba(45, 212, 191, 0.18);
+        box-shadow: inset 3px 0 0 #2dd4bf;
       }}
       .code-ln {{
         color: #64748b;
@@ -3543,6 +3591,166 @@ HTML = f"""<!doctype html>
         width: 16px;
         height: 16px;
       }}
+      .setup-stepper {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+      }}
+      .setup-step {{
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 9px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+      }}
+      .setup-step.active {{
+        color: var(--accent);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+      }}
+      .setup-step.done {{
+        color: #047857;
+        border-color: rgba(16, 185, 129, 0.45);
+        background: color-mix(in srgb, var(--panel) 86%, #10b981 14%);
+      }}
+      .setup-step-num {{
+        display: inline-grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--panel) 78%, var(--accent) 22%);
+        font-size: 0.72rem;
+      }}
+      .setup-step-body {{
+        display: grid;
+        gap: 12px;
+      }}
+      .setup-step-body h3 {{
+        margin: 0;
+        font-size: 1rem;
+      }}
+      .setup-step-body p {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .setup-form-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+      }}
+      .setup-form-field {{
+        display: grid;
+        gap: 6px;
+      }}
+      .setup-form-field label {{
+        color: var(--text);
+        font-weight: 800;
+        font-size: 0.84rem;
+      }}
+      .setup-form-field input,
+      .setup-form-field select,
+      .setup-form-field textarea {{
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 9px 10px;
+        background: var(--panel);
+        color: var(--text);
+        font: inherit;
+      }}
+      .setup-form-field textarea {{
+        min-height: 82px;
+        resize: vertical;
+      }}
+      .setup-help {{
+        color: var(--muted);
+        font-size: 0.78rem;
+        line-height: 1.35;
+      }}
+      .setup-choice-row {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }}
+      .setup-choice {{
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 7px 10px;
+        background: var(--panel);
+        color: var(--muted);
+        font-weight: 800;
+        cursor: pointer;
+      }}
+      .setup-choice.active {{
+        color: var(--accent);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+      }}
+      .setup-callout {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: color-mix(in srgb, var(--panel) 90%, var(--accent) 10%);
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .setup-callout strong {{ color: var(--text); }}
+      .setup-provider-card {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 11px;
+        background: var(--panel);
+        display: grid;
+        gap: 9px;
+      }}
+      .setup-provider-card h4 {{
+        margin: 0;
+        font-size: 0.95rem;
+      }}
+      .setup-provider-links {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }}
+      .setup-mini-list {{
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .setup-finish-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+      }}
+      .setup-finish-card {{
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        background: var(--panel);
+      }}
+      .setup-finish-card h4 {{
+        margin: 0 0 6px;
+        font-size: 0.9rem;
+      }}
+      .setup-footer-status {{
+        margin-right: auto;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }}
       @media (max-width: 860px) {{
         .setup-hero {{
           grid-template-columns: 1fr;
@@ -3882,6 +4090,21 @@ HTML = f"""<!doctype html>
         background: #111d33 !important;
         border-color: #475569 !important;
       }}
+      body[data-theme="dark"] .code-replay-hint,
+      body[data-theme="dark"] .code-panel-explain {{
+        background: #0b1220;
+        border-color: #334155;
+        color: #cbd5e1;
+      }}
+      body[data-theme="dark"] .code-panel-head {{
+        background: #111827;
+        border-color: #334155;
+      }}
+      body[data-theme="dark"] .code-panel-replay-chip {{
+        background: rgba(45, 212, 191, 0.14);
+        color: #99f6e4;
+        border-color: rgba(45, 212, 191, 0.45);
+      }}
       body[data-theme="dark"] .settings-group-toggle {{
         background: #0f172a !important;
         border-color: #334155 !important;
@@ -4152,6 +4375,21 @@ HTML = f"""<!doctype html>
       body[data-theme="fun"] .settings-model-toggle:hover {{
         background: #221b39 !important;
         border-color: #6a52a8 !important;
+      }}
+      body[data-theme="fun"] .code-replay-hint,
+      body[data-theme="fun"] .code-panel-explain {{
+        background: #17122b;
+        border-color: #3b2e5f;
+        color: #d9d4ff;
+      }}
+      body[data-theme="fun"] .code-panel-head {{
+        background: #17122b;
+        border-color: #3b2e5f;
+      }}
+      body[data-theme="fun"] .code-panel-replay-chip {{
+        background: rgba(48, 255, 160, 0.12);
+        color: #30ffa0;
+        border-color: rgba(48, 255, 160, 0.45);
       }}
       body[data-theme="fun"] .settings-group-toggle {{
         background: #17122b !important;
@@ -4772,6 +5010,15 @@ HTML = f"""<!doctype html>
       <section class="card code-path-card">
         <h1>Code Path Viewer</h1>
         <p class="sub">Visual snippets for the Python code paths used by this demo.</p>
+        <div class="code-replay-toolbar">
+          <button id="codeReplayPrevBtn" class="secondary" type="button" title="Move to the previous trace-aligned code step">Prev Code Step</button>
+          <button id="codeReplayNextBtn" class="secondary" type="button" title="Move to the next trace-aligned code step">Next Code Step</button>
+          <button id="codeReplayResetBtn" class="secondary" type="button" title="Restart code replay at the first captured step">Reset Replay</button>
+          <span id="codeReplayStatus" class="code-replay-status">Code replay: send a prompt to start</span>
+        </div>
+        <div id="codeReplayHint" class="code-replay-hint">
+          After a prompt completes, step through the trace to see which app/provider/guardrail/agent/tool code path was involved.
+        </div>
         <div id="codePanels" class="code-panels"></div>
         <div class="code-note">Auto updates with provider, guardrails mode, chat context, agent mode, tools/local tasks, and topology.</div>
       </section>
@@ -4924,38 +5171,18 @@ HTML = f"""<!doctype html>
             <button id="setupWizardCloseBtn" class="icon-btn" type="button" title="Close Setup Wizard">✕</button>
           </div>
           <div class="explain-body">
-            <div class="setup-hero">
-              <div class="setup-panel">
-                <h3>Start with the path you want to demo</h3>
-                <p>This app can run fully local, call cloud LLMs directly, put Zscaler AI Guard in front of provider traffic, or add MCP tools and agent workflows. You do not need every key to start.</p>
-                <ul>
-                  <li><strong>Fast local demo:</strong> use Ollama. No cloud key required, but Ollama must be running with a pulled model.</li>
-                  <li><strong>Cloud LLM demo:</strong> add one provider key such as OpenAI or Anthropic.</li>
-                  <li><strong>Security demo:</strong> add AI Guard DAS/API or Proxy keys, then enable Zscaler AI Guard on the chat page.</li>
-                  <li><strong>Agent/tool demo:</strong> the bundled MCP server works immediately; only Brave Search needs an optional API key.</li>
-                </ul>
-              </div>
-              <div class="setup-panel">
-                <h3>Recommended first test</h3>
-                <p>Send <code>Say hello in one sentence.</code> with Ollama or any configured cloud provider. Then open the Demo Wizard to switch between baseline, AI Guard, and agentic flows.</p>
-                <div class="setup-actions-row">
-                  <button id="setupWizardOpenSettingsBtn" type="button">Open Local Settings</button>
-                  <button id="setupWizardOpenDemoBtn" class="secondary" type="button">Open Demo Wizard</button>
-                </div>
-              </div>
+            <div class="setup-callout">
+              <strong>Guided setup:</strong> choose the demo defaults first, then add AI Guard and provider keys only where needed. Blank secret fields keep existing saved values.
             </div>
-            <h3 class="wizard-section-title">Configuration Checklist</h3>
-            <div id="setupWizardChecklist" class="setup-checklist">
+            <div id="setupWizardSteps" class="setup-stepper" aria-label="Setup steps"></div>
+            <div id="setupWizardStepBody" class="setup-step-body">
               <div class="setup-item">
                 <div class="setup-item-head">
-                  <div class="setup-item-title">Loading settings...</div>
+                  <div class="setup-item-title">Loading setup wizard...</div>
                   <span class="setup-status info">checking</span>
                 </div>
                 <p class="setup-item-desc">The wizard is reading your local settings state.</p>
               </div>
-            </div>
-            <div class="wizard-note">
-              Settings are stored in local <code>.env.local</code>. Secrets are masked in the UI after saving, so a masked value means the app detected that the key is configured.
             </div>
           </div>
           <div class="explain-foot">
@@ -4963,7 +5190,10 @@ HTML = f"""<!doctype html>
               <input id="setupWizardDontShowCheckbox" type="checkbox" checked />
               Do not auto-open this wizard again in this browser
             </label>
-            <button id="setupWizardDoneBtn" class="secondary" type="button">Done</button>
+            <span id="setupWizardStatus" class="setup-footer-status"></span>
+            <button id="setupWizardBackBtn" class="secondary" type="button">Back</button>
+            <button id="setupWizardNextBtn" type="button">Next</button>
+            <button id="setupWizardSaveBtn" type="button">Save Setup</button>
           </div>
         </div>
       </div>
@@ -5466,11 +5696,13 @@ HTML = f"""<!doctype html>
       const setupWizardBtnEl = document.getElementById("setupWizardBtn");
       const setupWizardModalEl = document.getElementById("setupWizardModal");
       const setupWizardCloseBtnEl = document.getElementById("setupWizardCloseBtn");
-      const setupWizardDoneBtnEl = document.getElementById("setupWizardDoneBtn");
-      const setupWizardOpenSettingsBtnEl = document.getElementById("setupWizardOpenSettingsBtn");
-      const setupWizardOpenDemoBtnEl = document.getElementById("setupWizardOpenDemoBtn");
+      const setupWizardStepsEl = document.getElementById("setupWizardSteps");
+      const setupWizardStepBodyEl = document.getElementById("setupWizardStepBody");
       const setupWizardDontShowCheckboxEl = document.getElementById("setupWizardDontShowCheckbox");
-      const setupWizardChecklistEl = document.getElementById("setupWizardChecklist");
+      const setupWizardStatusEl = document.getElementById("setupWizardStatus");
+      const setupWizardBackBtnEl = document.getElementById("setupWizardBackBtn");
+      const setupWizardNextBtnEl = document.getElementById("setupWizardNextBtn");
+      const setupWizardSaveBtnEl = document.getElementById("setupWizardSaveBtn");
       const demoWizardBtnEl = document.getElementById("demoWizardBtn");
       const demoWizardModalEl = document.getElementById("demoWizardModal");
       const demoWizardCloseBtnEl = document.getElementById("demoWizardCloseBtn");
@@ -5727,6 +5959,11 @@ HTML = f"""<!doctype html>
       const codeAfterBtn = document.getElementById("codeAfterBtn");
       const codeStatusEl = document.getElementById("codeStatus");
       const codePanelsEl = document.getElementById("codePanels");
+      const codeReplayPrevBtn = document.getElementById("codeReplayPrevBtn");
+      const codeReplayNextBtn = document.getElementById("codeReplayNextBtn");
+      const codeReplayResetBtn = document.getElementById("codeReplayResetBtn");
+      const codeReplayStatusEl = document.getElementById("codeReplayStatus");
+      const codeReplayHintEl = document.getElementById("codeReplayHint");
       const agentTraceListEl = document.getElementById("agentTraceList");
       const agentRoleSummaryEl = document.getElementById("agentRoleSummary");
       const agentTraceToggleBtn = document.getElementById("agentTraceToggleBtn");
@@ -5820,6 +6057,9 @@ HTML = f"""<!doctype html>
 
       let traceCount = 0;
       let codeViewMode = "auto";
+      let codeReplaySteps = [];
+      let codeReplayStepIndex = -1;
+      let lastCodeSections = [];
       let lastSentGuardrailsEnabled = false;
       let lastSelectedProvider = "ollama";
       let lastChatMode = "single";
@@ -5861,55 +6101,6 @@ HTML = f"""<!doctype html>
       let settingsSecretMask = "********";
       let settingsSecretKeySet = new Set();
       const SETUP_WIZARD_SEEN_LS_KEY = "ai_runtime_demo_setup_wizard_seen_v1";
-      const SETUP_WIZARD_ITEMS = [
-        {{
-          title: "Local Ollama",
-          description: "Best first smoke test. No cloud key is needed, but Ollama must be running and the selected model must be installed.",
-          keys: ["OLLAMA_URL", "OLLAMA_MODEL"],
-          status: "info",
-          configuredWhen: "always",
-          note: "Run: ollama pull <model>"
-        }},
-        {{
-          title: "OpenAI direct",
-          description: "Needed when LLM is set to OpenAI and AI Guard is off or API/DAS mode is used.",
-          keys: ["OPENAI_API_KEY", "OPENAI_MODEL"],
-          requiredAny: ["OPENAI_API_KEY"]
-        }},
-        {{
-          title: "Anthropic direct",
-          description: "Needed when LLM is set to Anthropic and AI Guard is off or API/DAS mode is used.",
-          keys: ["ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"],
-          requiredAny: ["ANTHROPIC_API_KEY"]
-        }},
-        {{
-          title: "Zscaler AI Guard API/DAS",
-          description: "Use this for prompt/response policy checks while the app still calls the selected provider directly.",
-          keys: ["ZS_GUARDRAILS_API_KEY", "ZS_GUARDRAILS_URL"],
-          requiredAny: ["ZS_GUARDRAILS_API_KEY"]
-        }},
-        {{
-          title: "Zscaler AI Guard Proxy",
-          description: "Use this for inline provider traffic through AI Guard Proxy. Add at least one provider-specific proxy key.",
-          keys: ["ZS_PROXY_BASE_URL", "OPENAI_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY"],
-          requiredAny: ["OPENAI_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY", "GEMINI_ZS_PROXY_API_KEY", "PERPLEXITY_ZS_PROXY_API_KEY", "XAI_ZS_PROXY_API_KEY", "BEDROCK_INVOKE_ZS_PROXY_API_KEY", "VERTEX_ZS_PROXY_API_KEY"]
-        }},
-        {{
-          title: "MCP and web tools",
-          description: "The bundled MCP server works without setup for local utilities, DuckDuckGo, Wikipedia, arXiv, and simulated calendar tools. Brave Search is optional.",
-          keys: ["BRAVE_SEARCH_API_KEY", "MCP_SERVER_COMMAND"],
-          status: "info",
-          configuredWhen: "always",
-          note: "Brave Search only needs BRAVE_SEARCH_API_KEY if you specifically use brave_search."
-        }},
-        {{
-          title: "Other cloud providers",
-          description: "Optional provider-specific keys for Gemini, Perplexity, xAI, Azure AI Foundry, AWS Bedrock, Kong, or LiteLLM.",
-          keys: ["GEMINI_API_KEY", "PERPLEXITY_API_KEY", "XAI_API_KEY", "AZURE_AI_FOUNDRY_API_KEY", "AWS_REGION"],
-          status: "info",
-          configuredWhen: "any"
-        }}
-      ];
       const SETTINGS_CUSTOM_MODELS_LS_KEY = "ai_runtime_demo_custom_models_v1";
       const SETTINGS_GROUP_COLLAPSE_LS_KEY = "ai_runtime_demo_settings_groups_collapsed_v1";
       const providerModelMap = {{
@@ -6189,8 +6380,117 @@ HTML = f"""<!doctype html>
           : "Configured/default model";
       }}
 
+      function _configuredSetting(key) {{
+        const value = String(settingsValues?.[key] ?? "").trim();
+        if (!value) return false;
+        if (value === "undefined" || value === "null") return false;
+        return true;
+      }}
+
+      function _configuredAny(keys) {{
+        return (keys || []).some((key) => _configuredSetting(key));
+      }}
+
+      function _configuredAll(keys) {{
+        return (keys || []).every((key) => _configuredSetting(key));
+      }}
+
+      function providerConfigStatus(providerId) {{
+        const id = String(providerId || "ollama").toLowerCase();
+        if (id === "ollama") {{
+          return {{ available: true, reason: "Local Ollama runtime; configure OLLAMA_URL/model if needed." }};
+        }}
+        if (id === "bedrock_invoke") {{
+          return {{ available: true, reason: "AWS Bedrock can use ambient AWS CLI/SSO credentials or explicit AWS settings." }};
+        }}
+        const checks = {{
+          anthropic: {{
+            ok: () => _configuredAny(["ANTHROPIC_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY"]),
+            reason: "Configure Anthropic API Key or Anthropic Proxy Key in Settings."
+          }},
+          openai: {{
+            ok: () => _configuredAny(["OPENAI_API_KEY", "OPENAI_ZS_PROXY_API_KEY"]),
+            reason: "Configure OpenAI API Key or OpenAI Proxy Key in Settings."
+          }},
+          gemini: {{
+            ok: () => _configuredAny(["GEMINI_API_KEY", "GEMINI_ZS_PROXY_API_KEY"]),
+            reason: "Configure Gemini API Key or Gemini Proxy Key in Settings."
+          }},
+          perplexity: {{
+            ok: () => _configuredAny(["PERPLEXITY_API_KEY", "PERPLEXITY_ZS_PROXY_API_KEY"]),
+            reason: "Configure Perplexity API Key or Perplexity Proxy Key in Settings."
+          }},
+          xai: {{
+            ok: () => _configuredAny(["XAI_API_KEY", "XAI_ZS_PROXY_API_KEY"]),
+            reason: "Configure xAI API Key or xAI Proxy Key in Settings."
+          }},
+          azure_foundry: {{
+            ok: () => _configuredSetting("AZURE_AI_FOUNDRY_BASE_URL") && _configuredAny(["AZURE_AI_FOUNDRY_API_KEY", "AZURE_FOUNDRY_ZS_PROXY_API_KEY"]),
+            reason: "Configure Azure AI Foundry Base URL and API/proxy key in Settings."
+          }},
+          vertex: {{
+            ok: () => _configuredSetting("VERTEX_PROJECT_ID") || _configuredSetting("VERTEX_ZS_PROXY_API_KEY"),
+            reason: "Configure Vertex Project ID for ADC/CLI auth or Vertex Proxy Key in Settings."
+          }},
+          kong: {{
+            ok: () => _configuredSetting("KONG_BASE_URL"),
+            reason: "Configure Kong Base URL in Settings."
+          }},
+          litellm: {{
+            ok: () => _configuredSetting("LITELLM_BASE_URL"),
+            reason: "Configure LiteLLM Base URL in Settings."
+          }},
+          bedrock_agent: {{
+            ok: () => _configuredAll(["BEDROCK_AGENT_ID", "BEDROCK_AGENT_ALIAS_ID"]),
+            reason: "Configure Bedrock Agent ID and Alias ID in Settings."
+          }},
+        }};
+        const check = checks[id];
+        if (!check) return {{ available: true, reason: "" }};
+        const available = !!check.ok();
+        return {{
+          available,
+          reason: available ? "Provider appears configured." : check.reason
+        }};
+      }}
+
+      function syncProviderOptionAvailability() {{
+        if (!providerSelectEl) return;
+        let currentDisabled = false;
+        const current = String(providerSelectEl.value || "").toLowerCase();
+        Array.from(providerSelectEl.options || []).forEach((opt) => {{
+          const id = String(opt.value || "").toLowerCase();
+          const status = providerConfigStatus(id);
+          if (!opt.dataset.baseLabel) {{
+            opt.dataset.baseLabel = opt.textContent || opt.value || id;
+          }}
+          const baseLabel = opt.dataset.baseLabel || opt.textContent || opt.value || id;
+          opt.disabled = !status.available;
+          opt.title = status.reason || "";
+          opt.textContent = status.available ? baseLabel : `${{baseLabel}} (configure)`;
+          if (id === current && !status.available) currentDisabled = true;
+        }});
+        if (currentDisabled) {{
+          const fallback = Array.from(providerSelectEl.options || []).find((opt) => !opt.disabled);
+          if (fallback) {{
+            providerSelectEl.value = fallback.value;
+            lastSelectedProvider = fallback.value || "ollama";
+          }}
+        }}
+        refreshCurrentModelText();
+        refreshProviderValidationText();
+      }}
+
       function refreshProviderValidationText() {{
         const providerId = (providerSelectEl.value || "ollama").toLowerCase();
+        const configStatus = providerConfigStatus(providerId);
+        if (!configStatus.available) {{
+          providerTestPillEl.textContent = "Provider: configure";
+          providerTestPillEl.classList.remove("pill-tested");
+          providerTestPillEl.classList.add("pill-untested");
+          providerTestPillEl.title = configStatus.reason || "Provider configuration is incomplete.";
+          return;
+        }}
         const tested = testedProviderSet.has(providerId);
         providerTestPillEl.textContent = tested
           ? "Provider: tested"
@@ -6570,6 +6870,7 @@ HTML = f"""<!doctype html>
           settingsCustomModelCatalog = _loadCustomModelCatalog();
           settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
           applyUiTheme(settingsValues.UI_THEME || initialUiTheme, false);
+          syncProviderOptionAvailability();
           _renderSettingsGroups();
           settingsStatusTextEl.textContent = `Loaded from ${{data.env_file || ".env.local"}}`;
           settingsFootNoteEl.textContent = data.note || "Save writes to local .env.local. Restart may be required for some settings.";
@@ -6611,7 +6912,9 @@ HTML = f"""<!doctype html>
           const data = await res.json();
           if (!res.ok) return;
           const values = (data.values && typeof data.values === "object") ? data.values : {{}};
+          settingsValues = values;
           applyUiTheme(values.UI_THEME || initialUiTheme, false);
+          syncProviderOptionAvailability();
         }} catch {{
           // Theme fallback stays on injected default when settings endpoint is unavailable.
         }}
@@ -6707,6 +7010,7 @@ HTML = f"""<!doctype html>
           settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
           settingsStatusTextEl.textContent = "Saved to .env.local";
           settingsFootNoteEl.textContent = "Saved locally. Restart app to ensure all provider credentials/base URLs are reloaded.";
+          syncProviderOptionAvailability();
           refreshCurrentModelText();
           refreshOllamaStatus();
           refreshLiteLlmStatus();
@@ -8699,18 +9003,241 @@ HTML = f"""<!doctype html>
         }}).join("");
       }}
 
-      function renderCodeBlock(section) {{
+      function _entryTraceSteps(entry) {{
+        const body = entry && entry.body && typeof entry.body === "object" ? entry.body : {{}};
+        const trace = body && body.trace && typeof body.trace === "object" ? body.trace : {{}};
+        return Array.isArray(trace.steps) ? trace.steps : [];
+      }}
+
+      function _entryAgentEvents(entry) {{
+        const body = entry && entry.body && typeof entry.body === "object" ? entry.body : {{}};
+        const events = [];
+        const agentTrace = body.agent_trace;
+        if (Array.isArray(agentTrace)) events.push(...agentTrace);
+        const agentic = body.agentic && typeof body.agentic === "object" ? body.agentic : {{}};
+        if (Array.isArray(agentic.trace)) events.push(...agentic.trace);
+        if (Array.isArray(body.toolset_events)) events.push(...body.toolset_events);
+        return events;
+      }}
+
+      function _providerKeywordForReplay(entry) {{
+        const provider = String((entry && entry.provider) || (providerSelectEl && providerSelectEl.value) || "").toLowerCase();
+        const label = _providerLabel(provider).toLowerCase();
+        if (provider.includes("openai") || label.includes("openai")) return "openai";
+        if (provider.includes("anthropic") || label.includes("anthropic")) return "anthropic";
+        if (provider.includes("ollama") || label.includes("ollama")) return "ollama";
+        if (provider.includes("gemini") || label.includes("gemini")) return "gemini";
+        if (provider.includes("vertex") || label.includes("vertex")) return "vertex";
+        if (provider.includes("bedrock") || label.includes("bedrock") || label.includes("aws")) return "bedrock";
+        if (provider.includes("perplexity") || label.includes("perplexity")) return "perplexity";
+        if (provider.includes("xai") || label.includes("xai")) return "xai";
+        if (provider.includes("kong") || label.includes("kong")) return "kong";
+        if (provider.includes("litellm") || label.includes("litellm")) return "litellm";
+        return provider || label || "provider";
+      }}
+
+      function buildCodeReplaySteps(entry) {{
+        if (!entry || !entry.body) return [];
+        const steps = [];
+        const guardrailsOn = !!entry.guardrailsEnabled || !!(entry.body.guardrails && entry.body.guardrails.enabled);
+        const proxyMode = !!entry.zscalerProxyMode || String(entry.body.guardrails?.mode || "").toLowerCase() === "proxy";
+        const agentMode = !!entry.agenticEnabled || !!entry.multiAgentEnabled || !!(entry.body.agentic && entry.body.agentic.enabled);
+        const providerKeyword = _providerKeywordForReplay(entry);
+
+        steps.push({{
+          label: "Browser request reaches app",
+          detail: "The browser POSTs the prompt and current toggles to /chat.",
+          keywords: ["execution summary", "provider selection", "direct path", "single-turn", "multi-turn"],
+          lineStart: 1,
+          lineEnd: 8,
+        }});
+
+        if (guardrailsOn) {{
+          steps.push({{
+            label: proxyMode ? "Proxy mode branch selected" : "AI Guard IN check",
+            detail: proxyMode
+              ? "The app routes the provider request through the configured AI Guard proxy."
+              : "The app checks the prompt with AI Guard before calling the model.",
+            keywords: proxyMode
+              ? ["proxy mode", "zscaler", "ai guard", "provider key"]
+              : ["das/api", "ai guard", "zscaler", "guardrails"],
+            lineStart: 1,
+            lineEnd: 10,
+          }});
+        }}
+
+        if (agentMode) {{
+          steps.push({{
+            label: entry.multiAgentEnabled ? "Multi-agent orchestration" : "Agent loop",
+            detail: entry.multiAgentEnabled
+              ? "The orchestrator selects specialists, then reviewer/finalizer merge the result."
+              : "The single agent reasons, may call tools, and decides whether to finalize.",
+            keywords: entry.multiAgentEnabled ? ["multi-agent", "orchestrator", "specialist", "reviewer", "finalizer"] : ["agentic", "agent loop", "tool"],
+            lineStart: 1,
+            lineEnd: 14,
+          }});
+        }}
+
+        const traceSteps = _entryTraceSteps(entry);
+        traceSteps.forEach((traceStep, idx) => {{
+          const name = String(traceStep && traceStep.name ? traceStep.name : "").toLowerCase();
+          if (!name) return;
+          if (name.includes("ai guard") || name.includes("zscaler")) {{
+            const out = name.includes("out");
+            steps.push({{
+              label: out ? "AI Guard OUT check" : "AI Guard request check",
+              detail: out
+                ? "The app checks the model response before returning it to the browser."
+                : "The app checks the inbound prompt before the provider call continues.",
+              keywords: proxyMode ? ["proxy mode", "zscaler", "ai guard"] : ["das/api", "ai guard", "zscaler", "guardrails"],
+              lineStart: out ? 9 : 2,
+              lineEnd: out ? 16 : 8,
+              sourceStep: idx + 1,
+            }});
+          }} else {{
+            steps.push({{
+              label: `${{traceStep.name || "Provider"}} call`,
+              detail: "The selected provider SDK/API call is made and trace metadata is captured.",
+              keywords: ["provider", providerKeyword, String(traceStep.name || "").toLowerCase()],
+              lineStart: 1,
+              lineEnd: 12,
+              sourceStep: idx + 1,
+            }});
+          }}
+        }});
+
+        _entryAgentEvents(entry).forEach((event, idx) => {{
+          const kind = String(event && (event.kind || event.type || event.event || "") || "").toLowerCase();
+          const tool = String(event && event.tool ? event.tool : "").toLowerCase();
+          const text = `${{kind}} ${{tool}}`;
+          if (text.includes("tool") || text.includes("mcp") || tool) {{
+            steps.push({{
+              label: tool ? `Tool/MCP: ${{tool}}` : "Tool/MCP event",
+              detail: "The agent uses MCP/local tooling and records the tool result in the trace.",
+              keywords: ["mcp", "tool", tool],
+              lineStart: 1,
+              lineEnd: 14,
+              sourceStep: idx + 1,
+            }});
+          }}
+        }});
+
+        steps.push({{
+          label: "App returns response to browser",
+          detail: "The final response payload is serialized and the UI updates chat, traces, graph, and inspector.",
+          keywords: ["execution summary", "provider selection", "direct path", "response"],
+          lineStart: 8,
+          lineEnd: 18,
+        }});
+
+        const seen = new Set();
+        return steps.filter((step) => {{
+          const key = `${{step.label}}|${{step.sourceStep || ""}}|${{(step.keywords || []).join(",")}}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }});
+      }}
+
+      function _scoreCodeSectionForReplay(section, replayStep) {{
+        const haystack = `${{section.title || ""}} ${{section.file || ""}} ${{section.explain || ""}} ${{section.code || ""}}`.toLowerCase();
+        let score = 0;
+        (replayStep.keywords || []).forEach((keyword) => {{
+          const k = String(keyword || "").toLowerCase().trim();
+          if (!k) return;
+          if (haystack.includes(k)) score += k.length > 8 ? 5 : 3;
+        }});
+        const title = String(section.title || "").toLowerCase();
+        if (replayStep.label.toLowerCase().includes("provider") && title.includes("provider")) score += 6;
+        if (replayStep.label.toLowerCase().includes("guard") && (title.includes("guard") || haystack.includes("guardrails"))) score += 8;
+        if (replayStep.label.toLowerCase().includes("agent") && (title.includes("agent") || haystack.includes("agentic"))) score += 8;
+        if (replayStep.label.toLowerCase().includes("tool") && (title.includes("tool") || haystack.includes("mcp"))) score += 8;
+        if (title.includes("execution summary") && replayStep.label.toLowerCase().includes("browser")) score += 8;
+        if (title.includes("execution summary") && replayStep.label.toLowerCase().includes("returns")) score += 6;
+        return score;
+      }}
+
+      function _activeCodeReplay(allSections) {{
+        if (!Array.isArray(codeReplaySteps) || codeReplayStepIndex < 0 || codeReplayStepIndex >= codeReplaySteps.length) return null;
+        const step = codeReplaySteps[codeReplayStepIndex];
+        let bestIdx = 0;
+        let bestScore = -1;
+        (allSections || []).forEach((section, idx) => {{
+          const score = _scoreCodeSectionForReplay(section || {{}}, step || {{}});
+          if (score > bestScore) {{
+            bestScore = score;
+            bestIdx = idx;
+          }}
+        }});
+        return {{ ...step, sectionIndex: bestIdx, score: bestScore }};
+      }}
+
+      function updateCodeReplayControls() {{
+        const hasSteps = Array.isArray(codeReplaySteps) && codeReplaySteps.length > 0;
+        if (codeReplayPrevBtn) codeReplayPrevBtn.disabled = !hasSteps || codeReplayStepIndex <= 0;
+        if (codeReplayNextBtn) codeReplayNextBtn.disabled = !hasSteps || codeReplayStepIndex >= codeReplaySteps.length - 1;
+        if (codeReplayResetBtn) codeReplayResetBtn.disabled = !hasSteps;
+        if (codeReplayStatusEl) {{
+          if (!hasSteps) {{
+            codeReplayStatusEl.textContent = "Code replay: send a prompt to start";
+          }} else {{
+            const active = codeReplaySteps[Math.max(0, codeReplayStepIndex)] || {{}};
+            codeReplayStatusEl.textContent = `Code replay: ${{codeReplayStepIndex + 1}} of ${{codeReplaySteps.length}} - ${{active.label || "step"}}`;
+          }}
+        }}
+        if (codeReplayHintEl) {{
+          const active = hasSteps ? (codeReplaySteps[Math.max(0, codeReplayStepIndex)] || null) : null;
+          codeReplayHintEl.textContent = active
+            ? `${{active.label}}: ${{active.detail || "Highlighting the closest matching source path for this trace step."}}`
+            : "After a prompt completes, step through the trace to see which app/provider/guardrail/agent/tool code path was involved.";
+        }}
+      }}
+
+      function syncCodeReplayForSelectedTrace(reset = false) {{
+        const entry = getSelectedTraceEntry();
+        codeReplaySteps = buildCodeReplaySteps(entry);
+        if (!codeReplaySteps.length) {{
+          codeReplayStepIndex = -1;
+        }} else if (reset || codeReplayStepIndex < 0 || codeReplayStepIndex >= codeReplaySteps.length) {{
+          codeReplayStepIndex = 0;
+        }}
+        updateCodeReplayControls();
+      }}
+
+      function moveCodeReplay(direction) {{
+        if (!Array.isArray(codeReplaySteps) || !codeReplaySteps.length) return;
+        codeReplayStepIndex = Math.max(0, Math.min(codeReplaySteps.length - 1, codeReplayStepIndex + direction));
+        renderCodeViewer();
+      }}
+
+      function resetCodeReplay() {{
+        if (!Array.isArray(codeReplaySteps) || !codeReplaySteps.length) {{
+          syncCodeReplayForSelectedTrace(true);
+        }} else {{
+          codeReplayStepIndex = 0;
+        }}
+        renderCodeViewer();
+      }}
+
+      function renderCodeBlock(section, sectionIndex, activeReplay) {{
         const explain = codeSectionExplanation(section);
         const lines = String(section.code || "").replace(/\\n$/, "").split("\\n");
+        const isActive = !!activeReplay && activeReplay.sectionIndex === sectionIndex;
+        const start = Math.max(1, Number(activeReplay?.lineStart || 1) || 1);
+        const end = Math.max(start, Number(activeReplay?.lineEnd || Math.min(lines.length, start + 8)) || start);
         const lineRows = lines.map((line, idx) => {{
           const safeLine = line.length ? escapeHtml(line) : '<span class="code-empty"> </span>';
-          return `<div class="code-line"><span class="code-ln">${{idx + 1}}</span><span class="code-txt">${{safeLine}}</span></div>`;
+          const lineNo = idx + 1;
+          const activeLine = isActive && lineNo >= start && lineNo <= end;
+          const mutedLine = isActive && !activeLine;
+          const lineClass = `code-line${{activeLine ? " code-line-active" : ""}}${{mutedLine ? " code-line-muted" : ""}}`;
+          return `<div class="${{lineClass}}"><span class="code-ln">${{lineNo}}</span><span class="code-txt">${{safeLine}}</span></div>`;
         }}).join("");
         return `
-          <div class="code-panel">
+          <div class="code-panel${{isActive ? " code-active" : ""}}" data-code-section-index="${{sectionIndex}}">
             <div class="code-panel-head">
               <div class="code-panel-title">${{escapeHtml(section.title || "Code Section")}}</div>
-              <div class="code-panel-file">${{escapeHtml(section.file || "")}}</div>
+              <div class="code-panel-file">${{isActive ? '<span class="code-panel-replay-chip">Active replay step</span>' : ""}} ${{escapeHtml(section.file || "")}}</div>
             </div>
             <div class="code-panel-explain">${{escapeHtml(explain)}}</div>
             <div class="code-panel-body">
@@ -8850,6 +9377,7 @@ HTML = f"""<!doctype html>
       function maybeShowPlannedFlowPreview() {{
         updateDemoPathHint();
         showPlannedFlowPreview();
+        persistUiDefaultsLocal();
       }}
 
       function _updateFlowReplayStatus() {{
@@ -8881,6 +9409,8 @@ HTML = f"""<!doctype html>
         if (flowPreviewWatermarkEl) flowPreviewWatermarkEl.style.display = "none";
         renderFlowGraph(entry);
         renderInspector(entry);
+        syncCodeReplayForSelectedTrace(true);
+        renderCodeViewer();
         if (flowExplainModalEl.classList.contains("open")) {{
           renderFlowExplain(entry);
         }}
@@ -10615,80 +11145,347 @@ HTML = f"""<!doctype html>
         demoWizardModalEl.setAttribute("aria-hidden", "true");
       }}
 
-      function _setupValueConfigured(values, key) {{
-        const value = String((values || {{}})[key] || "").trim();
-        return value.length > 0;
+      const UI_DEFAULTS_LS_KEY = "ai_runtime_demo_ui_defaults_v1";
+      const SETUP_WIZARD_SETTING_KEYS = [
+        "APP_DEMO_NAME", "UI_THEME",
+        "ZS_GUARDRAILS_URL", "ZS_GUARDRAILS_API_KEY", "ZS_PROXY_BASE_URL",
+        "OPENAI_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY", "GEMINI_ZS_PROXY_API_KEY",
+        "OLLAMA_URL", "OLLAMA_MODEL",
+        "OPENAI_API_KEY", "OPENAI_MODEL",
+        "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+        "GEMINI_API_KEY", "GEMINI_MODEL"
+      ];
+      const SETUP_WIZARD_SECRET_KEYS = new Set([
+        "ZS_GUARDRAILS_API_KEY", "OPENAI_ZS_PROXY_API_KEY", "ANTHROPIC_ZS_PROXY_API_KEY", "GEMINI_ZS_PROXY_API_KEY",
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"
+      ]);
+      const SETUP_WIZARD_STEPS = [
+        {{ id: "basics", label: "Basics" }},
+        {{ id: "guard", label: "AI Guard" }},
+        {{ id: "providers", label: "LLMs" }},
+        {{ id: "demo", label: "Demo Flow" }},
+        {{ id: "finish", label: "Finish" }}
+      ];
+      let setupWizardStepIndex = 0;
+      let setupWizardDraft = {{}};
+      let setupWizardUiDraft = {{}};
+      let suppressUiDefaultPersistence = false;
+
+      function currentAgentMode() {{
+        if (multiAgentToggleEl.checked) return "multi";
+        if (agenticToggleEl.checked) return "agentic";
+        return "off";
       }}
 
-      function _setupItemState(item, values) {{
-        if (item.configuredWhen === "always") {{
-          return {{ cls: item.status || "info", label: item.status === "ok" ? "configured" : "ready" }};
+      function collectUiDefaults() {{
+        return {{
+          provider: providerSelectEl.value || "ollama",
+          guardrails_enabled: !!guardrailsToggleEl.checked,
+          zscaler_proxy_mode: !!zscalerProxyModeToggleEl.checked,
+          zscaler_das_mode: currentZscalerDasMode(),
+          zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
+          chat_mode: currentChatMode(),
+          agent_mode: currentAgentMode(),
+          tools_enabled: !!toolsToggleEl.checked,
+          local_tasks_enabled: !!localTasksToggleEl.checked,
+          tool_permission_profile: currentToolPermissionProfile(),
+          execution_topology: currentExecutionTopology(),
+          response_mode: currentResponseMode()
+        }};
+      }}
+
+      function persistUiDefaultsLocal() {{
+        if (suppressUiDefaultPersistence) return;
+        try {{
+          window.localStorage.setItem(UI_DEFAULTS_LS_KEY, JSON.stringify(collectUiDefaults()));
+        }} catch {{}}
+      }}
+
+      function applyUiDefaultsObject(defaults) {{
+        if (!defaults || typeof defaults !== "object") return;
+        suppressUiDefaultPersistence = true;
+        try {{
+          if (defaults.provider) {{
+            const wanted = String(defaults.provider || "").toLowerCase();
+            const opt = Array.from(providerSelectEl.options || []).find((o) => String(o.value || "").toLowerCase() === wanted);
+            if (opt) {{
+              providerSelectEl.value = opt.value;
+              lastSelectedProvider = opt.value || "ollama";
+            }}
+          }}
+          guardrailsToggleEl.checked = !!defaults.guardrails_enabled;
+          zscalerProxyModeToggleEl.checked = !!defaults.zscaler_proxy_mode;
+          if (defaults.zscaler_das_mode) setZscalerDasMode(defaults.zscaler_das_mode);
+          if (zscalerPolicyIdInputEl && defaults.zscaler_policy_id !== undefined) {{
+            zscalerPolicyIdInputEl.value = String(defaults.zscaler_policy_id || "").replace(/[^0-9]/g, "").slice(0, 4);
+          }}
+          setAgentMode(defaults.agent_mode || "off");
+          toolsToggleEl.checked = !!defaults.tools_enabled;
+          syncToolsToggleState();
+          localTasksToggleEl.checked = !!defaults.local_tasks_enabled;
+          syncLocalTasksToggleState();
+          setToolPermissionProfile(defaults.tool_permission_profile || "standard");
+          setExecutionTopology(defaults.execution_topology || "single_process");
+          setChatContextMode(defaults.chat_mode || "single");
+          setResponseMode(defaults.response_mode || "standard");
+          syncAgentModeExclusivityState();
+          syncToolPermissionProfileState();
+          syncExecutionTopologyState();
+          syncAttachmentSupportState();
+          syncResponseModeState();
+          syncZscalerProxyModeState();
+          refreshCurrentModelText();
+          refreshProviderValidationText();
+          renderCodeViewer();
+        }} finally {{
+          suppressUiDefaultPersistence = false;
         }}
-        if (item.configuredWhen === "any") {{
-          const anyConfigured = (item.keys || []).some((key) => _setupValueConfigured(values, key));
-          return anyConfigured
-            ? {{ cls: "ok", label: "some configured" }}
-            : {{ cls: "info", label: "optional" }};
+      }}
+
+      function applyPersistedUiDefaults() {{
+        try {{
+          const raw = window.localStorage.getItem(UI_DEFAULTS_LS_KEY);
+          if (!raw) return;
+          applyUiDefaultsObject(JSON.parse(raw));
+        }} catch {{}}
+      }}
+
+      function maybeResetBrowserLocalState() {{
+        try {{
+          const params = new URLSearchParams(window.location.search || "");
+          if (!["1", "true", "yes"].includes(String(params.get("reset_local_state") || "").toLowerCase())) return false;
+          [
+            UI_DEFAULTS_LS_KEY,
+            SETUP_WIZARD_SEEN_LS_KEY,
+            SETTINGS_CUSTOM_MODELS_LS_KEY,
+            SETTINGS_GROUP_COLLAPSE_LS_KEY
+          ].forEach((key) => window.localStorage.removeItem(key));
+          [SESSION_DAS_MODE_KEY, SESSION_POLICY_ID_KEY].forEach((key) => window.sessionStorage.removeItem(key));
+          window.history.replaceState({{}}, "", `${{window.location.origin}}${{window.location.pathname}}`);
+          setTimeout(() => window.location.reload(), 50);
+          return true;
+        }} catch {{
+          return false;
         }}
-        const required = item.requiredAny || [];
-        const configured = required.some((key) => _setupValueConfigured(values, key));
-        return configured
-          ? {{ cls: "ok", label: "configured" }}
-          : {{ cls: "warn", label: "missing key" }};
       }}
 
-      function renderSetupWizardChecklist(data) {{
-        const values = (data && data.values && typeof data.values === "object") ? data.values : {{}};
-        setupWizardChecklistEl.innerHTML = SETUP_WIZARD_ITEMS.map((item) => {{
-          const state = _setupItemState(item, values);
-          const keyHtml = (item.keys || []).map((key) => `<span class="setup-key">${{escapeHtml(key)}}</span>`).join("");
-          const note = item.note ? `<div class="hint">${{escapeHtml(item.note)}}</div>` : "";
-          return `
-            <div class="setup-item">
-              <div class="setup-item-head">
-                <div class="setup-item-title">${{escapeHtml(item.title)}}</div>
-                <span class="setup-status ${{escapeHtml(state.cls)}}">${{escapeHtml(state.label)}}</span>
-              </div>
-              <p class="setup-item-desc">${{escapeHtml(item.description)}}</p>
-              <div class="setup-keys">${{keyHtml}}</div>
-              ${{note}}
-            </div>
-          `;
-        }}).join("");
+      function _setupSelectOptions(options, current) {{
+        return (options || []).map((opt) => `<option value="${{_escapeAttr(opt.value)}}"${{String(opt.value) === String(current || "") ? " selected" : ""}}>${{escapeHtml(opt.label)}}</option>`).join("");
       }}
 
-      async function refreshSetupWizardChecklist() {{
-        setupWizardChecklistEl.innerHTML = `
-          <div class="setup-item">
-            <div class="setup-item-head">
-              <div class="setup-item-title">Loading settings...</div>
-              <span class="setup-status info">checking</span>
-            </div>
-            <p class="setup-item-desc">The wizard is reading your local settings state.</p>
+      function _setupProviderOptions(current) {{
+        return Array.from(providerSelectEl.options || []).map((opt) => `<option value="${{_escapeAttr(opt.value)}}"${{String(opt.value) === String(current || "") ? " selected" : ""}}>${{escapeHtml(opt.text || opt.value)}}</option>`).join("");
+      }}
+
+      function _setupModelListHtml(key, current) {{
+        const opts = _settingsModelOptions({{ key }});
+        if (!opts.length) return "";
+        const id = `setup_${{key}}_list`;
+        return `<datalist id="${{_escapeAttr(id)}}">${{opts.map((m) => `<option value="${{_escapeAttr(m)}}"></option>`).join("")}}</datalist>`;
+      }}
+
+      function _setupField(key, label, hint, opts = {{}}) {{
+        const value = setupWizardDraft[key] ?? settingsValues[key] ?? "";
+        const isSecret = !!opts.secret || SETUP_WIZARD_SECRET_KEYS.has(key);
+        const type = isSecret ? "password" : (opts.type || "text");
+        const datalist = opts.model ? ` list="setup_${{_escapeAttr(key)}}_list"` : "";
+        const input = opts.textarea
+          ? `<textarea data-setup-key="${{_escapeAttr(key)}}" data-setup-secret="${{isSecret ? "true" : "false"}}" placeholder="${{_escapeAttr(opts.placeholder || "")}}">${{escapeHtml(value)}}</textarea>`
+          : `<input type="${{_escapeAttr(type)}}" data-setup-key="${{_escapeAttr(key)}}" data-setup-secret="${{isSecret ? "true" : "false"}}" value="${{_escapeAttr(value)}}"${{datalist}} placeholder="${{_escapeAttr(opts.placeholder || "")}}" autocomplete="off" />`;
+        return `
+          <div class="setup-form-field">
+            <label>${{escapeHtml(label)}}</label>
+            ${{input}}
+            ${{opts.model ? _setupModelListHtml(key, value) : ""}}
+            <div class="setup-help">${{escapeHtml(hint || "")}}</div>
           </div>
         `;
+      }}
+
+      function _setupUiSelect(key, label, hint, options) {{
+        const value = setupWizardUiDraft[key] || collectUiDefaults()[key] || "";
+        return `
+          <div class="setup-form-field">
+            <label>${{escapeHtml(label)}}</label>
+            <select data-setup-ui-key="${{_escapeAttr(key)}}">${{_setupSelectOptions(options, value)}}</select>
+            <div class="setup-help">${{escapeHtml(hint || "")}}</div>
+          </div>
+        `;
+      }}
+
+      function _setupChoiceRow(key, options) {{
+        const value = setupWizardUiDraft[key] || collectUiDefaults()[key] || "";
+        return `<div class="setup-choice-row" data-setup-choice-key="${{_escapeAttr(key)}}">${{options.map((opt) => `<button type="button" class="setup-choice ${{String(opt.value) === String(value) ? "active" : ""}}" data-setup-choice-value="${{_escapeAttr(opt.value)}}">${{escapeHtml(opt.label)}}</button>`).join("")}}</div>`;
+      }}
+
+      function captureSetupWizardDraft() {{
+        if (!setupWizardStepBodyEl) return;
+        setupWizardStepBodyEl.querySelectorAll("[data-setup-key]").forEach((el) => {{
+          const key = el.getAttribute("data-setup-key");
+          if (!key) return;
+          setupWizardDraft[key] = el.value ?? "";
+        }});
+        setupWizardStepBodyEl.querySelectorAll("[data-setup-ui-key]").forEach((el) => {{
+          const key = el.getAttribute("data-setup-ui-key");
+          if (!key) return;
+          setupWizardUiDraft[key] = el.value ?? "";
+        }});
+      }}
+
+      function renderSetupWizardStepper() {{
+        setupWizardStepsEl.innerHTML = SETUP_WIZARD_STEPS.map((step, idx) => `
+          <div class="setup-step ${{idx === setupWizardStepIndex ? "active" : ""}} ${{idx < setupWizardStepIndex ? "done" : ""}}">
+            <span class="setup-step-num">${{idx + 1}}</span><span>${{escapeHtml(step.label)}}</span>
+          </div>
+        `).join("");
+      }}
+
+      function renderSetupWizardStep() {{
+        renderSetupWizardStepper();
+        const step = SETUP_WIZARD_STEPS[setupWizardStepIndex]?.id || "basics";
+        const themeValue = setupWizardDraft.UI_THEME || normalizeUiTheme(activeUiTheme);
+        const providerValue = setupWizardUiDraft.provider || (providerSelectEl.value || "ollama");
+        if (step === "basics") {{
+          setupWizardStepBodyEl.innerHTML = `
+            <h3>Choose the defaults for this demo browser</h3>
+            <p>These are the settings people notice first: app name, theme, provider, chat context, and response mode. Provider/toggle defaults are remembered in this browser; app name/theme are saved to <code>.env.local</code>.</p>
+            <div class="setup-form-grid">
+              ${{_setupField("APP_DEMO_NAME", "App title", "Browser title and top-left app heading.")}}
+              <div class="setup-form-field">
+                <label>Theme</label>
+                <select data-setup-key="UI_THEME">${{_setupSelectOptions([
+                  {{ value: "classic", label: "Classic" }},
+                  {{ value: "zscaler_blue", label: "Zscaler Blue" }},
+                  {{ value: "dark", label: "Dark" }},
+                  {{ value: "fun", label: "Neon" }}
+                ], themeValue)}}</select>
+                <div class="setup-help">Visual style used by the app UI.</div>
+              </div>
+              <div class="setup-form-field">
+                <label>Default LLM provider</label>
+                <select data-setup-ui-key="provider">${{_setupProviderOptions(providerValue)}}</select>
+                <div class="setup-help">This is the provider selected when you return to the app in this browser.</div>
+              </div>
+              ${{_setupUiSelect("chat_mode", "Chat context", "Single turn resets each send; multi-turn keeps the transcript.", [{{ value: "single", label: "Single Turn" }}, {{ value: "multi", label: "Multi Turn" }}])}}
+              ${{_setupUiSelect("response_mode", "Response mode", "JSON is universal. Stream/SSE are used only where supported by the selected provider/path.", [{{ value: "standard", label: "JSON" }}, {{ value: "stream", label: "Stream" }}, {{ value: "sse", label: "SSE" }}, {{ value: "protocol_trace", label: "Trace" }}])}}
+            </div>
+          `;
+        }} else if (step === "guard") {{
+          setupWizardStepBodyEl.innerHTML = `
+            <h3>Configure Zscaler AI Guard paths</h3>
+            <p><strong>API/DAS</strong> checks the prompt and completed response around the provider call. <strong>Proxy</strong> sends provider SDK traffic through AI Guard Proxy using provider-specific proxy keys.</p>
+            <div class="setup-callout">API/DAS Resolve automatically evaluates configured policies. API/DAS Execute uses the Policy ID field on the main chat page. Proxy Mode requires a proxy key for each upstream provider/app you want to route.</div>
+            <div class="setup-form-grid">
+              <div class="setup-provider-card">
+                <h4>Default AI Guard mode</h4>
+                ${{_setupChoiceRow("guard_path", [{{ value: "off", label: "Off" }}, {{ value: "api", label: "API/DAS" }}, {{ value: "proxy", label: "Proxy" }}])}}
+                <div class="setup-help">You can still override this on the chat page per demo.</div>
+              </div>
+              ${{_setupField("ZS_GUARDRAILS_URL", "AI Guard DAS/API URL", "Usually https://api.zseclipse.net/v1/detection/resolve-and-execute-policy")}}
+              ${{_setupField("ZS_GUARDRAILS_API_KEY", "AI Guard DAS/API Key", "Create an app/API key in AI Guard DAS/API settings.", {{ secret: true, placeholder: "Paste API key" }})}}
+              ${{_setupField("ZS_PROXY_BASE_URL", "AI Guard Proxy Base URL", "Usually https://proxy.zseclipse.net")}}
+              ${{_setupField("OPENAI_ZS_PROXY_API_KEY", "OpenAI Proxy Key", "Provider-specific Zscaler AI Guard proxy key for OpenAI.", {{ secret: true }})}}
+              ${{_setupField("ANTHROPIC_ZS_PROXY_API_KEY", "Anthropic Proxy Key", "Provider-specific Zscaler AI Guard proxy key for Anthropic.", {{ secret: true }})}}
+              ${{_setupField("GEMINI_ZS_PROXY_API_KEY", "Gemini Proxy Key", "Provider-specific Zscaler AI Guard proxy key for Gemini.", {{ secret: true }})}}
+            </div>
+          `;
+        }} else if (step === "providers") {{
+          setupWizardStepBodyEl.innerHTML = `
+            <h3>Add only the model providers you plan to demo</h3>
+            <p>Ollama is the easiest local smoke test. Cloud providers usually require paid API keys or credits. Blank API key fields keep any existing saved secret.</p>
+            <div class="setup-form-grid">
+              <div class="setup-provider-card">
+                <h4>Ollama (local)</h4>
+                <div class="setup-provider-links"><a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer">Install Ollama</a><span>Run <code>ollama pull llama3.2:1b</code></span></div>
+                ${{_setupField("OLLAMA_URL", "Ollama Base URL", "Default local Ollama endpoint.")}}
+                ${{_setupField("OLLAMA_MODEL", "Ollama Model", "Pick from detected/catalog models or type your own.", {{ model: true }})}}
+              </div>
+              <div class="setup-provider-card">
+                <h4>OpenAI</h4>
+                <div class="setup-provider-links"><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">API keys</a><a href="https://platform.openai.com/docs/pricing" target="_blank" rel="noopener noreferrer">Pricing</a><span>Paid credits required</span></div>
+                ${{_setupField("OPENAI_API_KEY", "OpenAI API Key", "Used for direct OpenAI calls when AI Guard is off or API/DAS mode is used.", {{ secret: true }})}}
+                ${{_setupField("OPENAI_MODEL", "OpenAI Model", "Default OpenAI model.", {{ model: true }})}}
+              </div>
+              <div class="setup-provider-card">
+                <h4>Anthropic</h4>
+                <div class="setup-provider-links"><a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">API keys</a><a href="https://www.anthropic.com/pricing" target="_blank" rel="noopener noreferrer">Pricing</a><span>Paid credits required</span></div>
+                ${{_setupField("ANTHROPIC_API_KEY", "Anthropic API Key", "Used for direct Anthropic calls when AI Guard is off or API/DAS mode is used.", {{ secret: true }})}}
+                ${{_setupField("ANTHROPIC_MODEL", "Anthropic Model", "Default Anthropic model.", {{ model: true }})}}
+              </div>
+              <div class="setup-provider-card">
+                <h4>Gemini</h4>
+                <div class="setup-provider-links"><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">API keys</a><a href="https://ai.google.dev/pricing" target="_blank" rel="noopener noreferrer">Pricing</a><span>Free tier available</span></div>
+                ${{_setupField("GEMINI_API_KEY", "Gemini API Key", "Used for direct Gemini calls.", {{ secret: true }})}}
+                ${{_setupField("GEMINI_MODEL", "Gemini Model", "Default Gemini model.", {{ model: true }})}}
+              </div>
+            </div>
+          `;
+        }} else if (step === "demo") {{
+          setupWizardStepBodyEl.innerHTML = `
+            <h3>Pick the default learning flow</h3>
+            <p>These controls shape the first graph a viewer sees before you send a prompt. You can still change them live during a demo.</p>
+            <div class="setup-form-grid">
+              <div class="setup-provider-card"><h4>Agent mode</h4>${{_setupChoiceRow("agent_mode", [{{ value: "off", label: "Off" }}, {{ value: "agentic", label: "Agentic" }}, {{ value: "multi", label: "Multi-Agent" }}])}}<div class="setup-help">Multi-agent shows orchestrator/specialist/reviewer/finalizer handoffs.</div></div>
+              <div class="setup-provider-card"><h4>Tools</h4>${{_setupChoiceRow("tools_enabled", [{{ value: "false", label: "Off" }}, {{ value: "true", label: "Tools/MCP On" }}])}}<div class="setup-help">The bundled MCP server includes local utility tools, search-style tools, and demo calendar tools.</div></div>
+              <div class="setup-provider-card"><h4>Local tasks</h4>${{_setupChoiceRow("local_tasks_enabled", [{{ value: "false", label: "Off" }}, {{ value: "true", label: "Local Tasks On" }}])}}<div class="setup-help">Adds safe local workspace tools such as file listing and file-size summaries.</div></div>
+              ${{_setupUiSelect("tool_permission_profile", "Tool profile", "Limits which tools can run during agentic demos.", [{{ value: "standard", label: "Standard" }}, {{ value: "read_only", label: "Read-Only" }}, {{ value: "local_only", label: "Local-Only" }}, {{ value: "network_open", label: "Network-Open" }}])}}
+              ${{_setupUiSelect("execution_topology", "Execution topology", "Single process is simplest. Worker modes show isolation boundaries for agent runs.", [{{ value: "single_process", label: "Single Process" }}, {{ value: "isolated_workers", label: "Isolated Workers" }}, {{ value: "isolated_per_role", label: "Per-Role Workers" }}])}}
+            </div>
+          `;
+        }} else {{
+          setupWizardStepBodyEl.innerHTML = `
+            <h3>Save, restart if needed, then try a few demos</h3>
+            <p>When you save, settings go to local <code>.env.local</code> and the browser remembers your selected demo defaults. If provider keys or base URLs changed, the app may ask to restart.</p>
+            <div class="setup-finish-grid">
+              <div class="setup-finish-card"><h4>1. Smoke test</h4><p>Send <code>Say hello in one sentence.</code> with your selected provider.</p></div>
+              <div class="setup-finish-card"><h4>2. Inspect traffic</h4><p>Open HTTP Trace to compare client request, provider request, response, protocol mode, and guardrail metadata.</p></div>
+              <div class="setup-finish-card"><h4>3. Explain the flow</h4><p>Use Flow Graph and Explain Flow to show where AI Guard, agents, MCP tools, and providers participate.</p></div>
+              <div class="setup-finish-card"><h4>4. Demo shortcuts</h4><p>Open Demo Wizard for baseline, AI Guard, agentic, and multimodal scenarios without remembering every toggle.</p></div>
+            </div>
+            <div class="setup-actions-row">
+              <button type="button" data-setup-action="open-settings" class="secondary">Open Full Settings</button>
+              <button type="button" data-setup-action="open-demo" class="secondary">Open Demo Wizard</button>
+            </div>
+          `;
+        }}
+        setupWizardBackBtnEl.disabled = setupWizardStepIndex <= 0;
+        setupWizardNextBtnEl.style.display = setupWizardStepIndex >= SETUP_WIZARD_STEPS.length - 1 ? "none" : "inline-flex";
+        setupWizardSaveBtnEl.style.display = setupWizardStepIndex >= SETUP_WIZARD_STEPS.length - 1 ? "inline-flex" : "none";
+        setupWizardStatusEl.textContent = `Step ${{setupWizardStepIndex + 1}} of ${{SETUP_WIZARD_STEPS.length}}`;
+      }}
+
+      async function loadSetupWizardData() {{
+        setupWizardStatusEl.textContent = "Loading settings...";
         try {{
           const res = await fetch("/settings");
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Failed to load settings");
-          renderSetupWizardChecklist(data);
+          settingsSchema = Array.isArray(data.schema) ? data.schema : [];
+          settingsValues = (data.values && typeof data.values === "object") ? data.values : {{}};
+          settingsModelCatalog = (data.model_catalog && typeof data.model_catalog === "object") ? data.model_catalog : {{}};
+          settingsModelAvailability = (data.model_availability && typeof data.model_availability === "object") ? data.model_availability : {{}};
+          settingsCustomModelCatalog = _loadCustomModelCatalog();
+          settingsSecretMask = String(data.secret_mask || "********");
+          setupWizardDraft = {{ ...settingsValues }};
+          setupWizardUiDraft = {{ ...collectUiDefaults() }};
+          setupWizardUiDraft.guard_path = setupWizardUiDraft.guardrails_enabled
+            ? (setupWizardUiDraft.zscaler_proxy_mode ? "proxy" : "api")
+            : "off";
+          setupWizardUiDraft.tools_enabled = String(!!setupWizardUiDraft.tools_enabled);
+          setupWizardUiDraft.local_tasks_enabled = String(!!setupWizardUiDraft.local_tasks_enabled);
+          setupWizardStatusEl.textContent = "";
+          renderSetupWizardStep();
         }} catch (err) {{
-          setupWizardChecklistEl.innerHTML = `
-            <div class="setup-item">
-              <div class="setup-item-head">
-                <div class="setup-item-title">Settings unavailable</div>
-                <span class="setup-status warn">check failed</span>
-              </div>
-              <p class="setup-item-desc">${{escapeHtml(err.message || String(err))}}</p>
-            </div>
-          `;
+          setupWizardStatusEl.textContent = "Settings unavailable";
+          setupWizardStepBodyEl.innerHTML = `<div class="setup-item"><div class="setup-item-head"><div class="setup-item-title">Settings unavailable</div><span class="setup-status warn">check failed</span></div><p class="setup-item-desc">${{escapeHtml(err.message || String(err))}}</p></div>`;
         }}
       }}
 
       function openSetupWizardModal() {{
+        setupWizardStepIndex = 0;
         setupWizardModalEl.classList.add("open");
         setupWizardModalEl.setAttribute("aria-hidden", "false");
-        refreshSetupWizardChecklist();
+        loadSetupWizardData();
       }}
 
       function closeSetupWizardModal(markSeen = true) {{
@@ -10714,6 +11511,77 @@ HTML = f"""<!doctype html>
         }}, 700);
       }}
 
+      function _uiDefaultsFromWizardDraft() {{
+        const guardPath = String(setupWizardUiDraft.guard_path || "off").toLowerCase();
+        return {{
+          provider: setupWizardUiDraft.provider || providerSelectEl.value || "ollama",
+          guardrails_enabled: guardPath !== "off",
+          zscaler_proxy_mode: guardPath === "proxy",
+          zscaler_das_mode: setupWizardUiDraft.zscaler_das_mode || "resolve",
+          zscaler_policy_id: setupWizardUiDraft.zscaler_policy_id || zscalerPolicyIdInputEl?.value || "",
+          chat_mode: setupWizardUiDraft.chat_mode || "single",
+          agent_mode: setupWizardUiDraft.agent_mode || "off",
+          tools_enabled: String(setupWizardUiDraft.tools_enabled) === "true",
+          local_tasks_enabled: String(setupWizardUiDraft.local_tasks_enabled) === "true",
+          tool_permission_profile: setupWizardUiDraft.tool_permission_profile || "standard",
+          execution_topology: setupWizardUiDraft.execution_topology || "single_process",
+          response_mode: setupWizardUiDraft.response_mode || "standard"
+        }};
+      }}
+
+      async function saveSetupWizard() {{
+        captureSetupWizardDraft();
+        const values = {{ ...settingsValues }};
+        for (const key of SETUP_WIZARD_SETTING_KEYS) {{
+          if (!(key in setupWizardDraft)) continue;
+          const val = String(setupWizardDraft[key] ?? "");
+          if (SETUP_WIZARD_SECRET_KEYS.has(key) && (!val || val === settingsSecretMask)) continue;
+          values[key] = val;
+        }}
+        setupWizardSaveBtnEl.disabled = true;
+        setupWizardStatusEl.textContent = "Saving setup...";
+        try {{
+          const res = await fetch("/settings", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ values }})
+          }});
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || data.details || "Save failed");
+          settingsValues = (data.values && typeof data.values === "object") ? data.values : values;
+          const uiDefaults = _uiDefaultsFromWizardDraft();
+          applyUiDefaultsObject(uiDefaults);
+          persistUiDefaultsLocal();
+          if (setupWizardDontShowCheckboxEl?.checked) {{
+            try {{ window.localStorage.setItem(SETUP_WIZARD_SEEN_LS_KEY, "1"); }} catch {{}}
+          }}
+          setupWizardStatusEl.textContent = "Saved.";
+          closeSetupWizardModal(true);
+          if (data.restart_recommended) {{
+            const shouldRestart = await showRestartConfirmModal();
+            if (shouldRestart) {{
+              openRestartProgressModal("Restarting services... please wait.");
+              try {{
+                const rr = await fetch("/restart", {{
+                  method: "POST",
+                  headers: {{ "Content-Type": "application/json" }},
+                  body: JSON.stringify({{ reason: "setup_wizard_saved" }})
+                }});
+                const restartData = await rr.json().catch(() => ({{}}));
+                if (!rr.ok || restartData.ok === false) throw new Error(restartData.error || "Restart request failed");
+                setRestartProgressState("Restart command sent. Reloading in a few seconds...", {{ error: false, canClose: false }});
+                setTimeout(() => {{ closeRestartProgressModal(); window.location.reload(); }}, 5000);
+              }} catch (restartErr) {{
+                setRestartProgressState(`Restart failed: ${{restartErr.message || restartErr}}`, {{ error: true, canClose: true }});
+              }}
+            }}
+          }}
+        }} catch (err) {{
+          setupWizardStatusEl.textContent = `Save failed: ${{err.message || err}}`;
+        }} finally {{
+          setupWizardSaveBtnEl.disabled = false;
+        }}
+      }}
       function _setProviderForWizard(providerId) {{
         if (!providerId || !providerSelectEl) return;
         const wanted = String(providerId || "").toLowerCase();
@@ -11853,7 +12721,10 @@ HTML = f"""<!doctype html>
           [...(spec.sections || []), ...(chatModeSpec.sections || []), ...buildDynamicCodeSections()],
           providerId
         );
-        codePanelsEl.innerHTML = allSections.map(renderCodeBlock).join("");
+        lastCodeSections = allSections;
+        const activeReplay = _activeCodeReplay(allSections);
+        codePanelsEl.innerHTML = allSections.map((section, idx) => renderCodeBlock(section, idx, activeReplay)).join("");
+        updateCodeReplayControls();
       }}
 
       function addTrace(entry) {{
@@ -12019,6 +12890,9 @@ HTML = f"""<!doctype html>
         resetAgentTrace();
         resetInspector();
         resetFlowGraph();
+        codeReplaySteps = [];
+        codeReplayStepIndex = -1;
+        updateCodeReplayControls();
         showPlannedFlowPreview();
         syncTracePanels();
         renderConversation();
@@ -12794,19 +13668,43 @@ HTML = f"""<!doctype html>
       flowDeterminismBtn.addEventListener("click", openDeterminismModal);
       flowLatencyBenchBtn.addEventListener("click", openLatencyBenchModal);
       flowScenarioRunnerBtn.addEventListener("click", openScenarioRunnerModal);
+      if (codeReplayPrevBtn) codeReplayPrevBtn.addEventListener("click", () => moveCodeReplay(-1));
+      if (codeReplayNextBtn) codeReplayNextBtn.addEventListener("click", () => moveCodeReplay(1));
+      if (codeReplayResetBtn) codeReplayResetBtn.addEventListener("click", resetCodeReplay);
       setupWizardBtnEl.addEventListener("click", () => openSetupWizardModal());
       setupWizardCloseBtnEl.addEventListener("click", () => closeSetupWizardModal(true));
-      setupWizardDoneBtnEl.addEventListener("click", () => closeSetupWizardModal(true));
-      setupWizardOpenSettingsBtnEl.addEventListener("click", () => {{
-        closeSetupWizardModal(true);
-        openSettingsModal();
+      setupWizardBackBtnEl.addEventListener("click", () => {{
+        captureSetupWizardDraft();
+        setupWizardStepIndex = Math.max(0, setupWizardStepIndex - 1);
+        renderSetupWizardStep();
       }});
-      setupWizardOpenDemoBtnEl.addEventListener("click", () => {{
-        closeSetupWizardModal(true);
-        openDemoWizardModal();
+      setupWizardNextBtnEl.addEventListener("click", () => {{
+        captureSetupWizardDraft();
+        setupWizardStepIndex = Math.min(SETUP_WIZARD_STEPS.length - 1, setupWizardStepIndex + 1);
+        renderSetupWizardStep();
       }});
+      setupWizardSaveBtnEl.addEventListener("click", saveSetupWizard);
       setupWizardModalEl.addEventListener("click", (e) => {{
-        if (e.target === setupWizardModalEl) closeSetupWizardModal(true);
+        if (e.target === setupWizardModalEl) {{
+          closeSetupWizardModal(true);
+          return;
+        }}
+        const choice = e.target.closest("[data-setup-choice-value]");
+        if (choice) {{
+          const row = choice.closest("[data-setup-choice-key]");
+          const key = row?.getAttribute("data-setup-choice-key");
+          if (key) {{
+            setupWizardUiDraft[key] = choice.getAttribute("data-setup-choice-value") || "";
+            row.querySelectorAll(".setup-choice").forEach((btn) => btn.classList.toggle("active", btn === choice));
+          }}
+          return;
+        }}
+        const action = e.target.closest("[data-setup-action]");
+        if (!action) return;
+        const actionName = action.getAttribute("data-setup-action") || "";
+        closeSetupWizardModal(true);
+        if (actionName === "open-settings") openSettingsModal();
+        if (actionName === "open-demo") openDemoWizardModal();
       }});
       demoWizardBtnEl.addEventListener("click", openDemoWizardModal);
       demoWizardCloseBtnEl.addEventListener("click", closeDemoWizardModal);
@@ -12988,6 +13886,7 @@ HTML = f"""<!doctype html>
         syncZscalerProxyModeState();
         syncResponseModeState();
         renderCodeViewer();
+        maybeShowPlannedFlowPreview();
       }});
       zscalerModeProxyBtnEl.addEventListener("click", () => {{
         if (!guardrailsToggleEl.checked || zscalerModeProxyBtnEl.disabled) return;
@@ -12995,6 +13894,7 @@ HTML = f"""<!doctype html>
         syncZscalerProxyModeState();
         syncResponseModeState();
         renderCodeViewer();
+        maybeShowPlannedFlowPreview();
       }});
       zscalerDasResolveBtnEl.addEventListener("click", () => {{
         if (zscalerDasResolveBtnEl.disabled) return;
@@ -13228,6 +14128,7 @@ HTML = f"""<!doctype html>
         }}
       }});
       renderPresetCatalog();
+      const resetBrowserLocalStateRequested = maybeResetBrowserLocalState();
       applyUiTheme(initialUiTheme, false);
       loadUiThemeFromSettings();
       refreshCurrentModelText();
@@ -13251,6 +14152,7 @@ HTML = f"""<!doctype html>
           zscalerPolicyIdInputEl.value = String(savedPolicyId).replace(/[^0-9]/g, "").slice(0, 4);
         }}
       }} catch {{}}
+      if (!resetBrowserLocalStateRequested) applyPersistedUiDefaults();
       syncZscalerProxyModeState();
       setHttpTraceCount(0);
       setAgentTraceCount(0);
@@ -15167,7 +16069,7 @@ class Handler(BaseHTTPRequestHandler):
                     status=200,
                 )
                 return
-        if self.path == "/":
+        if parsed_path.path == "/":
             self._send_html(
                 HTML.replace("__CODE_SNIPPETS_JSON__", _script_safe_json(CODE_SNIPPETS)).replace(
                     "__PRESET_PROMPTS_JSON__", _script_safe_json(_effective_preset_prompts())

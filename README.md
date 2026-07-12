@@ -4,14 +4,18 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.34`
+  - Redesigned the first-time Setup Wizard into a five-step guided flow (Basics, AI Guard, LLMs, Demo Flow, Finish) that saves app settings to `.env.local` and remembers per-browser demo defaults (provider, guard mode, agent mode, tools, chat/response modes) in local storage.
+  - Added a Code Replay stepper to the Code Path Viewer that walks through the selected trace (request, AI Guard checks, agent loop, tool/MCP events, response) and highlights the matching code panel and lines for each step.
+  - Provider dropdowns now flag unconfigured providers with a `(configure)` label and tooltip, and fall back to a configured provider instead of failing on a disabled selection.
+  - Added `?reset_local_state=1` URL parameter to clear per-browser demo defaults and wizard state.
+  - Default app port is now `5050` (matching `.env.example`); set `PORT` in `.env.local` to override.
+
 - `v1.5.33`
   - Fixed OpenAI streaming (Stream/SSE response modes) so PDF attachments are sent as native `type: file` content parts, matching standard-mode behavior. Previously streaming requests silently downgraded PDFs to metadata text.
 
 - `v1.5.32`
   - Fixed OpenAI attachment handling so non-PDF files no longer fail Chat Completions requests. PDF attachments continue to use native OpenAI file parts; other file types remain metadata-only unless a provider path supports them natively.
-
-- `v1.5.31`
-  - Changed browser uploads and preset samples to preserve file bytes instead of extracting text locally. OpenAI requests now send supported attachments as native `type: file` content parts, so file visibility demos exercise the provider/proxy file path rather than a locally expanded prompt.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
@@ -219,7 +223,7 @@ Recent `v1.1` update impact:
    - `python3 app.py`
    - If `ollama serve` says port `11434` is already in use, Ollama is already running; continue without starting another one.
 6. Open:
-   - [http://127.0.0.1:5000](http://127.0.0.1:5000)
+   - [http://127.0.0.1:5050](http://127.0.0.1:5050)
 
 ### Windows (PowerShell)
 
@@ -239,7 +243,7 @@ Recent `v1.1` update impact:
    - `.\.venv\Scripts\Activate.ps1`
    - `python app.py`
 6. Open:
-   - [http://127.0.0.1:5000](http://127.0.0.1:5000)
+   - [http://127.0.0.1:5050](http://127.0.0.1:5050)
 
 ---
 
@@ -259,7 +263,7 @@ Only set keys/providers you actually want to use.
 Your `.env.local` should at least have:
 
 ```env
-PORT=5000
+PORT=5050
 APP_DEMO_NAME='AI Runtime Security Demo'
 APP_RATE_LIMIT_CHAT_PER_MIN=30
 APP_RATE_LIMIT_ADMIN_PER_MIN=20
