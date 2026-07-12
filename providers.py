@@ -513,14 +513,37 @@ def _normalize_messages(messages: list[dict] | None) -> list[dict]:
                                 "kind": "text",
                                 "name": name,
                                 "mime": mime or "text/plain",
+                                "size": _safe_attachment_size(raw.get("size")),
                                 "text": text[:16_000],
                                 "truncated": bool(raw.get("truncated")) or len(text) > 16_000,
                             }
                         )
+                    elif kind == "file":
+                        data_url = str(raw.get("data_url") or "")
+                        if data_url and (not data_url.startswith("data:") or len(data_url) > 750_000):
+                            data_url = ""
+                        file_item: dict[str, Any] = {
+                            "kind": "file",
+                            "name": name,
+                            "mime": mime or "application/octet-stream",
+                            "size": _safe_attachment_size(raw.get("size")),
+                            "truncated": bool(raw.get("truncated")) or not bool(data_url),
+                            "note": str(raw.get("note") or "File content was not decoded by this demo path.").strip()[:400],
+                        }
+                        if data_url:
+                            file_item["data_url"] = data_url
+                        cleaned.append(file_item)
                 if cleaned:
                     item["attachments"] = cleaned
             normalized.append(item)
     return normalized
+
+
+def _safe_attachment_size(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _zscaler_proxy_sdk_config(
@@ -564,13 +587,18 @@ def _attachment_text_suffix(msg: dict[str, Any]) -> str:
     for att in attachments:
         if not isinstance(att, dict):
             continue
-        if str(att.get("kind") or "").strip().lower() != "text":
-            continue
+        kind = str(att.get("kind") or "").strip().lower()
         name = str(att.get("name") or "attachment").strip()
-        text = str(att.get("text") or "")
-        if not text:
+        if kind == "text":
+            text = str(att.get("text") or "")
+            if text:
+                rows.append(f"[Attachment: {name}]\n{text}")
             continue
-        rows.append(f"[Attachment: {name}]\n{text}")
+        if kind == "file":
+            mime = str(att.get("mime") or "application/octet-stream").strip()
+            size = _safe_attachment_size(att.get("size"))
+            note = str(att.get("note") or "File content was not decoded by this demo path.").strip()
+            rows.append(f"[Attached file: {name}]\nMIME: {mime}\nSize: {size} bytes\n{note}")
     return ("\n\n" + "\n\n".join(rows)) if rows else ""
 
 
@@ -1815,7 +1843,7 @@ def _bedrock_invoke_chat_messages(
     request_payload = {
         "modelId": model_id,
         "messages": [
-            {"role": m["role"], "content": [{"text": m["content"]}]}
+            {"role": m["role"], "content": [{"text": str(m.get("content") or "") + _attachment_text_suffix(m)}]}
             for m in normalized
             if m["role"] in {"user", "assistant"}
         ],
@@ -1968,7 +1996,7 @@ def _bedrock_agent_chat_messages(
     latest_user = ""
     for m in reversed(normalized):
         if m.get("role") == "user":
-            latest_user = str(m.get("content") or "")
+            latest_user = str(m.get("content") or "") + _attachment_text_suffix(m)
             break
     if not latest_user:
         latest_user = str((normalized[-1].get("content") if normalized else "") or "")

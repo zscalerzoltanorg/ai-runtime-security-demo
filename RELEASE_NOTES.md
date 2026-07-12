@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.27`
+  - Expanded Traffic Automation prompt breadth beyond code-heavy tests, with more legal, finance, prompt-injection/jailbreak, PII, secrets, brand, multilingual, off-topic, URL, and response-detector scenarios. Added synthetic text-file attachment attempts so generated traffic can exercise prompts plus uploaded support tickets, contracts, CSVs, logs, and policy snippets.
+
 - `v1.5.26`
   - Clarified Traffic Automation in the UI and release notes. Traffic Automation is the local background smoke-test/log-filler that sends synthetic `/chat` conversations through configured providers, users, AI Guard Proxy/API-DAS modes, agent/MCP/tool options, and detector-oriented prompts so demos can generate realistic AI Guard activity on demand.
 

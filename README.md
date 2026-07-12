@@ -4,14 +4,14 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.30`
+  - Broadened attachment handling so the UI accepts any file type. Text-like files are included in prompt content and API/DAS AI Guard IN checks, images remain native for vision-capable provider/model combinations, and other file types are carried as bounded metadata/preview for traces and demos.
+
 - `v1.5.29`
   - Removed the OAuth/bearer-token demo scenario entirely from Traffic Automation and prompt presets. Secret-detector examples now use generic non-provider-shaped markers only.
 
 - `v1.5.28`
   - Removed OAuth-token-shaped demo strings from Traffic Automation and prompt presets, replacing them with defanged placeholders that still exercise secret-detector flows without resembling live bearer tokens.
-
-- `v1.5.27`
-  - Expanded Traffic Automation prompt breadth beyond code-heavy tests, with more legal, finance, prompt-injection/jailbreak, PII, secrets, brand, multilingual, off-topic, URL, and response-detector scenarios. Added synthetic text-file attachment attempts so generated traffic can exercise prompts plus uploaded support tickets, contracts, CSVs, logs, and policy snippets.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
@@ -65,14 +65,13 @@ Defaults:
 
 ## Attachments (Multimodal) Support
 
-- Current supported attachment types in this demo UI:
-  - Images: `image/*` (provider/model dependent)
-  - Text/code files: `.txt`, `.md`, `.json`, `.csv`, `.log`, `.py`, `.js`, `.ts`, `.yaml`, `.yml`
-- Not currently supported in this demo attachment path:
-  - PDF, Office docs (`.docx`, `.pptx`, `.xlsx`), audio, and video
+- The demo UI allows selecting any file type.
+- Text-like files are read into the prompt path, capped by `MAX_TEXT_ATTACHMENT_CHARS`, and are included in API/DAS AI Guard IN checks so detector demos can inspect uploaded `.txt`, `.env`, log, config, code, CSV, JSON, YAML, and similar files.
+- Images are sent as native image payloads only when the selected provider/model supports vision. Otherwise, they are attached as file metadata.
+- Other binary/unknown file types are accepted as bounded metadata, with a small data URL preview when they fit under `MAX_FILE_DATA_URL_CHARS`. Providers may ignore those contents unless a future parser/OCR/file-extraction path is added.
 - Provider/model notes:
-  - Ollama is model-dependent for image support. Text/code file attachments are allowed.
-  - Vision-capable Ollama models (for example LLaVA/vision-family models) can accept images; text-only models (such as `llama3.2:1b`) are treated as text-file-only.
+  - Ollama is model-dependent for native image support.
+  - Text-like file attachment content is provider-agnostic because the app appends it to the message text before provider dispatch.
 
 ## Adversarial Presets (How To Use)
 

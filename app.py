@@ -4596,12 +4596,12 @@ HTML = f"""<!doctype html>
           <div class="composer-shell">
             <textarea id="prompt" placeholder="Type a prompt... (Enter to send, Shift+Enter for a new line)"></textarea>
             <div id="attachmentBar" class="attachment-bar" style="display:none;"></div>
-            <input id="attachmentInput" type="file" multiple accept="image/*,.txt,.md,.json,.csv,.log,.py,.js,.ts,.yaml,.yml" style="display:none;" />
+            <input id="attachmentInput" type="file" multiple style="display:none;" />
             <div class="composer-actions">
               <div class="composer-actions-left">
                 <button id="sendBtn" type="button">Send</button>
                 <button id="clearBtn" type="button">Clear</button>
-                <button id="attachBtn" class="outline-accent attach-icon-btn" type="button" title="Attach images or text files for multimodal prompts" aria-label="Attach files">📎</button>
+                <button id="attachBtn" class="outline-accent attach-icon-btn" type="button" title="Attach files. Text-like files are included in prompt and AI Guard checks; images are sent natively when the selected provider/model supports vision." aria-label="Attach files">📎</button>
                 <button id="presetToggleBtn" class="secondary" type="button" title="Open curated demo prompts for guardrails, agentic mode, and tools">Prompt Presets</button>
               </div>
               <div class="composer-actions-right">
@@ -5949,8 +5949,8 @@ HTML = f"""<!doctype html>
         "gemini",
         "vertex",
       ]);
-      const ATTACH_ACCEPT_TEXT_ONLY = ".txt,.md,.json,.csv,.log,.py,.js,.ts,.yaml,.yml";
-      const ATTACH_ACCEPT_WITH_IMAGES = `image/*,${{ATTACH_ACCEPT_TEXT_ONLY}}`;
+      const TEXT_ATTACHMENT_EXT_RE = /\.(txt|md|markdown|json|jsonl|ndjson|csv|tsv|log|py|js|jsx|ts|tsx|yaml|yml|xml|html|htm|css|sql|sh|bash|zsh|ps1|toml|ini|conf|cfg|env|properties|pem|crt|cer|key|tf|tfvars|dockerfile|graphql|gql|proto|rst)$/i;
+      const TEXT_ATTACHMENT_MIME_RE = /^(text\/|application\/(json|xml|yaml|x-yaml|javascript|x-javascript|typescript|x-ndjson|sql|graphql))/i;
       const SCENARIO_SUITE = [
         {{ key: "hello", prompt: "Say hello in one sentence." }},
         {{ key: "secret_block", prompt: "This message contains a generic secret marker: DEMO-SECRET-REDACTED" }},
@@ -6830,28 +6830,22 @@ HTML = f"""<!doctype html>
         const model = String(lastObservedModelMap[provider] || providerModelMap[provider] || "").toLowerCase();
         const baseSupported = multimodalProviderSet.has(provider);
         let allowImages = baseSupported;
-        let allowText = baseSupported;
         if (provider === "ollama") {{
-          allowText = true;
           allowImages = /(llava|bakllava|vision|moondream|qwen2(?:\\.5)?-vl|minicpm-v|gemma3|phi-3-vision|llama3\\.2-vision)/i.test(model);
         }}
-        const canAttach = allowImages || allowText;
-        attachBtnEl.disabled = !canAttach;
-        attachmentInputEl.accept = allowImages ? ATTACH_ACCEPT_WITH_IMAGES : ATTACH_ACCEPT_TEXT_ONLY;
-        const attachmentKinds = "text/code files: .txt, .md, .json, .csv, .log, .py, .js, .ts, .yaml, .yml";
-        const unsupportedKinds = "Not supported in this demo yet: PDF, Office docs (DOCX/PPTX/XLSX), audio, and video.";
-        if (!baseSupported) {{
-          attachBtnEl.title = `Attachments are not supported for this provider yet. ${{unsupportedKinds}}`;
-        }} else if (allowImages) {{
-          attachBtnEl.title = `Attach images and ${{attachmentKinds}}. ${{unsupportedKinds}}`;
+        attachBtnEl.disabled = false;
+        attachmentInputEl.accept = "";
+        if (allowImages) {{
+          attachBtnEl.title = "Attach any file. Text-like files are included in prompt and AI Guard checks; images are sent natively to this vision-capable provider/model; other files are included as bounded metadata.";
         }} else {{
-          attachBtnEl.title = `Current provider/model supports ${{attachmentKinds}} only (images disabled). ${{unsupportedKinds}}`;
+          attachBtnEl.title = "Attach any file. Text-like files are included in prompt and AI Guard checks; images and binary files are included as bounded metadata for this provider/model.";
         }}
         if (pendingAttachments.length) {{
           const before = pendingAttachments.length;
           pendingAttachments = pendingAttachments.filter((att) => {{
             if (att && att.kind === "image") return allowImages;
-            if (att && att.kind === "text") return allowText;
+            if (att && att.kind === "text") return true;
+            if (att && att.kind === "file") return true;
             return false;
           }});
           if (pendingAttachments.length !== before) {{
@@ -7978,6 +7972,8 @@ HTML = f"""<!doctype html>
       const MAX_ATTACHMENTS = 4;
       const MAX_IMAGE_DATA_URL_CHARS = 2_500_000;
       const MAX_TEXT_ATTACHMENT_CHARS = 16_000;
+      const MAX_FILE_DATA_URL_CHARS = 750_000;
+      const TEXT_SNIFF_BYTES = 8_192;
 
       function clearPendingAttachments() {{
         pendingAttachments = [];
@@ -7994,7 +7990,7 @@ HTML = f"""<!doctype html>
         }}
         const chips = pendingAttachments.map((att, idx) => {{
           const kind = String(att.kind || "file");
-          const label = `${{kind === "image" ? "image" : "text"}}: ${{String(att.name || "attachment")}}`;
+          const label = `${{kind === "image" ? "image" : (kind === "text" ? "text" : "file")}}: ${{String(att.name || "attachment")}}`;
           return `<span class="attachment-chip">${{escapeHtml(label)}} <button type="button" data-attachment-remove="${{idx}}" title="Remove attachment">×</button></span>`;
         }}).join("");
         attachmentBarEl.innerHTML = chips;
@@ -8006,6 +8002,12 @@ HTML = f"""<!doctype html>
         const kind = String(att.kind || "file");
         const name = String(att.name || "attachment");
         if (kind === "image") return `[image attachment: ${{name}}]`;
+        if (kind === "file") {{
+          const mime = String(att.mime || "application/octet-stream");
+          const size = Number.isFinite(Number(att.size)) ? `${{Number(att.size)}} bytes` : "unknown size";
+          const note = String(att.note || "File content was not decoded by this demo path.");
+          return `[file attachment: ${{name}} (${{mime}}, ${{size}})]\\n${{note}}`;
+        }}
         const text = String(att.text || "");
         return `[text attachment: ${{name}}]\\n${{text}}`;
       }}
@@ -8028,6 +8030,43 @@ HTML = f"""<!doctype html>
         }});
       }}
 
+      function _readBlobAsArrayBuffer(blob) {{
+        return new Promise((resolve, reject) => {{
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("Failed to read file bytes"));
+          reader.readAsArrayBuffer(blob);
+        }});
+      }}
+
+      function _isKnownTextLikeFile(file) {{
+        const mime = String(file?.type || "");
+        const name = String(file?.name || "");
+        return TEXT_ATTACHMENT_MIME_RE.test(mime) || TEXT_ATTACHMENT_EXT_RE.test(name);
+      }}
+
+      function _looksMostlyText(buffer) {{
+        if (!(buffer instanceof ArrayBuffer) || buffer.byteLength === 0) return false;
+        const bytes = new Uint8Array(buffer);
+        let control = 0;
+        let printable = 0;
+        for (const byte of bytes) {{
+          if (byte === 0) return false;
+          if (byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte !== 127)) {{
+            printable += 1;
+          }} else {{
+            control += 1;
+          }}
+        }}
+        return printable > 0 && control / Math.max(1, bytes.length) < 0.08;
+      }}
+
+      async function _shouldReadAsText(file) {{
+        if (_isKnownTextLikeFile(file)) return true;
+        const sample = await _readBlobAsArrayBuffer(file.slice(0, Math.min(TEXT_SNIFF_BYTES, file.size || TEXT_SNIFF_BYTES)));
+        return _looksMostlyText(sample);
+      }}
+
       async function handleAttachmentFiles(files) {{
         const incoming = Array.from(files || []);
         if (!incoming.length) return;
@@ -8035,9 +8074,7 @@ HTML = f"""<!doctype html>
         const model = String(lastObservedModelMap[provider] || providerModelMap[provider] || "").toLowerCase();
         const baseSupported = multimodalProviderSet.has(provider);
         let allowImages = baseSupported;
-        let allowText = baseSupported;
         if (provider === "ollama") {{
-          allowText = true;
           allowImages = /(llava|bakllava|vision|moondream|qwen2(?:\\.5)?-vl|minicpm-v|gemma3|phi-3-vision|llama3\\.2-vision)/i.test(model);
         }}
         const room = Math.max(0, MAX_ATTACHMENTS - pendingAttachments.length);
@@ -8046,45 +8083,71 @@ HTML = f"""<!doctype html>
           return;
         }}
         const accepted = incoming.slice(0, room);
-        let skipped = 0;
         for (const file of accepted) {{
           const mime = String(file.type || "");
           const name = String(file.name || "attachment");
           if (mime.startsWith("image/")) {{
-            if (!allowImages) {{
-              skipped += 1;
-              continue;
-            }}
-            const dataUrl = await _readFileAsDataUrl(file);
-            if (dataUrl.length > MAX_IMAGE_DATA_URL_CHARS) {{
-              statusEl.textContent = `Image too large: ${{name}}`;
+            if (allowImages) {{
+              const dataUrl = await _readFileAsDataUrl(file);
+              if (dataUrl.length > MAX_IMAGE_DATA_URL_CHARS) {{
+                statusEl.textContent = `Image too large for native vision payload: ${{name}}`;
+                pendingAttachments.push({{
+                  kind: "file",
+                  name,
+                  mime: mime || "application/octet-stream",
+                  size: file.size || 0,
+                  truncated: true,
+                  note: "Image was larger than the native inline image limit and was included as file metadata only.",
+                }});
+                continue;
+              }}
+              pendingAttachments.push({{
+                kind: "image",
+                name,
+                mime,
+                data_url: dataUrl,
+              }});
               continue;
             }}
             pendingAttachments.push({{
-              kind: "image",
+              kind: "file",
               name,
-              mime,
-              data_url: dataUrl,
+              mime: mime || "application/octet-stream",
+              size: file.size || 0,
+              truncated: true,
+              note: "Image was attached as metadata because the selected provider/model does not support native image prompts.",
             }});
             continue;
           }}
-          if (!allowText) {{
-            skipped += 1;
+          if (await _shouldReadAsText(file)) {{
+            const text = await _readFileAsText(file);
+            pendingAttachments.push({{
+              kind: "text",
+              name,
+              mime: mime || "text/plain",
+              size: file.size || 0,
+              text: text.slice(0, MAX_TEXT_ATTACHMENT_CHARS),
+              truncated: text.length > MAX_TEXT_ATTACHMENT_CHARS,
+            }});
             continue;
           }}
-          const text = await _readFileAsText(file);
+          let dataUrl = "";
+          if ((file.size || 0) > 0 && (file.size || 0) <= MAX_FILE_DATA_URL_CHARS) {{
+            dataUrl = await _readFileAsDataUrl(file);
+          }}
           pendingAttachments.push({{
-            kind: "text",
+            kind: "file",
             name,
-            mime: mime || "text/plain",
-            text: text.slice(0, MAX_TEXT_ATTACHMENT_CHARS),
-            truncated: text.length > MAX_TEXT_ATTACHMENT_CHARS,
+            mime: mime || "application/octet-stream",
+            size: file.size || 0,
+            ...(dataUrl ? {{ data_url: dataUrl }} : {{}}),
+            truncated: !dataUrl,
+            note: dataUrl
+              ? "Binary or unsupported file type included as a bounded data URL preview; providers may ignore it."
+              : "Binary or unsupported file type was too large for inline preview and was included as metadata only.",
           }});
         }}
         renderAttachmentBar();
-        if (skipped > 0) {{
-          statusEl.textContent = `Skipped ${{skipped}} unsupported attachment${{skipped === 1 ? "" : "s"}} for current provider/model.`;
-        }}
       }}
 
       function renderConversation() {{
@@ -13954,6 +14017,14 @@ def _script_safe_json(value: object) -> str:
 MAX_ATTACHMENTS_PER_MESSAGE = max(1, _int_env("MAX_ATTACHMENTS_PER_MESSAGE", 4))
 MAX_TEXT_ATTACHMENT_CHARS = max(512, _int_env("MAX_TEXT_ATTACHMENT_CHARS", 16_000))
 MAX_IMAGE_DATA_URL_CHARS = max(50_000, _int_env("MAX_IMAGE_DATA_URL_CHARS", 2_500_000))
+MAX_FILE_DATA_URL_CHARS = max(50_000, _int_env("MAX_FILE_DATA_URL_CHARS", 750_000))
+
+
+def _attachment_size(value: object) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _normalize_attachments(items: object) -> list[dict[str, object]]:
@@ -13981,11 +14052,51 @@ def _normalize_attachments(items: object) -> list[dict[str, object]]:
                     "kind": "text",
                     "name": name,
                     "mime": mime or "text/plain",
+                    "size": _attachment_size(raw.get("size")),
                     "text": text[:MAX_TEXT_ATTACHMENT_CHARS],
                     "truncated": bool(raw.get("truncated")) or len(text) > MAX_TEXT_ATTACHMENT_CHARS,
                 }
             )
+            continue
+        if kind == "file":
+            data_url = str(raw.get("data_url") or "")
+            if data_url and (not data_url.startswith("data:") or len(data_url) > MAX_FILE_DATA_URL_CHARS):
+                data_url = ""
+            file_item: dict[str, object] = {
+                "kind": "file",
+                "name": name,
+                "mime": mime or "application/octet-stream",
+                "size": _attachment_size(raw.get("size")),
+                "truncated": bool(raw.get("truncated")) or not bool(data_url),
+                "note": str(raw.get("note") or "File content was not decoded by this demo path.").strip()[:400],
+            }
+            if data_url:
+                file_item["data_url"] = data_url
+            out.append(file_item)
     return out
+
+
+def _attachment_guard_text_suffix(attachments: list[dict[str, object]]) -> str:
+    rows: list[str] = []
+    for att in attachments:
+        kind = str(att.get("kind") or "").strip().lower()
+        name = str(att.get("name") or "attachment").strip()
+        if kind == "text":
+            text = str(att.get("text") or "")
+            if text:
+                rows.append(f"[Text attachment: {name}]\n{text}")
+            continue
+        if kind == "file":
+            mime = str(att.get("mime") or "application/octet-stream").strip()
+            size = _attachment_size(att.get("size"))
+            note = str(att.get("note") or "File content was not decoded by this demo path.").strip()
+            rows.append(f"[File attachment: {name}; MIME: {mime}; Size: {size} bytes]\n{note}")
+    return ("\n\n" + "\n\n".join(rows)) if rows else ""
+
+
+def _prompt_with_guard_visible_attachments(prompt: str, attachments: list[dict[str, object]]) -> str:
+    suffix = _attachment_guard_text_suffix(attachments)
+    return f"{prompt}{suffix}" if suffix else prompt
 
 
 def _normalize_client_messages(messages: object) -> list[dict[str, object]]:
@@ -15623,6 +15734,7 @@ class Handler(BaseHTTPRequestHandler):
             if request_attachments:
                 item["attachments"] = request_attachments
             messages_for_provider = [item]
+        guard_check_prompt = _prompt_with_guard_visible_attachments(prompt, request_attachments)
 
         def _send_provider_native_stream_turn() -> None:
             nonlocal chat_slot_released, chat_usage_logged, llm_call_index
@@ -16324,7 +16436,7 @@ class Handler(BaseHTTPRequestHandler):
                 guardrails_warnings: list[dict] = []
                 in_blocked, in_meta = ai_guard._zag_check(  # noqa: SLF001
                     "IN",
-                    prompt,
+                    guard_check_prompt,
                     conversation_id=conversation_id,
                     demo_user=demo_user,
                     zscaler_das_mode=zscaler_das_mode,
@@ -16511,7 +16623,7 @@ class Handler(BaseHTTPRequestHandler):
                 guardrails_warnings: list[dict] = []
                 in_blocked, in_meta = ai_guard._zag_check(  # noqa: SLF001
                     "IN",
-                    prompt,
+                    guard_check_prompt,
                     conversation_id=conversation_id,
                     demo_user=demo_user,
                     zscaler_das_mode=zscaler_das_mode,
@@ -16704,7 +16816,7 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 payload, status = ai_guard.guarded_chat(
-                    prompt=prompt,
+                    prompt=guard_check_prompt,
                     llm_call=lambda p: _provider_messages_call(messages_for_provider),
                     conversation_id=conversation_id,
                     demo_user=demo_user,
