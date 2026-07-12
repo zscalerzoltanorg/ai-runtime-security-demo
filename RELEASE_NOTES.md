@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.30`
+  - Broadened attachment handling so the UI accepts any file type. Text-like files are included in prompt content and API/DAS AI Guard IN checks, images remain native for vision-capable provider/model combinations, and other file types are carried as bounded metadata/preview for traces and demos.
+
 - `v1.5.29`
   - Removed the OAuth/bearer-token demo scenario entirely from Traffic Automation and prompt presets. Secret-detector examples now use generic non-provider-shaped markers only.
 

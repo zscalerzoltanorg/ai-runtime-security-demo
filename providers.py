@@ -2412,6 +2412,7 @@ def _openai_compatible_chat_messages_stream(
     demo_user: str | None = None,
     proxy_mode: bool = False,
     proxy_provider_family: str | None = None,
+    include_native_files: bool = False,
 ) -> tuple[str | None, dict]:
     api_key = os.getenv(api_key_env, "").strip()
     base_url = os.getenv(base_url_env, "").strip() or default_base_url
@@ -2425,7 +2426,7 @@ def _openai_compatible_chat_messages_stream(
     normalized = _normalize_messages(messages)
     request_payload = {
         "model": model,
-        "messages": _openai_messages_with_attachments(normalized),
+        "messages": _openai_messages_with_attachments(normalized, include_native_files=include_native_files),
         "temperature": 0.2,
         "stream": True,
     }
@@ -2759,6 +2760,7 @@ def stream_provider_messages(
             demo_user=demo_user,
             proxy_mode=zscaler_proxy_mode,
             proxy_provider_family="OPENAI",
+            include_native_files=True,
         )
     if provider == "perplexity":
         return _openai_compatible_chat_messages_stream(

@@ -4,14 +4,14 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.33`
+  - Fixed OpenAI streaming (Stream/SSE response modes) so PDF attachments are sent as native `type: file` content parts, matching standard-mode behavior. Previously streaming requests silently downgraded PDFs to metadata text.
+
 - `v1.5.32`
   - Fixed OpenAI attachment handling so non-PDF files no longer fail Chat Completions requests. PDF attachments continue to use native OpenAI file parts; other file types remain metadata-only unless a provider path supports them natively.
 
 - `v1.5.31`
   - Changed browser uploads and preset samples to preserve file bytes instead of extracting text locally. OpenAI requests now send supported attachments as native `type: file` content parts, so file visibility demos exercise the provider/proxy file path rather than a locally expanded prompt.
-
-- `v1.5.30`
-  - Broadened attachment handling so the UI accepts any file type. Text-like files are included in prompt content and API/DAS AI Guard IN checks, images remain native for vision-capable provider/model combinations, and other file types are carried as bounded metadata/preview for traces and demos.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
