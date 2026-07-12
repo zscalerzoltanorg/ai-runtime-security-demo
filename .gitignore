@@ -8,3 +8,9 @@ usage_metrics.db
 usage_metrics.db-*
 logs/
 traffic*.jsonl
+
+# Local AI-assistant context (private to each machine, not part of the demo app)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.codex-pet-runs/
