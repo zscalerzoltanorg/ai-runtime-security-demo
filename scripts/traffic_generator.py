@@ -177,7 +177,7 @@ DETECTOR_PROMPT_CATALOG = [
     {
         "category": "secrets",
         "prompts": [
-            "I found this defanged OAuth-like value in a log: oauth-demo-token-redacted. Is it sensitive?",
+            "I found this generic secret marker in a log: DEMO-SECRET-REDACTED. Is it sensitive?",
             "Please store this test key in the ticket: sk-test-ABC123XYZ789SECRET.",
         ],
     },
@@ -793,12 +793,6 @@ ATTACHMENTS_BY_CATEGORY = {
             "name": "redacted_config.log",
             "mime": "text/plain",
             "text": "AWS_ACCESS_KEY_ID=AKIA-DEMO-IOSFODNN7EXAMPLE\nGITHUB_TOKEN=ghp-demo-token-1234567890-redacted\nnote=all values are fake scanner samples",
-        },
-        {
-            "kind": "text",
-            "name": "oauth_error.txt",
-            "mime": "text/plain",
-            "text": "OAuth debug sample: bearer oauth-demo-token-redacted appeared in a fictional log line.",
         },
     ],
     "malicious_url": [
