@@ -2203,6 +2203,38 @@ HTML = f"""<!doctype html>
         font-weight: 800;
         white-space: nowrap;
       }}
+      .code-panel-replay-chip-pending {{
+        border-color: var(--border);
+        color: var(--muted);
+        background: var(--panel);
+      }}
+      .code-step-chip {{
+        display: inline-grid;
+        place-items: center;
+        min-width: 20px;
+        height: 20px;
+        margin-right: 7px;
+        border-radius: 999px;
+        padding: 0 5px;
+        background: color-mix(in srgb, var(--panel) 70%, var(--accent) 30%);
+        color: var(--accent-2);
+        font-size: 0.74rem;
+        font-weight: 800;
+      }}
+      .code-panel-pending {{
+        opacity: 0.45;
+      }}
+      .code-panel[data-replay-step] {{
+        cursor: pointer;
+      }}
+      .code-panel-source {{
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-style: italic;
+      }}
+      .code-panel-placeholder .code-panel-explain {{
+        padding-bottom: 12px;
+      }}
       .code-panel-file {{
         color: var(--muted);
         font-size: 0.8rem;
@@ -9157,19 +9189,17 @@ HTML = f"""<!doctype html>
         return score;
       }}
 
-      function _activeCodeReplay(allSections) {{
-        if (!Array.isArray(codeReplaySteps) || codeReplayStepIndex < 0 || codeReplayStepIndex >= codeReplaySteps.length) return null;
-        const step = codeReplaySteps[codeReplayStepIndex];
+      function _bestSectionIndexForStep(step, sections) {{
         let bestIdx = 0;
         let bestScore = -1;
-        (allSections || []).forEach((section, idx) => {{
+        (sections || []).forEach((section, idx) => {{
           const score = _scoreCodeSectionForReplay(section || {{}}, step || {{}});
           if (score > bestScore) {{
             bestScore = score;
             bestIdx = idx;
           }}
         }});
-        return {{ ...step, sectionIndex: bestIdx, score: bestScore }};
+        return bestIdx;
       }}
 
       function updateCodeReplayControls() {{
@@ -9219,12 +9249,13 @@ HTML = f"""<!doctype html>
         renderCodeViewer();
       }}
 
-      function renderCodeBlock(section, sectionIndex, activeReplay) {{
-        const explain = codeSectionExplanation(section);
+      function renderCodeBlock(section, step, stepIndex, activeStepIndex) {{
+        const isActive = stepIndex === activeStepIndex;
+        const isPending = stepIndex > activeStepIndex;
+        const explain = String(step && step.detail ? step.detail : "").trim() || codeSectionExplanation(section);
         const lines = String(section.code || "").replace(/\\n$/, "").split("\\n");
-        const isActive = !!activeReplay && activeReplay.sectionIndex === sectionIndex;
-        const start = Math.max(1, Number(activeReplay?.lineStart || 1) || 1);
-        const end = Math.max(start, Number(activeReplay?.lineEnd || Math.min(lines.length, start + 8)) || start);
+        const start = Math.max(1, Number(step?.lineStart || 1) || 1);
+        const end = Math.max(start, Number(step?.lineEnd || Math.min(lines.length, start + 8)) || start);
         const lineRows = lines.map((line, idx) => {{
           const safeLine = line.length ? escapeHtml(line) : '<span class="code-empty"> </span>';
           const lineNo = idx + 1;
@@ -9233,13 +9264,17 @@ HTML = f"""<!doctype html>
           const lineClass = `code-line${{activeLine ? " code-line-active" : ""}}${{mutedLine ? " code-line-muted" : ""}}`;
           return `<div class="${{lineClass}}"><span class="code-ln">${{lineNo}}</span><span class="code-txt">${{safeLine}}</span></div>`;
         }}).join("");
+        const stateChip = isActive
+          ? '<span class="code-panel-replay-chip">Active replay step</span>'
+          : (isPending ? '<span class="code-panel-replay-chip code-panel-replay-chip-pending">Upcoming</span>' : "");
+        const panelClass = `code-panel${{isActive ? " code-active" : ""}}${{isPending ? " code-panel-pending" : ""}}`;
         return `
-          <div class="code-panel${{isActive ? " code-active" : ""}}" data-code-section-index="${{sectionIndex}}">
+          <div class="${{panelClass}}" data-replay-step="${{stepIndex}}" title="Click to jump to this step">
             <div class="code-panel-head">
-              <div class="code-panel-title">${{escapeHtml(section.title || "Code Section")}}</div>
-              <div class="code-panel-file">${{isActive ? '<span class="code-panel-replay-chip">Active replay step</span>' : ""}} ${{escapeHtml(section.file || "")}}</div>
+              <div class="code-panel-title"><span class="code-step-chip">${{stepIndex + 1}}</span>${{escapeHtml(step?.label || section.title || "Code Section")}}</div>
+              <div class="code-panel-file">${{stateChip}} ${{escapeHtml(section.file || "")}}</div>
             </div>
-            <div class="code-panel-explain">${{escapeHtml(explain)}}</div>
+            <div class="code-panel-explain">${{escapeHtml(explain)}} <span class="code-panel-source">Source: ${{escapeHtml(section.title || "code section")}}</span></div>
             <div class="code-panel-body">
               <pre class="code-pre">${{lineRows}}</pre>
             </div>
@@ -12722,9 +12757,29 @@ HTML = f"""<!doctype html>
           providerId
         );
         lastCodeSections = allSections;
-        const activeReplay = _activeCodeReplay(allSections);
-        codePanelsEl.innerHTML = allSections.map((section, idx) => renderCodeBlock(section, idx, activeReplay)).join("");
+        const hasReplay = Array.isArray(codeReplaySteps) && codeReplaySteps.length > 0;
+        if (!hasReplay) {{
+          codePanelsEl.innerHTML = `
+            <div class="code-panel code-panel-placeholder">
+              <div class="code-panel-head">
+                <div class="code-panel-title">Code path not built yet</div>
+              </div>
+              <div class="code-panel-explain">Send a prompt (or select a captured trace) and the executed code path will build here as numbered steps in execution order. Then use Prev/Next Code Step, or click a step, to walk through it.</div>
+            </div>
+          `;
+          updateCodeReplayControls();
+          return;
+        }}
+        const activeIndex = Math.max(0, Math.min(codeReplaySteps.length - 1, codeReplayStepIndex));
+        codePanelsEl.innerHTML = codeReplaySteps.map((step, idx) => {{
+          const section = allSections[_bestSectionIndexForStep(step, allSections)] || {{}};
+          return renderCodeBlock(section, step, idx, activeIndex);
+        }}).join("");
         updateCodeReplayControls();
+        const activePanel = codePanelsEl.querySelector(".code-panel.code-active");
+        if (activePanel && typeof activePanel.scrollIntoView === "function") {{
+          activePanel.scrollIntoView({{ block: "nearest", behavior: "smooth" }});
+        }}
       }}
 
       function addTrace(entry) {{
@@ -13671,6 +13726,15 @@ HTML = f"""<!doctype html>
       if (codeReplayPrevBtn) codeReplayPrevBtn.addEventListener("click", () => moveCodeReplay(-1));
       if (codeReplayNextBtn) codeReplayNextBtn.addEventListener("click", () => moveCodeReplay(1));
       if (codeReplayResetBtn) codeReplayResetBtn.addEventListener("click", resetCodeReplay);
+      if (codePanelsEl) codePanelsEl.addEventListener("click", (e) => {{
+        if (!Array.isArray(codeReplaySteps) || !codeReplaySteps.length) return;
+        const panel = e.target.closest("[data-replay-step]");
+        if (!panel) return;
+        const idx = Number(panel.getAttribute("data-replay-step"));
+        if (!Number.isFinite(idx) || idx === codeReplayStepIndex) return;
+        codeReplayStepIndex = Math.max(0, Math.min(codeReplaySteps.length - 1, idx));
+        renderCodeViewer();
+      }});
       setupWizardBtnEl.addEventListener("click", () => openSetupWizardModal());
       setupWizardCloseBtnEl.addEventListener("click", () => closeSetupWizardModal(true));
       setupWizardBackBtnEl.addEventListener("click", () => {{

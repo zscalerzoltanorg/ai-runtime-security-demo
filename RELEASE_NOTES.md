@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.32`
+  - Fixed OpenAI attachment handling so non-PDF files no longer fail Chat Completions requests. PDF attachments continue to use native OpenAI file parts; other file types remain metadata-only unless a provider path supports them natively.
+
 - `v1.5.31`
   - Changed browser uploads and preset samples to preserve file bytes instead of extracting text locally. OpenAI requests now send supported attachments as native `type: file` content parts, so file visibility demos exercise the provider/proxy file path rather than a locally expanded prompt.
 
