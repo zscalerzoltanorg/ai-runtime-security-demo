@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.33`
+  - Fixed OpenAI streaming (Stream/SSE response modes) so PDF attachments are sent as native `type: file` content parts, matching standard-mode behavior. Previously streaming requests silently downgraded PDFs to metadata text.
+
 - `v1.5.32`
   - Fixed OpenAI attachment handling so non-PDF files no longer fail Chat Completions requests. PDF attachments continue to use native OpenAI file parts; other file types remain metadata-only unless a provider path supports them natively.
 

@@ -4,6 +4,11 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.36`
+  - Fixed native Windows one-click updates for Python 3.11/3.12 installs by allowing untracked runtime files such as `.venv` while continuing to block tracked local edits.
+  - Windows updates now install dependencies only after the running process releases its files, relaunch through a detached helper, and write restart diagnostics to `logs/update.log`.
+  - Added a health-based browser wait and Windows CI coverage across Python 3.11, 3.12, and 3.13.
+
 - `v1.5.35`
   - Code Path Viewer now builds the code path from the executed trace: it stays empty until a prompt is sent, then renders one numbered panel per replay step in execution order (request, AI Guard checks, agent loop, tools, response). Completed steps stay solid, the active step is highlighted with its code lines, and upcoming steps are dimmed. Panels are clickable to jump the replay, and stepping auto-scrolls the active panel into view.
 
@@ -13,9 +18,6 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
   - Provider dropdowns now flag unconfigured providers with a `(configure)` label and tooltip, and fall back to a configured provider instead of failing on a disabled selection.
   - Added `?reset_local_state=1` URL parameter to clear per-browser demo defaults and wizard state.
   - Default app port is now `5050` (matching `.env.example`); set `PORT` in `.env.local` to override.
-
-- `v1.5.33`
-  - Fixed OpenAI streaming (Stream/SSE response modes) so PDF attachments are sent as native `type: file` content parts, matching standard-mode behavior. Previously streaming requests silently downgraded PDFs to metadata text.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
@@ -49,8 +51,9 @@ Agent role shorthand:
   - Restarts the app
 - Safety checks before applying update:
   - Requires localhost admin request
-  - Refuses update when working tree is dirty
+  - Refuses update when tracked files have local changes; ignored/untracked runtime files do not falsely block updates
   - Refuses update when current branch does not match configured update branch
+- Native Windows updates install dependencies after the running process releases its files, then relaunch the app through a detached helper. Restart diagnostics are written to `logs/update.log`.
 - Local settings are preserved:
   - `.env.local` is not overwritten by this update flow
 

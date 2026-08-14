@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -284,6 +285,22 @@ def _build_badge_text() -> str:
 BUILD_BADGE = _build_badge_text()
 
 
+def _process_build_sha() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=1.0,
+        ).strip()
+    except Exception:
+        return ""
+
+
+PROCESS_BUILD_SHA = _process_build_sha()
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parent
 
@@ -307,6 +324,29 @@ def _git_run(args: list[str], *, timeout: float = 30.0) -> subprocess.CompletedP
         timeout=timeout,
         check=False,
     )
+
+
+def _tracked_worktree_is_clean() -> bool:
+    return _git_output(["status", "--porcelain", "--untracked-files=no"], timeout=2.0) == ""
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def _update_log_path() -> Path:
+    return _repo_root() / "logs" / "update.log"
+
+
+def _append_update_log(message: str) -> None:
+    try:
+        log_path = _update_log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"[{timestamp}] {message.rstrip()}\n")
+    except Exception:
+        pass
 
 
 def _http_get_json(url: str, headers: dict[str, str] | None = None, timeout: float = 4.0) -> object:
@@ -558,7 +598,7 @@ def _update_status_payload() -> dict[str, object]:
     try:
         local_sha = _git_output(["rev-parse", "HEAD"], timeout=2.0)
         current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
-        is_clean = (_git_output(["status", "--porcelain"], timeout=2.0) == "")
+        is_clean = _tracked_worktree_is_clean()
         local_tag = ""
         try:
             local_tag = _git_output(["describe", "--tags", "--exact-match", "HEAD"], timeout=1.5)
@@ -644,8 +684,7 @@ def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
         current_branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], timeout=2.0)
         if current_branch != branch:
             return {"ok": False, "error": f"Current branch is {current_branch}; switch to {branch} to update."}
-        dirty = _git_output(["status", "--porcelain"], timeout=2.0)
-        if dirty:
+        if not _tracked_worktree_is_clean():
             return {
                 "ok": False,
                 "error": "Working tree has local changes. Commit/stash first to avoid overwrite.",
@@ -663,7 +702,8 @@ def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
             msg = (pull_res.stderr or pull_res.stdout or "").strip() or "git pull failed"
             return {"ok": False, "error": msg}
         deps_output = ""
-        if install_deps:
+        defer_deps_to_restart = bool(install_deps and _is_windows())
+        if install_deps and not defer_deps_to_restart:
             pip_res = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
                 cwd=_repo_root(),
@@ -679,7 +719,19 @@ def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
                     "error": "Dependency install failed after pull.",
                     "details": deps_output[-1600:],
                 }
-        scheduled = _schedule_self_restart(delay_seconds=1.0)
+        scheduled = _schedule_self_restart(
+            delay_seconds=1.0,
+            install_deps_after_exit=defer_deps_to_restart,
+        )
+        if not scheduled:
+            return {
+                "ok": False,
+                "updated": True,
+                "restart_required": True,
+                "error": "Update downloaded, but automatic restart could not be scheduled. The current app is still running; restart it manually.",
+                "from_sha": local_sha[:12],
+                "to_sha": remote_sha[:12],
+            }
         return {
             "ok": True,
             "updated": True,
@@ -695,19 +747,94 @@ def _perform_app_update(*, install_deps: bool) -> dict[str, object]:
             _UPDATE_RUNNING = False
 
 
-def _schedule_self_restart(delay_seconds: float = 0.8) -> bool:
+def _start_windows_restart_helper(*, install_deps_after_exit: bool) -> subprocess.Popen:
+    log_path = _update_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    ready_path = log_path.parent / f".restart-{os.getpid()}.ready"
+    try:
+        ready_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+    command = [
+        sys.executable,
+        str(_repo_root() / "scripts" / "restart_windows.py"),
+        "--parent-pid",
+        str(os.getpid()),
+        "--app",
+        str(Path(__file__).resolve()),
+        "--cwd",
+        str(_repo_root()),
+        "--log",
+        str(log_path),
+        "--ready-file",
+        str(ready_path),
+    ]
+    if install_deps_after_exit:
+        command.append("--install-deps")
+    process = subprocess.Popen(
+        command,
+        cwd=_repo_root(),
+        env=os.environ.copy(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if ready_path.exists():
+            ready_path.unlink(missing_ok=True)
+            return process
+        if process.poll() is not None:
+            break
+        threading.Event().wait(0.05)
+    process.terminate()
+    raise RuntimeError("Windows restart helper did not become ready")
+
+
+def _schedule_self_restart(
+    delay_seconds: float = 0.8,
+    *,
+    install_deps_after_exit: bool = False,
+) -> bool:
     global _RESTART_PENDING
     with _RESTART_LOCK:
         if _RESTART_PENDING:
             return False
         _RESTART_PENDING = True
 
+    if _is_windows():
+        try:
+            _start_windows_restart_helper(install_deps_after_exit=install_deps_after_exit)
+        except Exception:
+            _append_update_log("Unable to schedule Windows restart:\n" + traceback.format_exc())
+            with _RESTART_LOCK:
+                _RESTART_PENDING = False
+            return False
+
+        def _exit_for_windows_restart() -> None:
+            threading.Event().wait(delay_seconds)
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            finally:
+                os._exit(0)  # noqa: SLF001
+
+        threading.Thread(target=_exit_for_windows_restart, daemon=True).start()
+        return True
+
     def _do_restart() -> None:
+        global _RESTART_PENDING
         try:
             threading.Event().wait(delay_seconds)
+            sys.stdout.flush()
+            sys.stderr.flush()
             os.execvpe(sys.executable, [sys.executable, os.path.abspath(__file__)], os.environ)
         except Exception:
-            os._exit(1)  # noqa: SLF001
+            _append_update_log("Unable to restart app:\n" + traceback.format_exc())
+            with _RESTART_LOCK:
+                _RESTART_PENDING = False
 
     t = threading.Thread(target=_do_restart, daemon=True)
     t.start()
@@ -7776,7 +7903,26 @@ HTML = f"""<!doctype html>
           }}
           setUpdateStatus("warn", "Update: restarting...", String(data?.message || "Update applied, restarting app."));
           closeUpdateConfirmModal();
-          setTimeout(() => window.location.reload(), 5000);
+          openRestartProgressModal("Update installed. Waiting for the updated app to become healthy...");
+          const expectedSha = String(data?.to_sha || "").trim().toLowerCase();
+          const deadline = Date.now() + 300000;
+          let sawConnectionDrop = false;
+          while (Date.now() < deadline) {{
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            try {{
+              const healthRes = await fetch(`/healthz?t=${{Date.now()}}`, {{ cache: "no-store" }});
+              const health = await healthRes.json();
+              const processSha = String(health?.process_sha || "").trim().toLowerCase();
+              if (healthRes.ok && health?.ok && (sawConnectionDrop || (expectedSha && processSha.startsWith(expectedSha)))) {{
+                setRestartProgressState("Updated app is healthy. Reloading...", {{ error: false, canClose: false }});
+                window.location.reload();
+                return;
+              }}
+            }} catch {{
+              sawConnectionDrop = true;
+            }}
+          }}
+          setRestartProgressState("The update was downloaded, but the app did not become healthy. Check logs/update.log and restart it manually.", {{ error: true, canClose: true }});
         }} catch (err) {{
           const reason = String(err?.message || err);
           setUpdateStatus("bad", "Update: failed", reason);
@@ -8576,7 +8722,7 @@ HTML = f"""<!doctype html>
         if (explicit) return explicit;
         const raw = String(role || "agent").replaceAll("_", " ").trim();
         if (!raw) return "Agent";
-        return raw.split(/\s+/).map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1) : "").join(" ");
+        return raw.split(/\\s+/).map((part) => part ? part.charAt(0).toUpperCase() + part.slice(1) : "").join(" ");
       }}
 
       function _shortTraceText(value, maxLen = 260) {{
@@ -8592,7 +8738,7 @@ HTML = f"""<!doctype html>
             text = String(value);
           }}
         }}
-        text = text.replace(/\s+/g, " ").trim();
+        text = text.replace(/\\s+/g, " ").trim();
         if (text.length > maxLen) return `${{text.slice(0, Math.max(0, maxLen - 1)).trim()}}...`;
         return text;
       }}
@@ -15946,6 +16092,16 @@ class Handler(BaseHTTPRequestHandler):
             params = urlparse.parse_qs(parsed_path.query or "", keep_blank_values=False)
             range_key = str((params.get("range") or ["all"])[0] or "all")
             self._send_json(_usage_dashboard_payload(range_key=range_key), status=200)
+            return
+        if parsed_path.path == "/healthz":
+            self._send_json(
+                {
+                    "ok": True,
+                    "process_sha": PROCESS_BUILD_SHA,
+                    "pid": os.getpid(),
+                },
+                status=200,
+            )
             return
         if self.path == "/update-status":
             if not self._require_local_admin():
