@@ -1,0 +1,52 @@
+name: Windows updater checks
+
+on:
+  pull_request:
+    paths:
+      - "app.py"
+      - "scripts/restart_windows.py"
+      - "scripts/bootstrap_windows.ps1"
+      - "tests/**"
+      - ".github/workflows/windows-updater.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "scripts/restart_windows.py"
+      - "scripts/bootstrap_windows.ps1"
+      - "tests/**"
+      - ".github/workflows/windows-updater.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  updater:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile updater code
+        run: python -m py_compile app.py scripts/restart_windows.py
+      - name: Parse Windows bootstrap
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/bootstrap_windows.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) > $null
+          if ($errors.Count) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
+      - name: Run updater tests
+        run: python -m unittest discover -s tests -v
