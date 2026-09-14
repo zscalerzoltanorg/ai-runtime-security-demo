@@ -4873,6 +4873,9 @@ HTML = f"""<!doctype html>
                 <span id="awsAuthDot" class="status-dot" aria-hidden="true"></span>
                 <span id="awsAuthText">AWS Auth: hidden</span>
               </span>
+              <span id="conversationIdPill" class="status-pill" title="Active conversation ID sent with each request (click to copy). Single Turn rotates it per send; Multi Turn keeps it until Clear or a mode switch.">
+                Conv: ...
+              </span>
             </div>
           </div>
 
@@ -6226,9 +6229,20 @@ HTML = f"""<!doctype html>
       let lastAgentTrace = [];
       let conversation = [];
       let pendingAttachments = [];
-      let clientConversationId = (window.crypto && window.crypto.randomUUID)
-        ? window.crypto.randomUUID()
-        : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
+      function newConversationId() {{
+        return (window.crypto && window.crypto.randomUUID)
+          ? window.crypto.randomUUID()
+          : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
+      }}
+      let clientConversationId = newConversationId();
+      function updateConversationIdPill() {{
+        const pill = document.getElementById("conversationIdPill");
+        if (pill) pill.textContent = `Conv: ${{String(clientConversationId).slice(0, 8)}}`;
+      }}
+      function rotateConversationId() {{
+        clientConversationId = newConversationId();
+        updateConversationIdPill();
+      }}
       let mcpStatusTimer = null;
       let ollamaStatusTimer = null;
       let liteLlmStatusTimer = null;
@@ -13088,9 +13102,7 @@ HTML = f"""<!doctype html>
         lastSelectedProvider = providerSelectEl.value || "ollama";
         lastChatMode = currentChatMode();
         conversation = [];
-        clientConversationId = (window.crypto && window.crypto.randomUUID)
-          ? window.crypto.randomUUID()
-          : `conv-${{Date.now()}}-${{Math.random().toString(16).slice(2)}}`;
+        rotateConversationId();
         httpTraceExpanded = false;
         agentTraceExpanded = false;
         inspectorExpanded = false;
@@ -13439,6 +13451,7 @@ HTML = f"""<!doctype html>
           lastChatMode = currentChatMode();
           renderCodeViewer();
           const multi = currentChatMode() === "multi";
+          if (!multi) rotateConversationId();
           const outboundAttachments = Array.isArray(pendingAttachments) ? [...pendingAttachments] : [];
           const pendingMessages = multi
             ? [...conversation, {{ role: "user", content: prompt, attachments: outboundAttachments, ts: hhmmssNow() }}]
@@ -14136,7 +14149,10 @@ HTML = f"""<!doctype html>
         maybeShowPlannedFlowPreview();
       }});
       function setChatContextMode(mode) {{
-        multiTurnToggleEl.checked = String(mode || "single").toLowerCase() === "multi";
+        const nextChecked = String(mode || "single").toLowerCase() === "multi";
+        const changed = multiTurnToggleEl.checked !== nextChecked;
+        multiTurnToggleEl.checked = nextChecked;
+        if (changed) rotateConversationId();
         lastChatMode = currentChatMode();
         updateChatModeUI();
         syncResponseModeState();
@@ -14346,6 +14362,18 @@ HTML = f"""<!doctype html>
         }}
       }});
       renderPresetCatalog();
+      updateConversationIdPill();
+      const conversationIdPillEl = document.getElementById("conversationIdPill");
+      if (conversationIdPillEl) {{
+        conversationIdPillEl.style.cursor = "pointer";
+        conversationIdPillEl.addEventListener("click", async () => {{
+          try {{
+            await navigator.clipboard.writeText(String(clientConversationId));
+            conversationIdPillEl.textContent = "Conv: copied!";
+            setTimeout(updateConversationIdPill, 900);
+          }} catch {{}}
+        }});
+      }}
       const resetBrowserLocalStateRequested = maybeResetBrowserLocalState();
       applyUiTheme(initialUiTheme, false);
       loadUiThemeFromSettings();

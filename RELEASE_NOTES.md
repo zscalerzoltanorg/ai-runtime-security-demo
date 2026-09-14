@@ -4,6 +4,9 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.35`
+  - Code Path Viewer now builds the code path from the executed trace: it stays empty until a prompt is sent, then renders one numbered panel per replay step in execution order (request, AI Guard checks, agent loop, tools, response). Completed steps stay solid, the active step is highlighted with its code lines, and upcoming steps are dimmed. Panels are clickable to jump the replay, and stepping auto-scrolls the active panel into view.
+
 - `v1.5.34`
   - Redesigned the first-time Setup Wizard into a five-step guided flow (Basics, AI Guard, LLMs, Demo Flow, Finish) that saves app settings to `.env.local` and remembers per-browser demo defaults (provider, guard mode, agent mode, tools, chat/response modes) in local storage.
   - Added a Code Replay stepper to the Code Path Viewer that walks through the selected trace (request, AI Guard checks, agent loop, tool/MCP events, response) and highlights the matching code panel and lines for each step.

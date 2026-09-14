@@ -4,6 +4,10 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.38`
+  - Conversation IDs now match AI Guard conversation-viewer semantics: Single Turn generates a fresh conversation ID for every send, Multi Turn keeps one conversation ID across turns and rotates it on Clear or when switching chat modes.
+  - Added a `Conv:` status pill showing the active conversation ID (click to copy the full ID) so demos can correlate app traffic with the AI Guard conversation viewer.
+
 - `v1.5.37`
   - Sending a prompt no longer auto-scrolls the page down to the Code Path Viewer. The replay panel scrolls into view only when you navigate the replay yourself (Prev/Next Code Step, Reset Replay, or clicking a step panel).
 
@@ -11,9 +15,6 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
   - Fixed native Windows one-click updates for Python 3.11/3.12 installs by allowing untracked runtime files such as `.venv` while continuing to block tracked local edits.
   - Windows updates now install dependencies only after the running process releases its files, relaunch through a detached helper, and write restart diagnostics to `logs/update.log`.
   - Added a health-based browser wait and Windows CI coverage across Python 3.11, 3.12, and 3.13.
-
-- `v1.5.35`
-  - Code Path Viewer now builds the code path from the executed trace: it stays empty until a prompt is sent, then renders one numbered panel per replay step in execution order (request, AI Guard checks, agent loop, tools, response). Completed steps stay solid, the active step is highlighted with its code lines, and upcoming steps are dimmed. Panels are clickable to jump the replay, and stepping auto-scrolls the active panel into view.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
