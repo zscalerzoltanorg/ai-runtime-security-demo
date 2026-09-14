@@ -6218,6 +6218,7 @@ HTML = f"""<!doctype html>
       let codeViewMode = "auto";
       let codeReplaySteps = [];
       let codeReplayStepIndex = -1;
+      let codeReplayScrollPending = false;
       let lastCodeSections = [];
       let lastSentGuardrailsEnabled = false;
       let lastSelectedProvider = "ollama";
@@ -9383,6 +9384,7 @@ HTML = f"""<!doctype html>
       function moveCodeReplay(direction) {{
         if (!Array.isArray(codeReplaySteps) || !codeReplaySteps.length) return;
         codeReplayStepIndex = Math.max(0, Math.min(codeReplaySteps.length - 1, codeReplayStepIndex + direction));
+        codeReplayScrollPending = true;
         renderCodeViewer();
       }}
 
@@ -9392,6 +9394,7 @@ HTML = f"""<!doctype html>
         }} else {{
           codeReplayStepIndex = 0;
         }}
+        codeReplayScrollPending = true;
         renderCodeViewer();
       }}
 
@@ -12914,6 +12917,7 @@ HTML = f"""<!doctype html>
             </div>
           `;
           updateCodeReplayControls();
+          codeReplayScrollPending = false;
           return;
         }}
         const activeIndex = Math.max(0, Math.min(codeReplaySteps.length - 1, codeReplayStepIndex));
@@ -12922,9 +12926,12 @@ HTML = f"""<!doctype html>
           return renderCodeBlock(section, step, idx, activeIndex);
         }}).join("");
         updateCodeReplayControls();
-        const activePanel = codePanelsEl.querySelector(".code-panel.code-active");
-        if (activePanel && typeof activePanel.scrollIntoView === "function") {{
-          activePanel.scrollIntoView({{ block: "nearest", behavior: "smooth" }});
+        if (codeReplayScrollPending) {{
+          codeReplayScrollPending = false;
+          const activePanel = codePanelsEl.querySelector(".code-panel.code-active");
+          if (activePanel && typeof activePanel.scrollIntoView === "function") {{
+            activePanel.scrollIntoView({{ block: "nearest", behavior: "smooth" }});
+          }}
         }}
       }}
 
@@ -13879,6 +13886,7 @@ HTML = f"""<!doctype html>
         const idx = Number(panel.getAttribute("data-replay-step"));
         if (!Number.isFinite(idx) || idx === codeReplayStepIndex) return;
         codeReplayStepIndex = Math.max(0, Math.min(codeReplaySteps.length - 1, idx));
+        codeReplayScrollPending = true;
         renderCodeViewer();
       }});
       setupWizardBtnEl.addEventListener("click", () => openSetupWizardModal());

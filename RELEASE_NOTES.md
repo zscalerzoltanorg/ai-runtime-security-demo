@@ -4,6 +4,13 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.34`
+  - Redesigned the first-time Setup Wizard into a five-step guided flow (Basics, AI Guard, LLMs, Demo Flow, Finish) that saves app settings to `.env.local` and remembers per-browser demo defaults (provider, guard mode, agent mode, tools, chat/response modes) in local storage.
+  - Added a Code Replay stepper to the Code Path Viewer that walks through the selected trace (request, AI Guard checks, agent loop, tool/MCP events, response) and highlights the matching code panel and lines for each step.
+  - Provider dropdowns now flag unconfigured providers with a `(configure)` label and tooltip, and fall back to a configured provider instead of failing on a disabled selection.
+  - Added `?reset_local_state=1` URL parameter to clear per-browser demo defaults and wizard state.
+  - Default app port is now `5050` (matching `.env.example`); set `PORT` in `.env.local` to override.
+
 - `v1.5.33`
   - Fixed OpenAI streaming (Stream/SSE response modes) so PDF attachments are sent as native `type: file` content parts, matching standard-mode behavior. Previously streaming requests silently downgraded PDFs to metadata text.
 

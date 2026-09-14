@@ -4,6 +4,9 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 ## What's New (Recent)
 
+- `v1.5.37`
+  - Sending a prompt no longer auto-scrolls the page down to the Code Path Viewer. The replay panel scrolls into view only when you navigate the replay yourself (Prev/Next Code Step, Reset Replay, or clicking a step panel).
+
 - `v1.5.36`
   - Fixed native Windows one-click updates for Python 3.11/3.12 installs by allowing untracked runtime files such as `.venv` while continuing to block tracked local edits.
   - Windows updates now install dependencies only after the running process releases its files, relaunch through a detached helper, and write restart diagnostics to `logs/update.log`.
@@ -11,13 +14,6 @@ Local demo web app for testing LLM providers, Zscaler AI Guard (DAS/API + Proxy)
 
 - `v1.5.35`
   - Code Path Viewer now builds the code path from the executed trace: it stays empty until a prompt is sent, then renders one numbered panel per replay step in execution order (request, AI Guard checks, agent loop, tools, response). Completed steps stay solid, the active step is highlighted with its code lines, and upcoming steps are dimmed. Panels are clickable to jump the replay, and stepping auto-scrolls the active panel into view.
-
-- `v1.5.34`
-  - Redesigned the first-time Setup Wizard into a five-step guided flow (Basics, AI Guard, LLMs, Demo Flow, Finish) that saves app settings to `.env.local` and remembers per-browser demo defaults (provider, guard mode, agent mode, tools, chat/response modes) in local storage.
-  - Added a Code Replay stepper to the Code Path Viewer that walks through the selected trace (request, AI Guard checks, agent loop, tool/MCP events, response) and highlights the matching code panel and lines for each step.
-  - Provider dropdowns now flag unconfigured providers with a `(configure)` label and tooltip, and fall back to a configured provider instead of failing on a disabled selection.
-  - Added `?reset_local_state=1` URL parameter to clear per-browser demo defaults and wizard state.
-  - Default app port is now `5050` (matching `.env.example`); set `PORT` in `.env.local` to override.
 
 Older release notes live in [RELEASE_NOTES.md](RELEASE_NOTES.md). Keep this README section to the latest three versions so the project overview stays easy to scan.
 
