@@ -4,6 +4,11 @@ Historical release notes for AI Runtime Security Demo. The README keeps only the
 
 ## Historical Releases
 
+- `v1.5.36`
+  - Fixed native Windows one-click updates for Python 3.11/3.12 installs by allowing untracked runtime files such as `.venv` while continuing to block tracked local edits.
+  - Windows updates now install dependencies only after the running process releases its files, relaunch through a detached helper, and write restart diagnostics to `logs/update.log`.
+  - Added a health-based browser wait and Windows CI coverage across Python 3.11, 3.12, and 3.13.
+
 - `v1.5.35`
   - Code Path Viewer now builds the code path from the executed trace: it stays empty until a prompt is sent, then renders one numbered panel per replay step in execution order (request, AI Guard checks, agent loop, tools, response). Completed steps stay solid, the active step is highlighted with its code lines, and upcoming steps are dimmed. Panels are clickable to jump the replay, and stepping auto-scrolls the active panel into view.
 

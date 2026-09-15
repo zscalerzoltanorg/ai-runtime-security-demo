@@ -4979,6 +4979,14 @@ HTML = f"""<!doctype html>
               </span>
               <input id="zscalerDasModeInput" type="hidden" value="resolve" />
             </div>
+            <div id="zscalerRedactionWrap" class="mode-toggle disabled" title="Apply AI Guard's anonymized rewrite to the provider request and the response shown to you.">
+              <span class="mode-toggle-label">Redaction</span>
+              <div class="mode-toggle-buttons">
+                <button id="zscalerRedactionOffBtn" class="mode-toggle-btn" type="button">Off</button>
+                <button id="zscalerRedactionOnBtn" class="mode-toggle-btn active" type="button">On</button>
+              </div>
+              <input id="zscalerRedactionToggle" type="checkbox" aria-label="Toggle AI Guard redaction" checked style="display:none;" />
+            </div>
                 <span id="status" class="status">Idle</span>
                 <span id="zscalerPolicyWarning" class="status warn" style="display:none;"></span>
               </div>
@@ -5850,6 +5858,10 @@ HTML = f"""<!doctype html>
       const zscalerDasModeInputEl = document.getElementById("zscalerDasModeInput");
       const zscalerPolicyIdWrapEl = document.getElementById("zscalerPolicyIdWrap");
       const zscalerPolicyIdInputEl = document.getElementById("zscalerPolicyIdInput");
+      const zscalerRedactionWrapEl = document.getElementById("zscalerRedactionWrap");
+      const zscalerRedactionOffBtnEl = document.getElementById("zscalerRedactionOffBtn");
+      const zscalerRedactionOnBtnEl = document.getElementById("zscalerRedactionOnBtn");
+      const zscalerRedactionToggleEl = document.getElementById("zscalerRedactionToggle");
       const demoPathHintEl = document.getElementById("demoPathHint");
       const demoUserSelectEl = document.getElementById("demoUserSelect");
       const providerSelectEl = document.getElementById("providerSelect");
@@ -5951,6 +5963,7 @@ HTML = f"""<!doctype html>
       const agentModeOffBtnEl = document.getElementById("agentModeOffBtn");
       const SESSION_DAS_MODE_KEY = "zscalerDasMode";
       const SESSION_POLICY_ID_KEY = "zscalerPolicyId";
+      const SESSION_REDACTION_KEY = "zscalerApplyRedaction";
       const agentModeAgenticBtnEl = document.getElementById("agentModeAgenticBtn");
       const agentModeMultiBtnEl = document.getElementById("agentModeMultiBtn");
       const agenticToggleEl = document.getElementById("agenticToggle");
@@ -7169,6 +7182,7 @@ HTML = f"""<!doctype html>
           "UPDATE_BRANCH_NAME",
           "ZS_GUARDRAILS_DAS_MODE",
           "ZS_GUARDRAILS_POLICY_ID",
+          "ZS_GUARDRAILS_APPLY_MASKED_CONTENT",
         ]);
         const nonThemeChangedKeys = changedKeys.filter((k) => !noRestartKeys.has(String(k)));
         settingsSaveBtnEl.disabled = true;
@@ -7645,6 +7659,20 @@ HTML = f"""<!doctype html>
         if (policyEnabled) {{
           zscalerPolicyIdInputEl.value = String(zscalerPolicyIdInputEl.value || "").replace(/[^0-9]/g, "").slice(0, 4);
         }}
+        // Redaction can only be applied by the app in API/DAS mode. In Proxy mode
+        // the rewrite happens inside the proxy, so the control is not relevant.
+        const redactionEnabled = dasEnabled;
+        zscalerRedactionWrapEl.classList.toggle("disabled", !redactionEnabled);
+        zscalerRedactionOffBtnEl.disabled = !redactionEnabled;
+        zscalerRedactionOnBtnEl.disabled = !redactionEnabled;
+        zscalerRedactionWrapEl.title = !guardrailsOn
+          ? "Enable Zscaler AI Guard first."
+          : (proxyOn
+            ? "Redaction is applied inline by AI Guard Proxy Mode, so the app has nothing to apply. Switch to API/DAS to control it here."
+            : "On = substitute AI Guard's anonymized entities into the provider request and the response shown to you. Off = inspect only, send the original.");
+        const redactionOn = !!zscalerRedactionToggleEl.checked;
+        zscalerRedactionOffBtnEl.classList.toggle("active", !redactionOn);
+        zscalerRedactionOnBtnEl.classList.toggle("active", redactionOn);
       }}
 
       function updateDemoPathHint() {{
@@ -7688,7 +7716,16 @@ HTML = f"""<!doctype html>
           details.push(`Topology: ${{topologyText}}`);
         }}
         if (guardOn) {{
-          details.push(proxyOn ? "Guardrails are inline through proxy mode" : "Guardrails check prompt/response through API/DAS");
+          if (proxyOn) {{
+            details.push("Guardrails are inline through proxy mode");
+          }} else {{
+            const redactOn = !!zscalerRedactionToggleEl?.checked;
+            details.push(
+              redactOn
+                ? "Guardrails check prompt/response through API/DAS, then AI Guard's anonymized entities replace the originals before the provider sees them"
+                : "Guardrails check prompt/response through API/DAS (redaction off: originals are sent unchanged)"
+            );
+          }}
         }} else {{
           details.push("Guardrails are off");
         }}
@@ -11142,7 +11179,20 @@ HTML = f"""<!doctype html>
             summary.push("Proxy path completed without a blocking action.");
           }}
         }} else {{
-          summary.push("API/DAS mode ran AI Guard checks out-of-band while provider request/response continued through app flow.");
+          const redaction = guardrails.redaction && typeof guardrails.redaction === "object" ? guardrails.redaction : {{}};
+          const redactionApplied = redaction.applied && typeof redaction.applied === "object" ? redaction.applied : {{}};
+          const redactedStages = Object.keys(redactionApplied);
+          if (redactedStages.length) {{
+            const parts = redactedStages.map((k) => {{
+              const n = Number(redactionApplied[k]?.entities || 0);
+              return `${{k}} (${{n}} ${{n === 1 ? "entity" : "entities"}})`;
+            }});
+            summary.push(`API/DAS mode ran AI Guard checks out-of-band and applied AI Guard's anonymized entities at ${{parts.join(" and ")}} before the content moved on.`);
+          }} else if (redaction.enabled) {{
+            summary.push("API/DAS mode ran AI Guard checks out-of-band. Redaction was enabled but no entities were returned to substitute, so content continued unchanged.");
+          }} else {{
+            summary.push("API/DAS mode ran AI Guard checks out-of-band while provider request/response continued through app flow unchanged (redaction off).");
+          }}
           if (blocked && blockedStage) {{
             summary.push(`AI Guard flagged a block at stage ${{blockedStage}} in DAS/API evaluation.`);
           }}
@@ -11381,6 +11431,7 @@ HTML = f"""<!doctype html>
           guardrails_enabled: !!guardrailsToggleEl.checked,
           zscaler_proxy_mode: !!zscalerProxyModeToggleEl.checked,
           zscaler_das_mode: currentZscalerDasMode(),
+          zscaler_apply_redaction: !!zscalerRedactionToggleEl?.checked,
           zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
           chat_mode: currentChatMode(),
           agent_mode: currentAgentMode(),
@@ -11416,6 +11467,9 @@ HTML = f"""<!doctype html>
           if (defaults.zscaler_das_mode) setZscalerDasMode(defaults.zscaler_das_mode);
           if (zscalerPolicyIdInputEl && defaults.zscaler_policy_id !== undefined) {{
             zscalerPolicyIdInputEl.value = String(defaults.zscaler_policy_id || "").replace(/[^0-9]/g, "").slice(0, 4);
+          }}
+          if (zscalerRedactionToggleEl && defaults.zscaler_apply_redaction !== undefined) {{
+            zscalerRedactionToggleEl.checked = !!defaults.zscaler_apply_redaction;
           }}
           setAgentMode(defaults.agent_mode || "off");
           toolsToggleEl.checked = !!defaults.tools_enabled;
@@ -11458,7 +11512,7 @@ HTML = f"""<!doctype html>
             SETTINGS_CUSTOM_MODELS_LS_KEY,
             SETTINGS_GROUP_COLLAPSE_LS_KEY
           ].forEach((key) => window.localStorage.removeItem(key));
-          [SESSION_DAS_MODE_KEY, SESSION_POLICY_ID_KEY].forEach((key) => window.sessionStorage.removeItem(key));
+          [SESSION_DAS_MODE_KEY, SESSION_POLICY_ID_KEY, SESSION_REDACTION_KEY].forEach((key) => window.sessionStorage.removeItem(key));
           window.history.replaceState({{}}, "", `${{window.location.origin}}${{window.location.pathname}}`);
           setTimeout(() => window.location.reload(), 50);
           return true;
@@ -11919,6 +11973,7 @@ HTML = f"""<!doctype html>
               conversation_id: selected.conversationId || clientConversationId,
               demo_user: selected.demoUser || currentDemoUser() || "",
               zscaler_das_mode: currentZscalerDasMode(),
+              zscaler_apply_redaction: !!zscalerRedactionToggleEl?.checked,
               zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
             }}),
           }});
@@ -11977,6 +12032,7 @@ HTML = f"""<!doctype html>
           guardrails_enabled: guardrailsToggleEl.checked,
           zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
           zscaler_das_mode: currentZscalerDasMode(),
+          zscaler_apply_redaction: !!zscalerRedactionToggleEl?.checked,
           zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
           agentic_enabled: agenticToggleEl.checked,
           tools_enabled: toolsToggleEl.checked,
@@ -12015,6 +12071,7 @@ HTML = f"""<!doctype html>
           messages: undefined,
           conversation_id: clientConversationId,
           zscaler_das_mode: currentZscalerDasMode(),
+          zscaler_apply_redaction: !!zscalerRedactionToggleEl?.checked,
           zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
           agentic_enabled: agenticToggleEl.checked,
           tools_enabled: toolsToggleEl.checked,
@@ -12388,6 +12445,7 @@ HTML = f"""<!doctype html>
                   guardrails_enabled: guardrailsToggleEl.checked,
                   zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
                   zscaler_das_mode: currentZscalerDasMode(),
+                  zscaler_apply_redaction: !!zscalerRedactionToggleEl?.checked,
                   zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
                   agentic_enabled: false,
                   tools_enabled: false,
@@ -13473,6 +13531,7 @@ HTML = f"""<!doctype html>
             guardrails_enabled: guardrailsToggleEl.checked,
             zscaler_proxy_mode: zscalerProxyModeToggleEl.checked,
             zscaler_das_mode: currentZscalerDasMode(),
+            zscaler_apply_redaction: !!zscalerRedactionToggleEl?.checked,
             zscaler_policy_id: String(zscalerPolicyIdInputEl?.value || ""),
             agentic_enabled: agenticToggleEl.checked,
             tools_enabled: toolsToggleEl.checked,
@@ -14141,6 +14200,24 @@ HTML = f"""<!doctype html>
         renderCodeViewer();
         maybeShowPlannedFlowPreview();
       }});
+      function setZscalerRedaction(on) {{
+        const next = !!on;
+        zscalerRedactionToggleEl.checked = next;
+        try {{
+          window.sessionStorage.setItem(SESSION_REDACTION_KEY, next ? "1" : "0");
+        }} catch {{}}
+        syncZscalerProxyModeState();
+        renderCodeViewer();
+        maybeShowPlannedFlowPreview();
+      }}
+      zscalerRedactionOnBtnEl.addEventListener("click", () => {{
+        if (zscalerRedactionOnBtnEl.disabled) return;
+        setZscalerRedaction(true);
+      }});
+      zscalerRedactionOffBtnEl.addEventListener("click", () => {{
+        if (zscalerRedactionOffBtnEl.disabled) return;
+        setZscalerRedaction(false);
+      }});
       zscalerPolicyIdInputEl.addEventListener("input", () => {{
         zscalerPolicyIdInputEl.value = String(zscalerPolicyIdInputEl.value || "").replace(/[^0-9]/g, "").slice(0, 4);
         try {{
@@ -14396,6 +14473,10 @@ HTML = f"""<!doctype html>
         const savedPolicyId = window.sessionStorage.getItem(SESSION_POLICY_ID_KEY);
         if (savedPolicyId && zscalerPolicyIdInputEl) {{
           zscalerPolicyIdInputEl.value = String(savedPolicyId).replace(/[^0-9]/g, "").slice(0, 4);
+        }}
+        const savedRedaction = window.sessionStorage.getItem(SESSION_REDACTION_KEY);
+        if (savedRedaction !== null && zscalerRedactionToggleEl) {{
+          zscalerRedactionToggleEl.checked = savedRedaction !== "0";
         }}
       }} catch {{}}
       if (!resetBrowserLocalStateRequested) applyPersistedUiDefaults();
@@ -15164,27 +15245,183 @@ def _normalize_attachments(items: object) -> list[dict[str, object]]:
     return out
 
 
-def _attachment_guard_text_suffix(attachments: list[dict[str, object]]) -> str:
-    rows: list[str] = []
-    for att in attachments:
+def _attachment_guard_text_rows(
+    attachments: list[dict[str, object]],
+) -> list[tuple[str, int | None]]:
+    """Build the guard-visible rows for attachments.
+
+    Returns (row_text, attachment_index_or_None) pairs. The index is set only for
+    rows whose body is the attachment's own `text`, so callers can map AI Guard
+    entity offsets back onto that text.
+    """
+    rows: list[tuple[str, int | None]] = []
+    for idx, att in enumerate(attachments):
         kind = str(att.get("kind") or "").strip().lower()
         name = str(att.get("name") or "attachment").strip()
         if kind == "text":
             text = str(att.get("text") or "")
             if text:
-                rows.append(f"[Text attachment: {name}]\n{text}")
+                rows.append((f"[Text attachment: {name}]\n{text}", idx))
             continue
         if kind == "file":
             mime = str(att.get("mime") or "application/octet-stream").strip()
             size = _attachment_size(att.get("size"))
             note = str(att.get("note") or "File content was not decoded by this demo path.").strip()
-            rows.append(f"[File attachment: {name}; MIME: {mime}; Size: {size} bytes]\n{note}")
-    return ("\n\n" + "\n\n".join(rows)) if rows else ""
+            rows.append((f"[File attachment: {name}; MIME: {mime}; Size: {size} bytes]\n{note}", None))
+    return rows
+
+
+def _attachment_guard_text_suffix(attachments: list[dict[str, object]]) -> str:
+    rows = _attachment_guard_text_rows(attachments)
+    return ("\n\n" + "\n\n".join(row for row, _ in rows)) if rows else ""
+
+
+def _attachment_text_regions(
+    prompt: str, attachments: list[dict[str, object]]
+) -> list[tuple[int, int, int]]:
+    """Locate each text attachment's body inside the string submitted to AI Guard.
+
+    Mirrors _attachment_guard_text_suffix offset-for-offset and returns
+    (attachment_index, text_start, text_end) triples relative to
+    `prompt + suffix`.
+    """
+    rows = _attachment_guard_text_rows(attachments)
+    if not rows:
+        return []
+    regions: list[tuple[int, int, int]] = []
+    pos = len(prompt) + 2  # leading "\n\n" before the first row
+    for row_idx, (row, att_idx) in enumerate(rows):
+        if row_idx > 0:
+            pos += 2  # "\n\n" between rows
+        if att_idx is not None:
+            header, _, body = row.partition("\n")
+            body_start = pos + len(header) + 1
+            regions.append((att_idx, body_start, body_start + len(body)))
+        pos += len(row)
+    return regions
+
+
+def _attachments_with_guard_redaction(
+    attachments: list[dict[str, object]],
+    prompt: str,
+    body: object,
+) -> tuple[list[dict[str, object]], int]:
+    """Apply AI Guard entity offsets to each text attachment's own text.
+
+    The demo inlines text attachments into the provider payload, so redacting the
+    prompt alone would still send the attachment's entities in the clear. Offsets
+    are shifted into each attachment's local coordinates before being applied.
+    """
+    if not attachments:
+        return attachments, 0
+    regions = _attachment_text_regions(prompt, attachments)
+    if not regions:
+        return attachments, 0
+
+    spans = ai_guard._detected_entity_spans(body)  # noqa: SLF001
+    if not spans:
+        return attachments, 0
+
+    out = [dict(att) if isinstance(att, dict) else att for att in attachments]
+    total = 0
+    for att_idx, text_start, text_end in regions:
+        local = [
+            {**span, "start": span["start"] - text_start, "end": span["end"] - text_start}
+            for span in spans
+            if span["start"] >= text_start and span["end"] <= text_end
+        ]
+        if not local:
+            continue
+        target = out[att_idx]
+        if not isinstance(target, dict):
+            continue
+        original = str(target.get("text") or "")
+        redacted, applied, _deferred = ai_guard.apply_entity_redaction(
+            original,
+            {"detectorResponses": {"attachment": {"details": {"detectedEntities": [
+                {
+                    "type": span["type"],
+                    "start": span["start"],
+                    "end": span["end"],
+                    "anonymizedEntityText": span["replacement"],
+                }
+                for span in local
+            ]}}}},
+        )
+        if applied:
+            target["text"] = redacted
+            total += len(applied)
+    return out, total
 
 
 def _prompt_with_guard_visible_attachments(prompt: str, attachments: list[dict[str, object]]) -> str:
     suffix = _attachment_guard_text_suffix(attachments)
     return f"{prompt}{suffix}" if suffix else prompt
+
+
+def _messages_with_redacted_prompt(
+    messages: list[dict[str, object]],
+    redacted_prompt: str,
+    redacted_attachments: list[dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    """Copy `messages` with the latest user message (and its attachments) redacted.
+
+    Text attachments are inlined into the provider payload by the provider
+    adapters, so their text is redacted too -- see
+    _attachments_with_guard_redaction.
+    """
+    if not isinstance(messages, list) or not messages:
+        return messages
+    out: list[dict[str, object]] = [
+        dict(item) if isinstance(item, dict) else item for item in messages
+    ]
+    for idx in range(len(out) - 1, -1, -1):
+        item = out[idx]
+        if isinstance(item, dict) and str(item.get("role") or "").strip().lower() == "user":
+            item["content"] = redacted_prompt
+            if redacted_attachments is not None and item.get("attachments"):
+                item["attachments"] = redacted_attachments
+            break
+    return out
+
+
+def _apply_guard_redaction(
+    meta: dict,
+    *,
+    stage: str,
+    target: str,
+    submitted: str,
+    enabled: bool,
+    attachment_count: int = 0,
+) -> tuple[str, dict | None, dict | None]:
+    """Apply AI Guard's anonymized rewrite to `target` using detections in `meta`.
+
+    Returns (text, trace_step_or_None, summary_or_None). Only meaningful in
+    API/DAS mode -- in Proxy mode the proxy owns the rewrite and returns no
+    detections on the success path.
+    """
+    if not enabled:
+        return target, None, None
+    body = (meta.get("trace_step") or {}).get("response", {}).get("body")
+    redacted, info = ai_guard.redact_content(
+        target,
+        body,
+        max_offset=len(target),
+        submitted_length=len(submitted),
+    )
+    if info.get("method") == "none" and not attachment_count:
+        return target, None, None
+    step = ai_guard.redaction_trace_step(
+        stage,
+        info,
+        before_length=len(target),
+        after_length=len(redacted),
+        attachment_entities=attachment_count,
+    )
+    summary = ai_guard.redaction_summary_entry(info)
+    if attachment_count:
+        summary["attachment_entities"] = attachment_count
+    return redacted, step, summary
 
 
 def _normalize_client_messages(messages: object) -> list[dict[str, object]]:
@@ -15376,6 +15613,7 @@ SETTINGS_SCHEMA = [
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_URL", "label": "AI Guard DAS/API URL", "secret": False, "hint": "Base URL for AI Guard DAS/API endpoint"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_API_KEY", "label": "AI Guard DAS/API Key", "secret": True, "hint": "API key/token used for DAS/API checks"},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_TIMEOUT_SECONDS", "label": "AI Guard Timeout (s)", "secret": False, "hint": "Backend timeout for a single DAS/API call"},
+    {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_APPLY_MASKED_CONTENT", "label": "Apply Redaction (default)", "secret": False, "hint": "true = substitute AI Guard's anonymized entities into the provider request and response. Default for the Redaction toggle; API/DAS mode only."},
     {"group": "Zscaler AI Guard DAS/API", "key": "ZS_GUARDRAILS_CONVERSATION_ID_HEADER_NAME", "label": "Conversation ID Header Name", "secret": False, "hint": "Optional header name forwarded to AI Guard", "hidden_in_form": True},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_BASE_URL", "label": "Proxy Base URL", "secret": False, "hint": "Default https://proxy.zseclipse.net"},
     {"group": "Zscaler AI Guard Proxy", "subgroup": "Core Config", "key": "ZS_PROXY_API_KEY_HEADER_NAME", "label": "Proxy API Key Header", "secret": False, "hint": "Always X-ApiKey", "hidden_in_form": True},
@@ -15434,6 +15672,7 @@ SETTINGS_DEFAULT_VALUES = {
     "AZURE_AI_FOUNDRY_BASE_URL": "https://example.inference.ai.azure.com/v1",
     "ZS_GUARDRAILS_URL": "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy",
     "ZS_GUARDRAILS_DAS_MODE": "resolve",
+    "ZS_GUARDRAILS_APPLY_MASKED_CONTENT": "true",
     "ZS_GUARDRAILS_POLICY_ID": "",
     "ZS_PROXY_BASE_URL": "https://proxy.zseclipse.net",
     "BRAVE_SEARCH_BASE_URL": "https://api.search.brave.com",
@@ -16718,6 +16957,13 @@ class Handler(BaseHTTPRequestHandler):
         zscaler_policy_id = zscaler_policy_id_raw if zscaler_policy_id_raw.isdigit() else ""
         if (not guardrails_enabled) or zscaler_proxy_mode or zscaler_das_mode != "execute":
             zscaler_policy_id = ""
+        # Redaction is applicable in API/DAS mode only: in Proxy mode the rewrite
+        # happens inside the proxy and the app never sees the detections.
+        zscaler_apply_redaction = (
+            ai_guard.redaction_enabled(data.get("zscaler_apply_redaction"))
+            and guardrails_enabled
+            and not zscaler_proxy_mode
+        )
         tools_enabled = bool(data.get("tools_enabled"))
         local_tasks_enabled = bool(data.get("local_tasks_enabled")) and tools_enabled
         tool_permission_profile = str(data.get("tool_permission_profile") or "standard").strip().lower().replace("-", "_")
@@ -17584,7 +17830,33 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(payload)
                     return
 
-                payload, status = _run_multi_agent_turn_exec(messages_for_provider)
+                redaction_report: dict = {}
+                redacted_attachments = request_attachments
+                attachment_entity_count = 0
+                if zscaler_apply_redaction and request_attachments:
+                    in_body_for_atts = (
+                        (in_meta.get("trace_step") or {}).get("response", {}).get("body")
+                    )
+                    redacted_attachments, attachment_entity_count = _attachments_with_guard_redaction(
+                        request_attachments, prompt, in_body_for_atts
+                    )
+                redacted_prompt, redaction_step, redaction_summary = _apply_guard_redaction(
+                    in_meta,
+                    stage="IN",
+                    target=prompt,
+                    submitted=guard_check_prompt,
+                    enabled=zscaler_apply_redaction,
+                    attachment_count=attachment_entity_count,
+                )
+                messages_for_run = messages_for_provider
+                if redaction_step:
+                    trace_steps.append(redaction_step)
+                    redaction_report["IN"] = redaction_summary
+                    messages_for_run = _messages_with_redacted_prompt(
+                        messages_for_provider, redacted_prompt, redacted_attachments
+                    )
+
+                payload, status = _run_multi_agent_turn_exec(messages_for_run)
                 agent_trace = payload.get("agent_trace", [])
                 payload_trace_steps = []
                 if isinstance(payload.get("trace"), dict):
@@ -17645,8 +17917,25 @@ class Handler(BaseHTTPRequestHandler):
                         "blocked": True,
                         "stage": "OUT",
                     }
-                elif guardrails_warnings:
-                    payload["guardrails"]["warnings"] = guardrails_warnings
+                else:
+                    redacted_out, out_redaction_step, out_redaction_summary = _apply_guard_redaction(
+                        out_meta,
+                        stage="OUT",
+                        target=final_text,
+                        submitted=final_text,
+                        enabled=zscaler_apply_redaction,
+                    )
+                    if out_redaction_step:
+                        trace_steps.append(out_redaction_step)
+                        payload["trace"] = {"steps": trace_steps}
+                        redaction_report["OUT"] = out_redaction_summary
+                        payload["response"] = redacted_out
+                    if guardrails_warnings:
+                        payload["guardrails"]["warnings"] = guardrails_warnings
+                payload["guardrails"]["redaction"] = {
+                    "enabled": zscaler_apply_redaction,
+                    "applied": redaction_report,
+                }
 
                 if chat_mode == "multi" and status == 200 and payload.get("response"):
                     payload["conversation"] = messages_for_provider + [
@@ -17770,7 +18059,33 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(payload)
                     return
 
-                payload, status = _run_agentic_turn_exec(messages_for_provider)
+                redaction_report: dict = {}
+                redacted_attachments = request_attachments
+                attachment_entity_count = 0
+                if zscaler_apply_redaction and request_attachments:
+                    in_body_for_atts = (
+                        (in_meta.get("trace_step") or {}).get("response", {}).get("body")
+                    )
+                    redacted_attachments, attachment_entity_count = _attachments_with_guard_redaction(
+                        request_attachments, prompt, in_body_for_atts
+                    )
+                redacted_prompt, redaction_step, redaction_summary = _apply_guard_redaction(
+                    in_meta,
+                    stage="IN",
+                    target=prompt,
+                    submitted=guard_check_prompt,
+                    enabled=zscaler_apply_redaction,
+                    attachment_count=attachment_entity_count,
+                )
+                messages_for_run = messages_for_provider
+                if redaction_step:
+                    trace_steps.append(redaction_step)
+                    redaction_report["IN"] = redaction_summary
+                    messages_for_run = _messages_with_redacted_prompt(
+                        messages_for_provider, redacted_prompt, redacted_attachments
+                    )
+
+                payload, status = _run_agentic_turn_exec(messages_for_run)
                 agent_trace = payload.get("agent_trace", [])
                 payload_trace_steps = []
                 if isinstance(payload.get("trace"), dict):
@@ -17830,8 +18145,25 @@ class Handler(BaseHTTPRequestHandler):
                         "blocked": True,
                         "stage": "OUT",
                     }
-                elif guardrails_warnings:
-                    payload["guardrails"]["warnings"] = guardrails_warnings
+                else:
+                    redacted_out, out_redaction_step, out_redaction_summary = _apply_guard_redaction(
+                        out_meta,
+                        stage="OUT",
+                        target=final_text,
+                        submitted=final_text,
+                        enabled=zscaler_apply_redaction,
+                    )
+                    if out_redaction_step:
+                        trace_steps.append(out_redaction_step)
+                        payload["trace"] = {"steps": trace_steps}
+                        redaction_report["OUT"] = out_redaction_summary
+                        payload["response"] = redacted_out
+                    if guardrails_warnings:
+                        payload["guardrails"]["warnings"] = guardrails_warnings
+                payload["guardrails"]["redaction"] = {
+                    "enabled": zscaler_apply_redaction,
+                    "applied": redaction_report,
+                }
 
                 if chat_mode == "multi" and status == 200 and payload.get("response"):
                     payload["conversation"] = messages_for_provider + [
@@ -17912,10 +18244,39 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(payload)
                 return
 
+            redacted_attachment_state: dict[str, object] = {
+                "attachments": request_attachments,
+                "count": 0,
+            }
+
+            def _redact_request_attachments(in_body: object) -> int:
+                if not request_attachments:
+                    return 0
+                atts, count = _attachments_with_guard_redaction(
+                    request_attachments, prompt, in_body
+                )
+                redacted_attachment_state["attachments"] = atts
+                redacted_attachment_state["count"] = count
+                return count
+
+            def _messages_for_redacted_run(redacted_prompt: str) -> list[dict]:
+                if redacted_prompt == prompt and not redacted_attachment_state["count"]:
+                    return messages_for_provider
+                return _messages_with_redacted_prompt(
+                    messages_for_provider,
+                    redacted_prompt,
+                    redacted_attachment_state["attachments"],
+                )
+
             try:
                 payload, status = ai_guard.guarded_chat(
                     prompt=guard_check_prompt,
-                    llm_call=lambda p: _provider_messages_call(messages_for_provider),
+                    redact_target=prompt,
+                    apply_redaction=zscaler_apply_redaction,
+                    llm_call=lambda p: _provider_messages_call(
+                        _messages_for_redacted_run(p)
+                    ),
+                    attachment_redactor=_redact_request_attachments,
                     conversation_id=conversation_id,
                     demo_user=demo_user,
                     zscaler_das_mode=zscaler_das_mode,

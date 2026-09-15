@@ -6,6 +6,7 @@ from urllib import error, request
 DEFAULT_ZS_GUARDRAILS_URL = "https://api.zseclipse.net/v1/detection/resolve-and-execute-policy"
 DEFAULT_ZS_GUARDRAILS_EXECUTE_URL = "https://api.zseclipse.net/v1/detection/execute-policy"
 DEMO_USER_HEADER_NAME = "X-Demo-User"
+DEFAULT_APPLY_MASKED_CONTENT = True
 DEFAULT_AI_GUARD_BLOCK_CONTACT_TEXT = (
     "If you believe this is incorrect or have an exception to make please contact "
     "helpdesk@mycompany.com or call our internal helpdesk at (555)555-5555."
@@ -47,6 +48,279 @@ def _api_direction(stage: str) -> str:
     if normalized in {"out", "output", "completion", "response"}:
         return "OUT"
     return normalized.upper() or "IN"
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def redaction_enabled(override: object = None) -> bool:
+    """Whether AI Guard entity redaction should be applied to provider traffic.
+
+    Only meaningful in API/DAS mode: the app holds the detection response and
+    builds the provider request itself. In Proxy mode the rewrite (if any)
+    happens inside the proxy, so there is nothing for the app to apply.
+    """
+    if override is not None:
+        return bool(override)
+    return _bool_env("ZS_GUARDRAILS_APPLY_MASKED_CONTENT", DEFAULT_APPLY_MASKED_CONTENT)
+
+
+def _detected_entity_spans(body: object) -> list[dict]:
+    """Flatten per-detector detectedEntities into offset spans.
+
+    Offsets are relative to the exact string that was submitted as `content`.
+    """
+    if not isinstance(body, dict):
+        return []
+    detector_responses = body.get("detectorResponses")
+    if not isinstance(detector_responses, dict):
+        return []
+
+    spans: list[dict] = []
+    for detector_name, details in detector_responses.items():
+        if not isinstance(details, dict):
+            continue
+        inner = details.get("details")
+        if not isinstance(inner, dict):
+            continue
+        entities = inner.get("detectedEntities")
+        if not isinstance(entities, list):
+            continue
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            try:
+                start = int(entity.get("start"))
+                end = int(entity.get("end"))
+            except (TypeError, ValueError):
+                continue
+            if start < 0 or end <= start:
+                continue
+            entity_type = str(entity.get("type") or "").strip() or str(detector_name)
+            replacement = str(entity.get("anonymizedEntityText") or "").strip()
+            if not replacement:
+                replacement = f"[{entity_type}]"
+            spans.append(
+                {
+                    "detector": str(detector_name),
+                    "type": entity_type,
+                    "start": start,
+                    "end": end,
+                    "replacement": replacement,
+                }
+            )
+    spans.sort(key=lambda span: (span["start"], span["end"]))
+    return spans
+
+
+def apply_entity_redaction(
+    content: str,
+    body: object,
+    *,
+    max_offset: int | None = None,
+) -> tuple[str, list[dict], list[dict]]:
+    """Replace detected entity spans in `content` with AI Guard's anonymized text.
+
+    `max_offset` bounds application to a prefix of the submitted content. The
+    demo submits `prompt + attachment text` for inspection but only the prompt
+    is the user message, so spans past the prompt are reported as deferred
+    instead of being applied at the wrong offsets.
+
+    Overlapping detections are resolved in favour of the widest span, so a
+    narrower match can never mask part of an entity and leave the rest exposed.
+
+    Returns (redacted_text, applied_spans, deferred_spans). Span metadata never
+    carries the matched text itself, only its length, so traces stay clean.
+    """
+    text = str(content or "")
+    spans = _detected_entity_spans(body)
+    if not text or not spans:
+        return text, [], []
+
+    limit = len(text) if max_offset is None else max(0, min(int(max_offset), len(text)))
+
+    def _meta(span: dict, **extra: object) -> dict:
+        return {
+            "detector": span["detector"],
+            "type": span["type"],
+            "start": span["start"],
+            "end": span["end"],
+            "replacement": span["replacement"],
+            "original_length": max(0, span["end"] - span["start"]),
+            **extra,
+        }
+
+    in_range: list[dict] = []
+    deferred: list[dict] = []
+    for span in spans:
+        if span["end"] > limit:
+            deferred.append(_meta(span, reason="outside_redactable_range"))
+        else:
+            in_range.append(span)
+
+    # Widest span wins, so no detection masks only part of an entity.
+    accepted: list[dict] = []
+    for span in sorted(in_range, key=lambda item: (-(item["end"] - item["start"]), item["start"])):
+        if any(span["start"] < kept["end"] and kept["start"] < span["end"] for kept in accepted):
+            deferred.append(_meta(span, reason="overlapping_span"))
+            continue
+        accepted.append(span)
+
+    # Right-to-left so that offsets not yet applied stay valid.
+    for span in sorted(accepted, key=lambda item: item["start"], reverse=True):
+        text = f"{text[:span['start']]}{span['replacement']}{text[span['end']:]}"
+
+    applied = [_meta(span) for span in sorted(accepted, key=lambda item: item["start"])]
+    deferred.sort(key=lambda item: (item["start"], item["end"]))
+    return text, applied, deferred
+
+
+def redact_content(
+    content: str,
+    body: object,
+    *,
+    max_offset: int | None = None,
+    submitted_length: int | None = None,
+) -> tuple[str, dict]:
+    """Apply AI Guard redaction to `content`, preferring precise entity offsets.
+
+    Falls back to the response-level `maskedContent` only when no usable offsets
+    were returned AND the inspected string was exactly `content`. `maskedContent`
+    covers prompt plus attachment text as a single blob, so using it when the
+    submitted string was longer would splice attachment text into the prompt.
+    Pass `submitted_length` (the length of the string sent as `content` to AI
+    Guard) whenever that differs from `content`.
+
+    Returns (text, info) where info["method"] is one of entity_offsets,
+    masked_content, or none.
+    """
+    original = str(content or "")
+    text, applied, deferred = apply_entity_redaction(original, body, max_offset=max_offset)
+    if applied:
+        return text, {
+            "method": "entity_offsets",
+            "applied": applied,
+            "deferred": deferred,
+            "entity_count": len(applied),
+        }
+
+    masked = body.get("maskedContent") if isinstance(body, dict) else None
+    inspected_exactly = submitted_length is None or int(submitted_length) == len(original)
+    if isinstance(masked, str) and masked and masked != original and inspected_exactly:
+        return masked, {
+            "method": "masked_content",
+            "applied": [],
+            "deferred": deferred,
+            "entity_count": 0,
+        }
+
+    return original, {
+        "method": "none",
+        "applied": [],
+        "deferred": deferred,
+        "entity_count": 0,
+    }
+
+
+def _redaction_type_counts(spans: list[dict]) -> dict:
+    counts: dict[str, int] = {}
+    for span in spans or []:
+        key = str(span.get("type") or "UNKNOWN")
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def redaction_summary_entry(info: dict) -> dict:
+    """Compact per-direction redaction summary for the response payload."""
+    applied = info.get("applied") if isinstance(info.get("applied"), list) else []
+    deferred = info.get("deferred") if isinstance(info.get("deferred"), list) else []
+    return {
+        "method": str(info.get("method") or "none"),
+        "entities": len(applied),
+        "deferred": len(deferred),
+        "types": _redaction_type_counts(applied),
+    }
+
+
+def redaction_trace_step(
+    stage: str,
+    info: dict,
+    *,
+    before_length: int,
+    after_length: int,
+    attachment_entities: int = 0,
+) -> dict:
+    """Trace step making the substitution visible in the demo UI."""
+    direction = _api_direction(stage)
+    applied = info.get("applied") if isinstance(info.get("applied"), list) else []
+    deferred = info.get("deferred") if isinstance(info.get("deferred"), list) else []
+    method = str(info.get("method") or "none")
+    target = "provider request" if direction == "IN" else "user-visible response"
+    notes: list[str] = []
+    if method == "masked_content":
+        notes.append(
+            "No usable entity offsets were returned; applied the response-level "
+            "maskedContent string instead."
+        )
+    if attachment_entities:
+        notes.append(
+            f"{attachment_entities} detection(s) inside text attachments were "
+            "redacted in the attachment body sent to the provider."
+        )
+    remaining = max(0, len(deferred) - int(attachment_entities))
+    if remaining:
+        notes.append(
+            f"{remaining} detection(s) fell outside the redactable range "
+            "(non-text attachment content or overlapping spans) and were left unchanged."
+        )
+    return {
+        # Name must start with "Zscaler" (so the UI does not mistake it for the
+        # provider step) but not "Zscaler AI Guard" (so it is not counted as a
+        # policy check in trace summaries).
+        "name": f"Zscaler Redaction ({direction})",
+        "request": {
+            "method": "LOCAL",
+            "url": "app://guardrails/apply-redaction",
+            "payload": {
+                "direction": direction,
+                "method": method,
+                "target": target,
+                "entities_applied": len(applied),
+                "entities_deferred": len(deferred),
+                "attachment_entities_applied": int(attachment_entities),
+                "entity_types": _redaction_type_counts(applied),
+            },
+        },
+        "response": {
+            "status": 200,
+            "body": {
+                "applied": method != "none" or bool(attachment_entities),
+                "method": method,
+                "content_length_before": int(before_length),
+                "content_length_after": int(after_length),
+                "entities": [
+                    {
+                        "detector": span.get("detector"),
+                        "type": span.get("type"),
+                        "start": span.get("start"),
+                        "end": span.get("end"),
+                        "replacement": span.get("replacement"),
+                        "original_length": span.get("original_length"),
+                    }
+                    for span in applied
+                ],
+                **({"notes": notes} if notes else {}),
+            },
+        },
+    }
 
 
 def _block_contact_text() -> str:
@@ -437,6 +711,9 @@ def guarded_chat(
     demo_user: str | None = None,
     zscaler_das_mode: str | None = None,
     zscaler_policy_id: int | str | None = None,
+    redact_target: str | None = None,
+    apply_redaction: object = None,
+    attachment_redactor=None,
 ) -> tuple[dict, int]:
     trace_steps: list[dict] = []
     effective_mode = _normalize_das_mode(zscaler_das_mode or _guardrails_config()[4])
@@ -484,7 +761,45 @@ def guarded_chat(
             200,
         )
 
-    llm_text, llm_meta = llm_call(prompt)
+    # API/DAS mode: the app builds the provider request, so it is the only place
+    # AI Guard's anonymized rewrite can actually be applied.
+    redact_on = redaction_enabled(apply_redaction)
+    redaction_report: dict = {}
+    provider_prompt = prompt if redact_target is None else redact_target
+    in_body = (in_meta.get("trace_step") or {}).get("response", {}).get("body")
+    if redact_on:
+        # Attachment bodies are inlined into the provider payload by the provider
+        # adapters, so they are redacted before the trace step is built in order
+        # to report a single accurate entity count.
+        attachment_count = 0
+        if attachment_redactor is not None:
+            try:
+                attachment_count = int(attachment_redactor(in_body) or 0)
+            except Exception:
+                attachment_count = 0
+        redacted_prompt, in_redaction = redact_content(
+            provider_prompt,
+            in_body,
+            max_offset=len(provider_prompt),
+            submitted_length=len(prompt),
+        )
+        if in_redaction.get("method") != "none" or attachment_count:
+            trace_steps.append(
+                redaction_trace_step(
+                    "IN",
+                    in_redaction,
+                    before_length=len(provider_prompt),
+                    after_length=len(redacted_prompt),
+                    attachment_entities=attachment_count,
+                )
+            )
+            summary = redaction_summary_entry(in_redaction)
+            if attachment_count:
+                summary["attachment_entities"] = attachment_count
+            redaction_report["IN"] = summary
+            provider_prompt = redacted_prompt
+
+    llm_text, llm_meta = llm_call(provider_prompt)
     trace_steps.append(llm_meta["trace_step"])
     if llm_text is None:
         return (
@@ -540,6 +855,26 @@ def guarded_chat(
             200,
         )
 
+    if redact_on:
+        out_body = (out_meta.get("trace_step") or {}).get("response", {}).get("body")
+        redacted_text, out_redaction = redact_content(
+            text,
+            out_body,
+            max_offset=len(text),
+            submitted_length=len(text),
+        )
+        if out_redaction.get("method") != "none":
+            trace_steps.append(
+                redaction_trace_step(
+                    "OUT",
+                    out_redaction,
+                    before_length=len(text),
+                    after_length=len(redacted_text),
+                )
+            )
+            redaction_report["OUT"] = redaction_summary_entry(out_redaction)
+            text = redacted_text
+
     return (
         {
             "response": text,
@@ -550,6 +885,10 @@ def guarded_chat(
                 "policy_id": effective_policy_id,
                 **({"warnings": warnings} if warnings else {}),
                 "blocked": False,
+                "redaction": {
+                    "enabled": redact_on,
+                    **({"applied": redaction_report} if redaction_report else {"applied": {}}),
+                },
             },
             "trace": {"steps": trace_steps},
         },
